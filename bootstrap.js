@@ -16,6 +16,7 @@ async function startup({ id, version, rootURI }) {
 		["content", "docflow", "./"]
 	]);
 	
+	Services.scriptloader.loadSubScript(rootURI + 'prompts.js');
 	Services.scriptloader.loadSubScript(rootURI + 'docflow.js');
 	DocFlow.init({ id, version, rootURI });
 	Services.scriptloader.loadSubScript(rootURI + 'markitdown.js');
@@ -28,7 +29,7 @@ async function startup({ id, version, rootURI }) {
 		id: "ocrflow-preferences",
 		pluginID: id,
 		src: "chrome://docflow/content/preferences.xhtml",
-		scripts: ["chrome://docflow/content/markitdown.js", "chrome://docflow/content/preferences.js"],
+		scripts: ["chrome://docflow/content/prompts.js", "chrome://docflow/content/markitdown.js", "chrome://docflow/content/preferences.js"],
 		label: "OCRFlow",
 		image: "chrome://docflow/content/icon48.png"
 	});

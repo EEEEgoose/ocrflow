@@ -14,7 +14,7 @@ function setup(texts=['A\n\nB']){
       const payload=JSON.parse(options.body),row={url,options,payload,text:payload.messages[1].content};calls.push(row);
       const content=await reply(row);return {ok:true,json:async()=>({choices:[{message:{content}}]})};
     }};
-  vm.createContext(context);for(const file of ['docflow.js','workflow.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
+  vm.createContext(context);for(const file of ['prompts.js','docflow.js','workflow.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
   const plugin=context.DocFlow;
   plugin.getLLMSettings=()=>({...settings});
   plugin.collectTranslateTasks=items=>items.map(source=>({mineruSource:source,parentItem:{id:source.id,libraryID:1,getField:()=>`Book ${source.id}`}}));

@@ -22,5 +22,3 @@ docflow-menu-ai-translate =
     .label = Translate Document
 docflow-menu-outline =
     .label = Generate Reader Outline
-docflow-menu-markdown-to-note =
-    .label = Convert Full Text to Note

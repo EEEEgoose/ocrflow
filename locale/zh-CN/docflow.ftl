@@ -22,5 +22,3 @@ docflow-menu-ai-translate =
     .label = 翻译文档
 docflow-menu-outline =
     .label = 生成阅读器大纲
-docflow-menu-markdown-to-note =
-    .label = 全文转为笔记

@@ -22,10 +22,7 @@ Object.assign(DocFlow, {
 				run: options => this.handleTranslateCommand(options), errorPrefix: "翻译失败" },
 			{ id: "docflow-generate-outline", label: "生成阅读器大纲", l10nID: "docflow-menu-outline",
 				getTasks: items => this.outline?.collectPDFs(items) || [],
-				run: ({ selectedItems }) => this.outline.enqueueSelected(selectedItems), errorPrefix: "大纲生成失败" },
-			{ id: this.MARKDOWN_NOTE_MENU_ID, label: "全文转为笔记", l10nID: "docflow-menu-markdown-to-note",
-				getTasks: items => this.collectMarkdownToNoteTasks(items),
-				run: options => this.handleMarkdownToNoteCommand(options), errorPrefix: "转笔记失败" }
+				run: ({ selectedItems }) => this.outline.enqueueSelected(selectedItems), errorPrefix: "大纲生成失败" }
 		];
 	},
 
@@ -173,7 +170,7 @@ Object.assign(DocFlow, {
 			if (!response.ok) throw new Error(`AI 接口请求失败 ${response.status}: ${(await response.text()).slice(0, 500)}`);
 			let data = await response.json();
 			let choice = data.choices?.[0];
-			if (choice?.finish_reason === "length") throw new Error("AI 输出被截断，请提高模型输出上限后重试。");
+			if (choice?.finish_reason === "length") throw this.aiOutputLimitError(payload, data);
 			let text = choice?.message?.content;
 			if (typeof text !== "string" || !text.trim()) throw new Error(data.error?.message || "AI 未返回文本。");
 			return text.trim();
@@ -298,12 +295,13 @@ Object.assign(DocFlow, {
 	getAIOutputBudget(settings) {
 		let params = settings.translateRequestParams || settings.summaryRequestParams || this.parseOptionalJSONObject(settings.summaryRequestJSON, "请求参数");
 		let longOutput = ["translate", "ocr"].includes(settings.workKind);
-		let cap = settings.workKind === "translate" ? 16384 : longOutput ? 8192 : 4096;
-		return Number(params.max_completion_tokens || params.max_tokens) || Math.min(cap, Math.floor((settings.contextWindow || 32768) / (longOutput ? 2 : 4)));
+		let cap = settings.workKind === "translate" ? 16384 : longOutput || settings.workKind === "summary" ? 8192 : 4096;
+		return Number(params.max_completion_tokens || params.max_tokens) || settings.outputTokens || Math.min(cap, Math.floor((settings.contextWindow || 32768) / (longOutput ? 2 : 4)));
 	},
 
 	getAIChunkBudget(settings) {
-		let overhead = Math.max(["metadata", "parent"].includes(settings.workKind) ? 8192 : 1024, this.estimateAITokens(settings.workPrompt || "") + 512);
+		let prompt = OCRFlowPrompts.get(settings.workKind, settings.workPrompt, settings.workKind === "translate" ? settings.translateLanguage : settings.summaryLanguage);
+		let overhead = Math.max(["metadata", "parent"].includes(settings.workKind) ? 8192 : 1024, this.estimateAITokens(prompt) + 512);
 		let budget = (settings.contextWindow || 32768) - this.getAIOutputBudget(settings) - overhead;
 		if (budget < 256) throw new Error("上下文窗口不足以容纳提示词和输出，请增大上下文窗口或减少输出参数。");
 		return budget;
@@ -358,8 +356,7 @@ Object.assign(DocFlow, {
 
 	async summarizeDocument(text, settings, signal, onStatus = () => {}) {
 		let language = settings.summaryLanguage || "中文";
-		let prompt = (settings.workPrompt || settings.summaryPrompt || "").replace(/\{\{language\}\}/g, () => language) ||
-			`请用${language}撰写学术总结，包含研究问题与背景、材料与方法、主要论证或发现、结论与贡献。忠实于原文，未提供的信息不编造。`;
+		let prompt = OCRFlowPrompts.get("summary", settings.workPrompt || settings.summaryPrompt, language);
 		let chunks = this.splitAIText(text, settings);
 		let level = 0;
 		while (chunks.length > 1) {
@@ -592,7 +589,7 @@ Object.assign(DocFlow, {
 			signal?.throwIfAborted();
 			options.onStatus?.({ phase: "AI 视觉 OCR", displayText: `识别第 ${page}/${total} 页` });
 			let markdown = await this.requestDocumentAI([
-				{ role: "system", content: settings.workPrompt || "你是文档 OCR 引擎。完整转录图片为 Markdown，保留原文语言、标题层级、表格和公式。不总结，不补写，不输出代码围栏。无法识别的文字用[无法识别]标记。" },
+				{ role: "system", content: OCRFlowPrompts.get("ocr", settings.workPrompt) },
 				{ role: "user", content: [{ type: "text", text: `请识别第 ${page} 页。` }, { type: "image_url", image_url: { url } }] }
 			], settings, signal);
 			pages[page - 1] = { page, text: markdown };

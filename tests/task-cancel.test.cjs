@@ -46,7 +46,7 @@ function fixture({mode = 'local-v1', lateSubmit = false, uploadPending = false, 
   };
   vm.createContext(context);
   assert.equal(vm.runInContext('typeof AbortController', context), 'undefined');
-  for (const file of ['docflow.js', 'workflow.js', 'outline.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
+  for (const file of ['prompts.js','docflow.js', 'workflow.js', 'outline.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
   const plugin = context.DocFlow;
   plugin.openParseQueueDialog = () => {};
   plugin.getSettings = () => ({apiMode: mode, apiBaseURL: base, apiToken: 'test-token', modelVersion: mode === 'local-v1' ? 'advanced' : 'vlm', pollIntervalMS: 5000, timeoutMS: 60000, localJobTimeoutMS: 0});

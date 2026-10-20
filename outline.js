@@ -106,13 +106,13 @@ var DocFlowOutline = {
 		let task = this.owner.parseQueue.find(row => row.kind === "outline" && row.attachment.id === attachment.id && row.state !== "completed");
 		if (task) {
 			if (["failed", "canceled"].includes(task.state)) {
-				task.state = "queued"; task.error = ""; task.force = force; task.settings = this.owner.getLLMSettings();
+				task.state = "queued"; task.error = ""; task.force = force; task.settings = this.owner.getLLMSettings("outline");
 			}
 			return task;
 		}
 		task = {
 			kind: "outline", id: this.owner.parseQueueNextID++, attachment, force,
-			settings: this.owner.getLLMSettings(), state: "queued", error: "", jobID: null,
+			settings: this.owner.getLLMSettings("outline"), state: "queued", error: "", jobID: null,
 			title: attachment.getField("title") || "PDF", detail: "等待生成阅读器大纲"
 		};
 		this.owner.parseQueue.push(task);
@@ -175,13 +175,18 @@ var DocFlowOutline = {
 		}
 	},
 
-	pageChunks(pages) {
+	pageChunks(pages, settings) {
 		let chunks = [], chunk = "";
+		let limit = settings?.workKind ? this.owner.getAIChunkBudget(settings) : 20000;
+		let size = value => settings?.workKind ? this.owner.estimateAITokens(value) : value.length;
 		for (let [index, text] of pages.entries()) {
 			if (!text.trim()) continue;
-			for (let start = 0; start < text.length; start += 19900) {
-				let block = `\n\n===== PDF 第 ${index + 1} 页 =====\n` + text.slice(start, start + 19900);
-				if (chunk.length + block.length > 20000 && chunk) { chunks.push(chunk); chunk = ""; }
+			let parts = settings?.workKind
+				? this.owner.splitAIText(text, { ...settings, contextWindow: settings.contextWindow - 100 }, limit - 100)
+				: Array.from({ length: Math.ceil(text.length / 19900) }, (_, i) => text.slice(i * 19900, (i + 1) * 19900));
+			for (let part of parts) {
+				let block = `\n\n===== PDF 第 ${index + 1} 页 =====\n` + part;
+				if (size(chunk + block) > limit && chunk) { chunks.push(chunk); chunk = ""; }
 				chunk += block;
 			}
 		}
@@ -243,22 +248,24 @@ var DocFlowOutline = {
 					data.pages = pages;
 				}
 			}
-			let chunks = this.pageChunks(data.pages);
+			settings = settings || this.owner.getLLMSettings("outline");
+			let chunks = this.pageChunks(data.pages, settings);
 			if (!chunks.length) throw new Error("没有可定位页码的文字。扫描 PDF 请重新使用 MinerU 解析后生成大纲。");
-			settings = settings || this.owner.getLLMSettings();
 			if (!settings.apiBaseURL || !settings.model) throw new Error("请在 MinerU 设置中填写 LLM API 地址和模型，用于生成大纲与章节摘要。");
-			let prompt = '你是文献结构分析助手。只输出 JSON：{"outline":[{"level":1,"title":"原文标题","label":"可选的中文标题","summary":"60字以内中文章节摘要","page":1}]}。提取真实章节层级，level 为1到6；title必须保留原文标题以便定位，label可以翻译为中文。page必须使用输入中的PDF页码，不是印刷页码。忽略目录页上的重复标题，仅返回当前文本部分包含的正文标题。';
+			let prompt = OCRFlowPrompts.get("outline", settings.workPrompt);
 			for (let [index, chunk] of chunks.entries()) {
 				signal?.throwIfAborted();
 				onStatus(`生成大纲：第 ${index + 1}/${chunks.length} 块`);
 				let payload = this.owner.mergeRequestPayload({model: settings.model, messages: [{role: "system", content: prompt}, {role: "user", content: chunk}]},
 					this.owner.parseOptionalJSONObject(settings.summaryRequestJSON, "大纲额外 JSON 参数"), ["model", "messages"]);
+				this.owner.applyAIContextBudget(payload, settings);
 				let response = await fetch(`${settings.apiBaseURL}/chat/completions`, {
 					method: "POST", headers: {"Content-Type": "application/json", ...(settings.apiKey ? {Authorization: `Bearer ${settings.apiKey}`} : {})},
 					body: JSON.stringify(payload), signal
 				});
 				if (!response.ok) throw new Error(`大纲 LLM 请求失败 ${response.status}: ${(await response.text()).slice(0, 300)}`);
 				let result = await response.json();
+				if (result.choices?.[0]?.finish_reason === "length") throw this.owner.aiOutputLimitError(payload, result);
 				outline.push(...this.parseAIOutline(result.choices?.[0]?.message?.content || ""));
 			}
 			this.locatePages(outline, data.pages, data.headings);

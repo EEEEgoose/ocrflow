@@ -2,15 +2,22 @@ name: Test and build
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -23,4 +30,31 @@ jobs:
       - name: Run tests
         run: node --test tests/*.test.cjs
       - name: Build XPI and source archive
-        run: python3 build.py
+        env:
+          RELEASE_BUILD: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        run: |
+          if [ "$RELEASE_BUILD" = "true" ]; then
+            base_version=$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')
+            version="$base_version.$GITHUB_RUN_NUMBER"
+            python3 build.py --version "$version"
+            echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          else
+            python3 build.py
+          fi
+      - name: Publish Release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="v$RELEASE_VERSION"
+          if gh release view "$tag" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/release-draft"; then
+            if [ "$(cat "$RUNNER_TEMP/release-draft")" = "false" ]; then
+              echo "Release $tag is already published."
+              exit 0
+            fi
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --title "OCRFlow $RELEASE_VERSION" --generate-notes --draft
+          fi
+          gh release upload "$tag" "dist/ocrflow-$RELEASE_VERSION.xpi" "dist/ocrflow-$RELEASE_VERSION-source.zip" dist/updates.json --clobber
+          gh release edit "$tag" --draft=false --latest

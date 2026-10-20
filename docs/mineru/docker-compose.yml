@@ -1,0 +1,65 @@
+services:
+  mineru-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mineru-gpu:4.0.10-progress
+    container_name: mineru-api
+
+    restart: unless-stopped
+
+    ports:
+      - "41835:8000"
+
+    environment:
+      MINERU_MODEL_SOURCE: local
+      MINERU_MODEL_SMALL_BACKEND: torch
+      MINERU_MODEL_VLM_ENGINE: vllm
+      MINERU_PROCESSING_WINDOW_SIZE: "8"
+
+    # 覆盖 vLLM 基础镜像自带的 ENTRYPOINT
+    entrypoint: ["mineru-kit"]
+
+    command:
+      - api-server
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tier
+      - standard
+      - --concurrency
+      - "1"
+
+    # vLLM / PyTorch 推荐
+    ipc: host
+
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
+      stack:
+        soft: 67108864
+        hard: 67108864
+
+    # 只使用第 1 张 GPU：宿主机 GPU 0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids:
+                - "0"
+              capabilities:
+                - gpu
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -f http://localhost:8000/v1/health || exit 1
+
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s

@@ -66,6 +66,10 @@
 .ocrflow-work-heading select { width: 100%; }
 .ocrflow-work-heading .mineru-help { overflow-wrap: anywhere; }
 .ocrflow-work .ocrflow-details { padding-bottom: 0; }
+.ocrflow-work > .mineru-grid { margin-top: 12px; }
+.ocrflow-prompt-reference { grid-column: 1 / -1; }
+.ocrflow-prompt-actions { grid-column: 2; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+@media (max-width: 600px) { .ocrflow-prompt-actions { grid-column: 1; } }
 @media (max-width: 600px) { .ocrflow-work-heading { grid-template-columns: minmax(0,1fr); } .ocrflow-model-test { grid-column: 1; } }
 ]]></html:style>
 	<html:div class="ocrflow-pane">
@@ -201,6 +205,8 @@
 				<html:input id="mineru-llm-model" type="text" placeholder="deepseek-chat" />
 				<html:label for="ocrflow-model-1-context">模型 1 上下文窗口</html:label>
 				<html:input id="ocrflow-model-1-context" type="text" placeholder="默认：32K，例如 128K 或 1M" />
+				<html:label for="ocrflow-model-1-max-output">模型 1 最大输出长度（tokens）</html:label>
+				<html:input id="ocrflow-model-1-max-output" type="text" placeholder="如 8K、16K 或 8192；留空使用工作默认值" />
 				<html:label for="ocrflow-model-1-concurrency">模型 1 并发请求数</html:label>
 				<html:input id="ocrflow-model-1-concurrency" type="number" min="1" max="8" step="1" placeholder="默认：1" />
 				<html:div class="ocrflow-model-test"><html:button id="ocrflow-model-1-test" type="button">测试连接</html:button><html:span id="ocrflow-model-1-status" role="status" aria-live="polite" class="ocrflow-status" /></html:div>
@@ -209,6 +215,8 @@
 				<html:input id="mineru-llm-model-2" type="text" placeholder="可选，留空不添加第二个模型" />
 				<html:label for="ocrflow-model-2-context">模型 2 上下文窗口</html:label>
 				<html:input id="ocrflow-model-2-context" type="text" placeholder="默认：32K，例如 128K 或 1M" />
+				<html:label for="ocrflow-model-2-max-output">模型 2 最大输出长度（tokens）</html:label>
+				<html:input id="ocrflow-model-2-max-output" type="text" placeholder="如 8K、16K 或 8192；留空使用工作默认值" />
 				<html:label for="ocrflow-model-2-concurrency">模型 2 并发请求数</html:label>
 				<html:input id="ocrflow-model-2-concurrency" type="number" min="1" max="8" step="1" placeholder="默认：1" />
 				<html:div class="ocrflow-model-test"><html:button id="ocrflow-model-2-test" type="button">测试连接</html:button><html:span id="ocrflow-model-2-status" role="status" aria-live="polite" class="ocrflow-status" /></html:div>
@@ -218,90 +226,38 @@
 				<html:button id="ocrflow-ai-save" type="button">保存</html:button>
 				<html:span id="ocrflow-ai-status" role="status" aria-live="polite" class="ocrflow-status" />
 			</html:div>
-			<html:p class="mineru-help ocrflow-action-help">保存当前服务商配置；两个模型分别设置上下文与并发，留空使用默认值。上下文直接填写 128K 或 1M（1K＝1024 tokens，1M＝1024K）。每个模型下的“测试连接”只测试该模型，使用当前填写内容，不自动保存。</html:p>
+			<html:p class="mineru-help ocrflow-action-help">保存当前服务商配置；两个模型分别设置上下文、最大输出长度与并发，留空使用默认值。最大输出长度填写 8K、16K 或整数 tokens；应小于上下文并符合模型实际能力。工作请求参数中的 max_tokens / max_completion_tokens 优先于此设置。上下文直接填写 128K 或 1M（1K＝1024 tokens，1M＝1024K）。每个模型下的“测试连接”只测试该模型，使用当前填写内容，不自动保存。</html:p>
 		</html:section>
 		<html:section class="ocrflow-section" aria-labelledby="ocrflow-work-heading">
-			<html:div class="ocrflow-section-heading"><html:h3 id="ocrflow-work-heading">工作模型配置</html:h3><html:span class="mineru-help">自定义项留空时，使用该工作的默认配置</html:span></html:div>
+			<html:div class="ocrflow-section-heading"><html:h3 id="ocrflow-work-heading">工作模型配置</html:h3><html:span class="mineru-help">内置提示词可直接编辑，支持恢复默认</html:span></html:div>
 			<html:div class="mineru-grid"><html:label for="ocrflow-work-default-model">默认模型</html:label><html:select id="ocrflow-work-default-model" /></html:div>
-			<html:div class="ocrflow-work">
+			<html:div class="ocrflow-work" id="ocrflow-work-parent">
 				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-parent-model">建立父条目</html:label><html:p class="mineru-help">根据文件名识别条目信息</html:p></html:div><html:div><html:select id="ocrflow-work-parent-model" /><html:p id="ocrflow-work-parent-actual" class="mineru-help" /></html:div></html:div>
-				<html:details class="ocrflow-details"><html:summary>Prompt 与请求参数</html:summary><html:div class="mineru-grid">
-					<html:label for="ocrflow-work-parent-prompt">Prompt</html:label>
-					<html:textarea id="ocrflow-work-parent-prompt" rows="4" placeholder="留空使用内置文件名识别规则" />
+				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
+					<html:label for="ocrflow-work-parent-prompt">提示词</html:label>
+					<html:textarea id="ocrflow-work-parent-prompt" rows="6" />
+					<html:div class="ocrflow-prompt-actions"><html:button id="ocrflow-work-parent-reset" type="button">恢复内置提示词</html:button><html:span class="mineru-help">修改后保存生效；清空并保存使用内置提示词。</html:span></html:div>
+					<html:details class="ocrflow-prompt-reference"><html:summary>查看内置提示词参考</html:summary><html:textarea id="ocrflow-work-parent-default" rows="6" readonly="readonly" /></html:details>
+					<html:label for="ocrflow-work-parent-format">固定输出格式</html:label><html:textarea id="ocrflow-work-parent-format" rows="4" readonly="readonly" />
 					<html:label for="ocrflow-work-parent-params">请求参数 JSON</html:label>
 					<html:textarea id="ocrflow-work-parent-params" rows="3" placeholder="留空使用默认参数，如 {&quot;temperature&quot;: 0.3}" />
 				</html:div></html:details>
 			</html:div>
-			<html:div class="ocrflow-work">
+			<html:div class="ocrflow-work" id="ocrflow-work-metadata">
 				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-metadata-model">补充父条目信息</html:label><html:p class="mineru-help">读取全文，含非中文书名翻译</html:p></html:div><html:div><html:select id="ocrflow-work-metadata-model" /><html:p id="ocrflow-work-metadata-actual" class="mineru-help" /></html:div></html:div>
-				<html:details class="ocrflow-details"><html:summary>Prompt 与请求参数</html:summary><html:div class="mineru-grid">
-					<html:label for="ocrflow-work-metadata-prompt">Prompt</html:label>
-					<html:textarea id="ocrflow-work-metadata-prompt" rows="4" placeholder="留空使用内置书目提取与中文书名翻译规则" />
+				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
+					<html:label for="ocrflow-work-metadata-prompt">提示词</html:label>
+					<html:textarea id="ocrflow-work-metadata-prompt" rows="6" />
+					<html:div class="ocrflow-prompt-actions"><html:button id="ocrflow-work-metadata-reset" type="button">恢复内置提示词</html:button><html:span class="mineru-help">修改后保存生效；清空并保存使用内置提示词。</html:span></html:div>
+					<html:details class="ocrflow-prompt-reference"><html:summary>查看内置提示词参考</html:summary><html:textarea id="ocrflow-work-metadata-default" rows="6" readonly="readonly" /></html:details>
+					<html:label for="ocrflow-work-metadata-format">固定输出格式</html:label><html:textarea id="ocrflow-work-metadata-format" rows="4" readonly="readonly" />
 					<html:label for="ocrflow-work-metadata-params">请求参数 JSON</html:label>
 					<html:textarea id="ocrflow-work-metadata-params" rows="3" placeholder="留空使用默认参数，如 {&quot;temperature&quot;: 0.3}" />
 				</html:div></html:details>
 			</html:div>
-			<html:div class="ocrflow-work">
+			<html:div class="ocrflow-work" id="ocrflow-work-summary">
 				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-summary-model">总结文档</html:label><html:p class="mineru-help">生成学术总结笔记</html:p></html:div><html:div><html:select id="ocrflow-work-summary-model" /><html:p id="ocrflow-work-summary-actual" class="mineru-help" /></html:div></html:div>
-				<html:details class="ocrflow-details"><html:summary>Prompt 与请求参数</html:summary><html:div class="mineru-grid">
-					<html:label for="mineru-summary-prompt">Prompt</html:label>
-					<html:textarea id="mineru-summary-prompt" rows="4" placeholder="留空使用内置学术总结规则；可使用 {{language}}" />
-					<html:label for="mineru-summary-request-json">请求参数 JSON</html:label>
-					<html:textarea id="mineru-summary-request-json" rows="3" placeholder="留空使用默认参数，如 {&quot;temperature&quot;: 0.3}" />
-				</html:div></html:details>
-			</html:div>
-			<html:div class="ocrflow-work">
-				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-ocr-model">AI 视觉 OCR</html:label><html:p class="mineru-help">仅用于 AI OCR；模型须支持图片</html:p></html:div><html:div><html:select id="ocrflow-work-ocr-model" /><html:p id="ocrflow-work-ocr-actual" class="mineru-help" /></html:div></html:div>
-				<html:details class="ocrflow-details"><html:summary>Prompt 与请求参数</html:summary><html:div class="mineru-grid">
-					<html:label for="ocrflow-work-ocr-prompt">Prompt</html:label>
-					<html:textarea id="ocrflow-work-ocr-prompt" rows="4" placeholder="留空使用内置 Markdown 转录规则" />
-					<html:label for="ocrflow-work-ocr-params">请求参数 JSON</html:label>
-					<html:textarea id="ocrflow-work-ocr-params" rows="3" placeholder="留空使用默认参数，如 {&quot;temperature&quot;: 0.3}" />
-				</html:div></html:details>
-			</html:div>
-			<html:div class="ocrflow-work">
-				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-translate-model">翻译文档</html:label><html:p class="mineru-help">翻译 Markdown 全文</html:p></html:div><html:div><html:select id="ocrflow-work-translate-model" /><html:p id="ocrflow-work-translate-actual" class="mineru-help" /></html:div></html:div>
-				<html:details class="ocrflow-details"><html:summary>Prompt 与请求参数</html:summary><html:div class="mineru-grid">
-					<html:label for="ocrflow-work-translate-prompt">Prompt</html:label>
-					<html:textarea id="ocrflow-work-translate-prompt" rows="4" placeholder="留空使用内置学术翻译规则；可使用 {{language}}" />
-					<html:label for="mineru-translate-request-json">请求参数 JSON</html:label>
-					<html:textarea id="mineru-translate-request-json" rows="3" placeholder="留空使用默认参数，如 {&quot;temperature&quot;: 0.3}" />
-				</html:div></html:details>
-			</html:div>
-			<html:p class="mineru-help">工作只单独设置 Prompt 和请求参数；上下文与并发统一读取所选模型的设置。文档依次处理，分段和 OCR 页面按模型并发请求；同一模型的父条目可批量建立。</html:p>
-		</html:section>
-		<html:section class="ocrflow-section" aria-labelledby="ocrflow-output-heading">
-			<html:div class="ocrflow-section-heading">
-				<html:h3 id="ocrflow-output-heading">全文保存</html:h3>
-				<html:span class="mineru-help">Markdown 始终保留</html:span>
-			</html:div>
-			<html:label class="ocrflow-check">
-				<html:input id="mineru-parseGenerateHTML" type="checkbox" />
-				<html:span>
-					<html:span>同时生成 HTML</html:span>
-					<html:small class="mineru-help">关闭后仅生成 Markdown；已有附件不自动转换。</html:small>
-				</html:span>
-			</html:label>
-			<html:div class="mineru-grid ocrflow-image-setting">
-				<html:label for="mineru-parseImageMode">HTML 图片保存方式</html:label>
-				<menulist id="mineru-parseImageMode" native="true">
-					<menupopup>
-						<menuitem label="独立 images 文件夹" value="folder" />
-						<menuitem label="Base64 内嵌（单文件）" value="inline" />
-					</menupopup>
-				</menulist>
-			</html:div>
-			<html:label class="ocrflow-check">
-				<html:input id="mineru-parseLinkSourcePDF" type="checkbox" />
-				<html:span>
-					<html:span>关联原文件与全文附件</html:span>
-					<html:small class="mineru-help">关闭后，可直接选中全文附件补充信息或总结。</html:small>
-				</html:span>
-			</html:label>
-		</html:section>
-		<html:details class="ocrflow-details">
-			<html:summary>总结、翻译与阅读器大纲</html:summary>
-			<html:div class="mineru-grid">
+				<html:div class="mineru-grid">
 				<html:label for="mineru-summary-language">总结语言</html:label>
 				<menulist id="mineru-summary-language" native="true">
 					<menupopup>
@@ -314,6 +270,31 @@
 						<menuitem label="Español" value="Español" />
 					</menupopup>
 				</menulist>
+				</html:div>
+				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
+					<html:label for="mineru-summary-prompt">提示词</html:label>
+					<html:textarea id="mineru-summary-prompt" rows="6" />
+					<html:div class="ocrflow-prompt-actions"><html:button id="ocrflow-work-summary-reset" type="button">恢复内置提示词</html:button><html:span class="mineru-help">修改后保存生效；清空并保存使用内置提示词。</html:span></html:div>
+					<html:details class="ocrflow-prompt-reference"><html:summary>查看内置提示词参考</html:summary><html:textarea id="ocrflow-work-summary-default" rows="6" readonly="readonly" /></html:details>
+					<html:label for="mineru-summary-request-json">请求参数 JSON</html:label>
+					<html:textarea id="mineru-summary-request-json" rows="3" placeholder="留空使用默认参数，如 {&quot;temperature&quot;: 0.3}" />
+				</html:div></html:details>
+				<html:p class="mineru-help">{{language}} 代表总结语言。输出截断时，可提高所选模型的最大输出长度（如 16K）；若请求参数 JSON 已指定 max_tokens / max_completion_tokens，则需修改该参数，并确认模型支持该输出上限；推理模型可能同时消耗推理与正文额度。分段整理仍会要求每段摘要不超过 1500 字。</html:p>
+			</html:div>
+			<html:div class="ocrflow-work" id="ocrflow-work-ocr">
+				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-ocr-model">AI 视觉 OCR</html:label><html:p class="mineru-help">仅用于 AI OCR；模型须支持图片</html:p></html:div><html:div><html:select id="ocrflow-work-ocr-model" /><html:p id="ocrflow-work-ocr-actual" class="mineru-help" /></html:div></html:div>
+				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
+					<html:label for="ocrflow-work-ocr-prompt">提示词</html:label>
+					<html:textarea id="ocrflow-work-ocr-prompt" rows="6" />
+					<html:div class="ocrflow-prompt-actions"><html:button id="ocrflow-work-ocr-reset" type="button">恢复内置提示词</html:button><html:span class="mineru-help">修改后保存生效；清空并保存使用内置提示词。</html:span></html:div>
+					<html:details class="ocrflow-prompt-reference"><html:summary>查看内置提示词参考</html:summary><html:textarea id="ocrflow-work-ocr-default" rows="6" readonly="readonly" /></html:details>
+					<html:label for="ocrflow-work-ocr-params">请求参数 JSON</html:label>
+					<html:textarea id="ocrflow-work-ocr-params" rows="3" placeholder="留空使用默认参数，如 {&quot;temperature&quot;: 0.3}" />
+				</html:div></html:details>
+			</html:div>
+			<html:div class="ocrflow-work" id="ocrflow-work-translate">
+				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-translate-model">翻译文档</html:label><html:p class="mineru-help">翻译 Markdown 全文</html:p></html:div><html:div><html:select id="ocrflow-work-translate-model" /><html:p id="ocrflow-work-translate-actual" class="mineru-help" /></html:div></html:div>
+				<html:div class="mineru-grid">
 				<html:label for="mineru-translateOutputFormat">翻译保存格式</html:label>
 				<menulist id="mineru-translateOutputFormat" native="true">
 					<menupopup>
@@ -344,17 +325,68 @@
 				<html:input id="mineru-translate-chunk-size" type="number" min="5000" max="60000" step="1000" />
 				<html:label for="mineru-translate-retry-count">翻译自动重试次数</html:label>
 				<html:input id="mineru-translate-retry-count" type="number" min="1" max="5" step="1" />
-				<html:label for="mineru-note-title-prefix">笔记标题前缀</html:label>
-				<html:input id="mineru-note-title-prefix" type="text" />
-				<html:label for="mineru-note-include-images">转化笔记时带图</html:label>
-				<html:input id="mineru-note-include-images" type="checkbox" />
+				</html:div>
+				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
+					<html:label for="ocrflow-work-translate-prompt">提示词</html:label>
+					<html:textarea id="ocrflow-work-translate-prompt" rows="6" />
+					<html:div class="ocrflow-prompt-actions"><html:button id="ocrflow-work-translate-reset" type="button">恢复内置提示词</html:button><html:span class="mineru-help">修改后保存生效；清空并保存使用内置提示词。</html:span></html:div>
+					<html:details class="ocrflow-prompt-reference"><html:summary>查看内置提示词参考</html:summary><html:textarea id="ocrflow-work-translate-default" rows="6" readonly="readonly" /></html:details>
+					<html:label for="mineru-translate-request-json">请求参数 JSON</html:label>
+					<html:textarea id="mineru-translate-request-json" rows="3" placeholder="留空使用默认参数，如 {&quot;temperature&quot;: 0.3}" />
+				</html:div></html:details>
+				<html:p class="mineru-help">{{language}} 代表翻译目标语言。分段字符数仍受模型上下文预算限制；双栏对照仅支持 HTML。含图片时只翻译文字，程序会追加分片 JSON 格式要求。</html:p>
+			</html:div>
+
+			<html:div class="ocrflow-work" id="ocrflow-work-outline">
+				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-outline-model">阅读器大纲</html:label><html:p class="mineru-help">PDF 书签优先，AI 补充目录和章节摘要</html:p></html:div><html:div><html:select id="ocrflow-work-outline-model" /><html:p id="ocrflow-work-outline-actual" class="mineru-help" /></html:div></html:div>
+				<html:div class="mineru-grid">
 				<html:label for="mineru-auto-outline">MinerU 解析完成后自动生成大纲</html:label>
 				<html:input id="mineru-auto-outline" type="checkbox" />
 				<html:label for="mineru-outline-use-ai">使用 LLM 生成目录和章节摘要</html:label>
 				<html:input id="mineru-outline-use-ai" type="checkbox" />
+				</html:div>
+				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
+					<html:label for="ocrflow-work-outline-prompt">提示词</html:label>
+					<html:textarea id="ocrflow-work-outline-prompt" rows="6" />
+					<html:div class="ocrflow-prompt-actions"><html:button id="ocrflow-work-outline-reset" type="button">恢复内置提示词</html:button><html:span class="mineru-help">修改后保存生效；清空并保存使用内置提示词。</html:span></html:div>
+					<html:details class="ocrflow-prompt-reference"><html:summary>查看内置提示词参考</html:summary><html:textarea id="ocrflow-work-outline-default" rows="6" readonly="readonly" /></html:details>
+					<html:label for="ocrflow-work-outline-params">请求参数 JSON</html:label>
+					<html:textarea id="ocrflow-work-outline-params" rows="3" placeholder="留空使用默认参数" />
+				</html:div></html:details>
 			</html:div>
-			<html:p class="mineru-help">{{language}} 代表所选工作语言。翻译分段字符数是额外上限，仍受所选模型的上下文预算限制。双栏对照仅支持 HTML。</html:p>
-		</html:details>
+			<html:p class="mineru-help">各工作分别选择模型、编辑提示词和请求参数；上下文与并发统一读取所选模型的设置。文档依次处理，分段和 OCR 页面按模型并发请求；同一模型的父条目可批量建立。</html:p>
+			<html:div class="ocrflow-group-actions"><html:button id="ocrflow-work-save" type="button">保存工作设置</html:button><html:span id="ocrflow-work-status" role="status" aria-live="polite" class="ocrflow-status" /></html:div>
+		</html:section>
+		<html:section class="ocrflow-section" aria-labelledby="ocrflow-output-heading">
+			<html:div class="ocrflow-section-heading">
+				<html:h3 id="ocrflow-output-heading">全文保存</html:h3>
+				<html:span class="mineru-help">Markdown 始终保留</html:span>
+			</html:div>
+			<html:label class="ocrflow-check">
+				<html:input id="mineru-parseGenerateHTML" type="checkbox" />
+				<html:span>
+					<html:span>同时生成 HTML</html:span>
+					<html:small class="mineru-help">关闭后仅生成 Markdown；已有附件不自动转换。</html:small>
+				</html:span>
+			</html:label>
+			<html:div class="mineru-grid ocrflow-image-setting">
+				<html:label for="mineru-parseImageMode">HTML 图片保存方式</html:label>
+				<menulist id="mineru-parseImageMode" native="true">
+					<menupopup>
+						<menuitem label="独立 images 文件夹" value="folder" />
+						<menuitem label="Base64 内嵌（单文件）" value="inline" />
+					</menupopup>
+				</menulist>
+			</html:div>
+			<html:label class="ocrflow-check">
+				<html:input id="mineru-parseLinkSourcePDF" type="checkbox" />
+				<html:span>
+					<html:span>关联原文件与全文附件</html:span>
+					<html:small class="mineru-help">关闭后，可直接选中全文附件补充信息或总结。</html:small>
+				</html:span>
+			</html:label>
+		</html:section>
+
 		<html:details class="ocrflow-details">
 			<html:summary>任务队列与本地进度</html:summary>
 			<html:div class="mineru-grid">

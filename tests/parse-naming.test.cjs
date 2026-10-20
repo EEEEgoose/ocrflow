@@ -39,7 +39,7 @@ function parent(title, creators) {
 
 async function check(parentItem, stem, format, source = attachment) {
   const result = await plugin.saveResultAsMarkdownAttachment({attachment: source, parentItem,
-    parsedResult: {markdownText: '正文'}, settings: {outputFormat: format, parseLinkSourcePDF: false, noteTitlePrefix: 'Old prefix'}});
+    parsedResult: {markdownText: '正文'}, settings: {outputFormat: format, parseLinkSourcePDF: false}});
   const entry = imports.at(-1);
   const stored = await result.attachment.getFilePath();
   assert.equal(path.basename(stored), stem + '.' + format);

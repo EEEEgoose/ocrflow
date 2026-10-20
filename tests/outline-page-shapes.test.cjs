@@ -8,12 +8,12 @@ function setup() {
   const files=new Map(),prompts=[];
   const attachment={id:1,key:'ARABIC',libraryID:1};
   const titles=['الإدارة الاستعمارية','المجتمع الجزائري'];
-  const owner={PREF_BRANCH:'extensions.docflow.',getLLMSettings:()=>({apiBaseURL:'https://ai.example/v1',model:'test'}),parseOptionalJSONObject:()=>({}),mergeRequestPayload:payload=>payload};
+  const owner={PREF_BRANCH:'extensions.docflow.',getLLMSettings:()=>({apiBaseURL:'https://ai.example/v1',model:'test'}),applyAIContextBudget(){},parseOptionalJSONObject:()=>({}),mergeRequestPayload:payload=>payload};
   const context={PathUtils:{join:path.join,parent:path.dirname},IOUtils:{exists:async key=>files.has(key),readUTF8:async key=>files.get(key),makeDirectory:async()=>{},writeUTF8:async(key,value)=>files.set(key,value)},
     Zotero:{DataDirectory:{dir:'/data'},Prefs:{get:()=>true},Reader:{_readers:[]},PDFWorker:{getFullText:async()=>{throw new Error('Cached OCR text must be reused');}}},
     fetch:async(_url,options)=>{prompts.push(JSON.parse(options.body).messages[1].content);return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify({outline:titles.map((title,index)=>({title,page:index===0?1:3}))})}}]})};}
   };
-  vm.createContext(context);vm.runInContext(fs.readFileSync('outline.js','utf8'),context);
+  vm.createContext(context);vm.runInContext(fs.readFileSync('prompts.js','utf8'),context);vm.runInContext(fs.readFileSync('outline.js','utf8'),context);
   const feature=context.DocFlowOutline;feature.init(owner);
   const pages=[{page:1,text:titles[0]+'\nنص الصفحة الأولى'},{page:2,text:''},{page:3,text:titles[1]+'\nنص الصفحة الثالثة'}];
   return {feature,attachment,pages,titles,files,prompts};
