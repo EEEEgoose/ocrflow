@@ -1,0 +1,179 @@
+--- /dev/null
++++ b/mineru/utils/page_progress.py
+@@ -0,0 +1,15 @@
++"""Report PDF analysis progress to the current API job, including worker threads."""
++
++from contextvars import ContextVar
++from typing import Callable
++
++
++page_progress_callback: ContextVar[Callable[[int, int, str], None] | None] = ContextVar(
++    "mineru_page_progress_callback", default=None
++)
++
++
++def report_pdf_progress(completed: int, total: int, stage: str = "processing") -> None:
++    callback = page_progress_callback.get()
++    if callback is not None:
++        callback(completed, total, stage)
+--- a/mineru/backend/analysis/pdf/window.py
++++ b/mineru/backend/analysis/pdf/window.py
+@@ -24,6 +24,7 @@
+ 
+ from ....model.runtime.execution import local_model_stage
+ from ....utils.async_utils import drain_future, run_sync
++from ....utils.page_progress import report_pdf_progress
+ from ....model.runtime.hybrid import HybridLocalModelContext
+ from ....model.runtime.memory import trim_process_heap
+ from ..contracts import AnalyzeEffort
+@@ -688,6 +689,7 @@
+ ) -> list[list[dict[str, Any]]]:
+     """逐窗口原生异步推理；仅不同文档可交错推进，保留单文档内存上界。"""
+     page_count = document.page_count
++    report_pdf_progress(0, page_count)
+     window_size = _configured_window_size(default=64)
+     windows = _build_processing_windows(page_count, window_size)
+     _log_processing_window_plan(page_count, window_size, len(windows))
+@@ -732,6 +734,7 @@
+                     hybrid_model=hybrid_model,
+                 )
+             )
++            report_pdf_progress(window.end + 1, page_count)
+         except asyncio.CancelledError:
+             if render_session is not None:
+                 cleanup = asyncio.create_task(asyncio.to_thread(render_session.cancel))
+@@ -741,6 +744,7 @@
+             if state is not None:
+                 await run_sync(state.close)
+             await run_sync(trim_process_heap)
++    report_pdf_progress(page_count, page_count, "postprocessing")
+     return model_list
+ 
+ 
+@@ -757,6 +761,7 @@
+ ) -> list[list[dict[str, Any]]]:
+     """按固定阶段处理全部 PDF 窗口并返回完整 model-list。"""
+     page_count = document.page_count
++    report_pdf_progress(0, page_count)
+     model_list: list[list[dict[str, Any]]] = []
+     if flash_txt_mode:
+         # Flash 原生结果只按视觉块需求补图，不再进入供推理使用的全页渲染窗口。
+@@ -779,6 +784,7 @@
+             threads=get_load_images_threads(),
+             **({"session": render_session} if render_session is not None else {}),
+         )
++        report_pdf_progress(page_count, page_count, "postprocessing")
+         return model_list
+ 
+     configured_window_size = _configured_window_size(default=64)
+@@ -800,10 +806,12 @@
+                     vlm_predictor=vlm_predictor,
+                 )
+             )
++            report_pdf_progress(window.end + 1, page_count)
+         finally:
+             # 单窗口作用域退出后再回收，避免上一窗口临时数组与下一窗口渲染重叠。
+             trim_process_heap()
+ 
++    report_pdf_progress(page_count, page_count, "postprocessing")
+     return model_list
+ 
+ 
+--- a/mineru/parser/api_server.py
++++ b/mineru/parser/api_server.py
+@@ -52,6 +52,7 @@
+ )
+ from ..types import SERVER_TIERS, TIERS_BY_SERVER_TIER, DeploymentTier, PageInfo, ServerTier, Tier, select_default_quality_tier
+ from ..utils.async_utils import drain_future, run_sync
++from ..utils.page_progress import page_progress_callback
+ from ..model.vlm.async_runtime import RuntimeOwner, runtime_owner
+ from ..utils.logger import configure_global_log_level
+ from ..utils.stdio import configure_standard_streams
+@@ -497,6 +498,16 @@
+     total: int = 0
+ 
+ 
++class PageProgress(BaseModel):
++    """Completed PDF analysis pages; exporting can still be running at 100%."""
++
++    model_config = _PYDANTIC_CONFIG
++    completed: int = 0
++    total: int | None = None
++    remaining: int | None = None
++    stage: Literal["preparing", "processing", "postprocessing", "exporting", "completed", "failed"] = "preparing"
++
++
+ class FileParseInfo(BaseModel):
+     model_config = _PYDANTIC_CONFIG
+     model_used: str | None = None
+@@ -529,6 +540,7 @@
+     name: str
+     page_range: str
+     status: FileStatus
++    page_progress: PageProgress | None = None
+     parse: FileParseInfo | None = None
+     output_files: OutputFiles | None = None
+     error: ErrorDetail | None = None
+@@ -1479,18 +1491,35 @@
+                         local_resource_root=extracted.local_resource_root,
+                         transport_encoding=extracted.transport_encoding,
+                     )
+-                result = await parse_async(
+-                    str(tmp_path),
+-                    tier=effective_tier,
+-                    ocr_mode=req.ocr_mode,
+-                    image_analysis=image_analysis,
+-                    page_range=page_range,
+-                    source_context=source_context,
+-                    vlm_config=vlm_config,
+-                )
++                fr.status = "running"
++                if stype == "pdf":
++                    fr.page_progress = PageProgress()
++
++                def update_pages(completed: int, total: int, stage: str) -> None:
++                    if rec.status == "running":
++                        # Replace the snapshot so API readers see consistent counts.
++                        fr.page_progress = PageProgress(
++                            completed=completed, total=total, remaining=total - completed, stage=stage
++                        )
++
++                progress_token = page_progress_callback.set(update_pages if stype == "pdf" else None)
++                try:
++                    result = await parse_async(
++                        str(tmp_path),
++                        tier=effective_tier,
++                        ocr_mode=req.ocr_mode,
++                        image_analysis=image_analysis,
++                        page_range=page_range,
++                        source_context=source_context,
++                        vlm_config=vlm_config,
++                    )
++                finally:
++                    page_progress_callback.reset(progress_token)
+ 
+                 if rec.status == "canceled":
+                     break
++                if fr.page_progress is not None:
++                    fr.page_progress = fr.page_progress.model_copy(update={"stage": "exporting"})
+                 # collect outputs
+                 out_formats = set(rec.output_formats)
+                 output_files = OutputFiles()
+@@ -1531,6 +1560,8 @@
+                     output_files.zip = OutputFileRef(file_id=zip_fid, bytes=len(zip_bytes))
+ 
+                 fr.status = "completed"
++                if fr.page_progress is not None:
++                    fr.page_progress = fr.page_progress.model_copy(update={"stage": "completed"})
+                 fr.page_range = _page_range_from_result_pages(result.pages)
+                 fr.output_files = output_files
+ 
+@@ -1552,6 +1583,8 @@
+                     fr.page_range,
+                 )
+                 fr.status = "failed"
++                if fr.page_progress is not None:
++                    fr.page_progress = fr.page_progress.model_copy(update={"stage": "failed"})
+                 if isinstance(exc, MineruError):
+                     fr.error = ErrorDetail(type=exc.type, code=exc.code, message=str(exc), param=exc.param)
+                 else:

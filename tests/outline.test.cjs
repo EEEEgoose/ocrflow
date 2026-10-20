@@ -8,7 +8,7 @@ let aiOutput = {outline: [{level: 1, title: '第一章', summary: '章节概要'
 const owner = {
   id: 'plugin-id', PREF_BRANCH: 'extensions.docflow.', parseQueue: [], parseQueueNextID: 1,
   refreshParseQueueDialog: () => {}, getLLMSettings: () => ({apiBaseURL: 'https://llm.example/v1', model: 'model', apiKey: 'test'}),
-  parseOptionalJSONObject: () => ({}), mergeRequestPayload: payload => payload
+  applyAIContextBudget(){},parseOptionalJSONObject: () => ({}), mergeRequestPayload: payload => payload
 };
 const context = {
   PathUtils: {join: path.join, parent: path.dirname},
@@ -23,6 +23,7 @@ const context = {
   }
 };
 vm.createContext(context);
+vm.runInContext(fs.readFileSync('prompts.js', 'utf8'), context);
 vm.runInContext(fs.readFileSync('outline.js', 'utf8'), context);
 const outlineFeature = context.DocFlowOutline;
 outlineFeature.init(owner);

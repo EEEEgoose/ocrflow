@@ -10,7 +10,7 @@ function setup() {
   IOUtils:{read:async()=>new Uint8Array([1,2,3])},
   fetch:async(url,options)=>{const payload=JSON.parse(options.body);requests.push({url,payload,signal:options.signal});return {ok:true,json:async()=>({choices:[{message:{content:await reply(payload)},finish_reason:'stop'}]})};}
  };
- vm.createContext(ctx);for(const file of ['prefs.js','docflow.js','metadata.js','workflow.js'])vm.runInContext(fs.readFileSync(file,'utf8'),ctx);
+ vm.createContext(ctx);for(const file of ['prompts.js','prefs.js','docflow.js','metadata.js','workflow.js'])vm.runInContext(fs.readFileSync(file,'utf8'),ctx);
  const plugin=ctx.DocFlow;
  const put=(name,value)=>prefs.set('extensions.docflow.'+name,value);
  put('llmProviders',JSON.stringify([{id:'text',llmProviderName:'文本',llmApiBaseURL:'https://text.example/v1',llmApiKey:'text-key',llmModel:'text-1',llmModel2:'text-2',llmModelConcurrency:'2',llmModelContext:'65536',llmModel2Concurrency:'2'},{id:'vision',llmProviderName:'视觉',llmApiBaseURL:'https://vision.example/v1',llmModel:'vision-1',llmModel2:'vision-2',llmModel2Concurrency:'2'}]));
@@ -98,4 +98,54 @@ test('parent batches respect the concurrency of each selected model when assignm
  p.runDocumentTask=async task=>{const id=task.settings.modelID;active[id]=(active[id]||0)+1;peak[id]=Math.max(peak[id]||0,active[id]);await new Promise(resolve=>setTimeout(resolve,5));active[id]--;};
  p.parseQueue=[{id:1,settings:{modelID:'text:1',concurrency:3}},{id:2,settings:{modelID:'vision:1',concurrency:1}},{id:3,settings:{modelID:'vision:1',concurrency:1}}].map(task=>({...task,kind:'parent',state:'queued'}));
  await p.processParseQueue();assert.equal(peak['vision:1'],1);assert(p.parseQueue.every(task=>task.state==='completed'));
+});
+
+
+test('summary output exhaustion reports the actual budget and reasoning usage, then honors a saved increase',async()=>{
+ const a=setup(),p=a.plugin,requests=[];let truncated=true;
+ a.ctx.fetch=async(url,options)=>{
+  const payload=JSON.parse(options.body);requests.push(payload);
+  return {ok:true,json:async()=>({choices:[{finish_reason:truncated?'length':'stop',message:{content:truncated?'Incomplete':'Complete summary'}}],usage:{completion_tokens:payload.max_tokens,completion_tokens_details:{reasoning_tokens:7000}}})};
+ };
+ await assert.rejects(p.summarizeDocument('Short document',p.getLLMSettings('summary')),error=>{
+  assert.match(error.message,/输出被截断/);assert.match(error.message,/8192/);assert.match(error.message,/推理 7000/);assert.match(error.message,/工作模型配置/);return true;
+ });
+ a.work.summary.params='{"max_tokens":16384}';a.save();truncated=false;
+ assert.equal(await p.summarizeDocument('Short document',p.getLLMSettings('summary')),'Complete summary');
+ assert.deepEqual(requests.map(request=>request.max_tokens),[8192,16384]);
+});
+
+test('outline generation uses its assigned model, editable prompt and multilingual context budget',async()=>{
+ const a=setup(),p=a.plugin,requests=[];
+ vm.runInContext(fs.readFileSync('outline.js','utf8'),a.ctx);
+ a.work.outline={model:'text:2',prompt:'Custom outline JSON',params:'{"max_tokens":2048}'};a.save();
+ a.ctx.fetch=async(url,options)=>{const payload=JSON.parse(options.body);requests.push(payload);return {ok:true,json:async()=>({choices:[{finish_reason:'stop',message:{content:'{"outline":[{"title":"章节","page":1}]}'}}]})};};
+ a.ctx.Zotero.Reader={_readers:[]};
+ const feature=a.ctx.DocFlowOutline;feature.init(p);
+ const data={pages:['章节\n'+'中文عربي'.repeat(5000)],headings:[],outline:[]};
+ feature.load=async()=>data;feature.save=async()=>{};
+ const settings=p.getLLMSettings('outline');settings.contextWindow=16384;
+ await feature.generate({id:1},{settings});
+ assert(requests.length>1);
+ assert(requests.every(request=>request.model==='text-2'&&request.messages[0].content==='Custom outline JSON'&&request.max_tokens===2048));
+ assert(requests.every(request=>p.estimateAITokens(request.messages[1].content)+p.estimateAITokens(request.messages[0].content)+256+2048<=16384));
+ assert(requests.every(request=>request.messages[1].content.includes('PDF 第 1 页')));
+});
+
+
+test('all work requests inherit their selected model output budget and explicit request limits take priority',async()=>{
+ const a=setup(),p=a.plugin;
+ const providers=JSON.parse(a.prefs.get('extensions.docflow.llmProviders'));
+ providers[0].llmModelMaxOutput=6144;providers[0].llmModel2MaxOutput=12288;providers[1].llmModel2MaxOutput=4096;
+ a.put('llmProviders',JSON.stringify(providers));
+ await p.identify('','book.pdf',true,{},p.getLLMSettings('parent'));
+ await p.identify('Document','book.pdf',false,{},p.getLLMSettings('metadata'));
+ await p.summarizeDocument('Document',p.getLLMSettings('summary'));
+ await p.parseWithVision({isPDFAttachment:()=>false,getFilePath:()=>'/image.png',attachmentFilename:'image.png'},p.getLLMSettings('ocr'),{});
+ await p.callLLMForTranslation('Document','English',p.getTranslationSettings(),1,1);
+ assert.deepEqual(a.requests.map(request=>request.payload.max_tokens),[12288,6144,12288,4096,6144]);
+ a.work.translate.params='{"max_completion_tokens":2048}';a.save();
+ await p.callLLMForTranslation('Document','English',p.getTranslationSettings(),1,1);
+ assert.equal(a.requests.at(-1).payload.max_completion_tokens,2048);
+ assert(!('max_tokens' in a.requests.at(-1).payload));
 });

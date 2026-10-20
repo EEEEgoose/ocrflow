@@ -80,7 +80,7 @@ function setup({mcp=false}={}) {
     }
   };
   vm.createContext(context);
-  for (const filename of ['docflow.js','markitdown.js','metadata.js','workflow.js']) vm.runInContext(fs.readFileSync(filename,'utf8'),context);
+  for (const filename of ['prompts.js','docflow.js','markitdown.js','metadata.js','workflow.js']) vm.runInContext(fs.readFileSync(filename,'utf8'),context);
   const plugin = context.DocFlow;
   plugin.openParseQueueDialog = () => {}; plugin.refreshParseQueueDialog = () => {};
   plugin.mathRenderer = require('../vendor/katex/katex.min.js');

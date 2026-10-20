@@ -25,7 +25,7 @@ async function setup({rejectSingle=false,empty=false,firstEmpty=false,cancel=fal
       }
       return {ok:true,headers:{get:()=>null},text:async()=>JSON.stringify({id:request.id,result})};
     }};
-  vm.createContext(context);for(const name of ['docflow.js','markitdown.js','workflow.js'])vm.runInContext(fs.readFileSync(name,'utf8'),context);
+  vm.createContext(context);for(const name of ['prompts.js','docflow.js','markitdown.js','workflow.js'])vm.runInContext(fs.readFileSync(name,'utf8'),context);
   const plugin=context.DocFlow;plugin.getPDFLibrary=()=>({PDFDocument});
   const attachment={attachmentFilename:'large.pdf',getFilePath:()=>'/large.pdf'};
   const parse=()=>plugin.parseWithMarkItDown(attachment,{markitdownBaseURL:'http://service.example',timeoutMS:120000},{signal:controller.signal});

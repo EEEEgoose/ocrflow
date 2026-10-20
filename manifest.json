@@ -12,7 +12,7 @@
   "applications": {
     "zotero": {
       "id": "docflow@egooose.local",
-      "update_url": "https://example.invalid/docflow/updates.json",
+      "update_url": "https://github.com/EEEEgoose/ocrflow/releases/latest/download/updates.json",
       "strict_min_version": "10.0",
       "strict_max_version": "10.0.*"
     }

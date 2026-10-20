@@ -1,13 +1,13 @@
 # 来源与第三方组件
 
-OCRFlow 前身为 DocFlow。现有 MIT 许可证及继承代码的版权声明保留在 [LICENSE](LICENSE)，本文件记录代码与组件来源。
+OCRFlow 由作者在自有项目 Auto parent item 的基础上开发，曾使用 DocFlow 名称。现有 MIT 许可证及继承代码的版权声明保留在 [LICENSE](LICENSE)，本文件记录作者自有代码与第三方组件的来源。
 
 ## 基础插件与历史源码
 
 | 来源 | 使用范围 | 许可记录 |
 | --- | --- | --- |
 | [MinerU for Zotero / lisontowind/zotero-mineru](https://github.com/lisontowind/zotero-mineru)，基于 0.1.70.21 | 插件生命周期、MinerU 服务、输出与队列等基础实现 | MIT；版权声明见根目录 LICENSE |
-| Auto parent item 0.8.5，由维护者提供的历史项目源码 | 书目提取提示词、字段映射、语言别名等 | 所提供源码未附独立许可证文件；保留此来源事实，不推定另有第三方授权声明 |
+| Auto parent item 0.8.5，作者自有项目 | 书目提取提示词、字段映射、语言别名等 | 作者自有代码，作为 OCRFlow 的基础继续开发并按本项目 MIT 许可证发布 |
 | [Paper Outline](https://github.com/DrinkTea905/zotero-paper-outline) | 阅读器大纲查找和交互的适配 | MIT；完整许可见 vendor/paper-outline/LICENSE |
 
 内部 `DocFlow` 名称和旧标签继续保留以兼容已有安装与数据。
@@ -32,3 +32,7 @@ OCRFlow 前身为 DocFlow。现有 MIT 许可证及继承代码的版权声明�
 - [OpenRouter 推理返回格式](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)。
 - [SiliconFlow 推理返回格式](https://docs.siliconflow.cn/docs/userguide/capabilities/reasoning)。
 - Zotero 10 阅读器、设置页和附件接口，以安装应用源码及原生验证为依据。
+
+## 可选的 MinerU 服务端补丁
+
+`docs/mineru/` 保存 MinerU 4.0.10 页进度补丁及 Docker 部署示例，修改作者为 Egooose。补丁涉及的上游代码保留 [MinerU 许可](docs/mineru/LICENSE.md)。这些文件仅随源码分发，不包含在 Zotero XPI 中；插件其余组件的许可记录见上文。

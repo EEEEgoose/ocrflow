@@ -34,6 +34,7 @@ const context = {
   }
 };
 vm.createContext(context);
+vm.runInContext(fs.readFileSync("prompts.js", "utf8"), context);
 vm.runInContext(fs.readFileSync("docflow.js", "utf8"), context);
 vm.runInContext(fs.readFileSync("workflow.js", "utf8"), context);
 vm.runInContext(fs.readFileSync("preferences.js", "utf8"), context);
@@ -117,8 +118,6 @@ async function run() {
    assert.equal(source.embeddedImages.length,1);
    assert(source.markdownText.includes(image.marker));
    assert(!source.markdownText.includes("base64"));
-   const note = await m.buildParsedResultFromMarkdownAttachment(item,{includeImages:true});
-   assert.equal(note.embeddedImages.length,1);
    assert(!m.removeLocalImageReferences(restored).includes("base64"));
    if(format==="html") {
     assert(content.includes('<meta charset="utf-8">'));

@@ -20,7 +20,7 @@ const context = {
   }
 };
 vm.createContext(context);
-for (const file of ['docflow.js', 'workflow.js', 'outline.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
+for (const file of ['prompts.js','docflow.js', 'workflow.js', 'outline.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
 const owner = context.DocFlow, feature = context.DocFlowOutline;
 owner.outline = feature; feature.init(owner);
 const attachment = {id: 1, key: 'PDF', libraryID: 1, isPDFAttachment: () => true, getField: () => 'book.pdf', getFilePath: () => '/book.pdf'};

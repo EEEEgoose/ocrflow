@@ -9,7 +9,7 @@ const context = {Zotero: {debug: () => {}, logError: () => {}, getMainWindow: ()
   return {closed: false, focus: () => focusCount++, DocFlowTaskQueue: {render: () => {}}};
 }})}};
 vm.createContext(context);
-for (const name of ['docflow.js', 'workflow.js']) vm.runInContext(fs.readFileSync(name, 'utf8'), context);
+for (const name of ['prompts.js','docflow.js', 'workflow.js']) vm.runInContext(fs.readFileSync(name, 'utf8'), context);
 const plugin = context.DocFlow;
 plugin.getSettings = mode => ({apiMode: mode || 'local-v1', apiToken: ''});
 plugin.collectSourceFiles = items => items;

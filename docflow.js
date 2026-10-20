@@ -15,7 +15,6 @@ DocFlow = {
 	PREF_BRANCH: "extensions.docflow.",
 	ROOT_MENU_ID: "docflow-menu",
 	CONTEXT_MENU_ID: "docflow-parse-pdf",
-	MARKDOWN_NOTE_MENU_ID: "docflow-markdown-to-note",
 	SUMMARY_MENU_ID: "docflow-ai-summary",
 	TRANSLATE_MENU_ID: "docflow-ai-translate",
 	
@@ -187,7 +186,6 @@ DocFlow = {
 		let doc = window.document;
 		doc.getElementById(this.ROOT_MENU_ID)?.remove();
 		doc.getElementById(this.CONTEXT_MENU_ID)?.remove();
-		doc.getElementById(this.MARKDOWN_NOTE_MENU_ID)?.remove();
 		doc.getElementById(this.SUMMARY_MENU_ID)?.remove();
 		doc.getElementById(this.TRANSLATE_MENU_ID)?.remove();
 		let listenerData = this.popupListeners.get(window);
@@ -273,27 +271,14 @@ DocFlow = {
 			pollIntervalMS: pollIntervalSec * 1000,
 			timeoutMS: timeoutSec * 1000,
 			localJobTimeoutMS: localJobTimeoutSec * 1000,
-			noteTitlePrefix: (Zotero.Prefs.get(this.PREF_BRANCH + "noteTitlePrefix", true) || "MinerU Parse").trim(),
 			...this.getOutputSettings("parse"),
 			parseLinkSourcePDF: Zotero.Prefs.get(this.PREF_BRANCH + "parseLinkSourcePDF", true) !== false,
-			noteIncludeImages: !!Zotero.Prefs.get(this.PREF_BRANCH + "noteIncludeImages", true),
 			parserService: Zotero.Prefs.get(this.PREF_BRANCH + "parserService", true) || "mineru",
 			markitdownBaseURL: (Zotero.Prefs.get(this.PREF_BRANCH + "markitdownBaseURL", true) || "").trim().replace(/\/+$/, ""),
 			llmSettings: this.getLLMSettings("ocr")
 		};
 	},
 	
-	parentHasNoteWithTag(parentItem, tagName) {
-		if (!parentItem) return false;
-		let noteIDs = parentItem.getNotes();
-		for (let noteID of noteIDs) {
-			let noteItem = Zotero.Items.get(noteID);
-			if (!noteItem) continue;
-			let tags = noteItem.getTags();
-			if (tags.some((t) => t.tag === tagName)) return true;
-		}
-		return false;
-	},
 
 	parentHasAttachmentWithTag(parentItem, tagName) {
 		if (!parentItem) return false
@@ -317,53 +302,7 @@ DocFlow = {
 		return /\.(md|markdown|html?)$/i.test(title)
 	},
 
-	findMineruParseMarkdownAttachment(parentItem) {
-		if (!parentItem?.isRegularItem?.()) return null
-		let attachmentIDs = parentItem.getAttachments()
-		for (let attachmentID of attachmentIDs) {
-			let attachmentItem = Zotero.Items.get(attachmentID)
-			if (this.isMineruParseMarkdownAttachment(attachmentItem)) {
-				return attachmentItem
-			}
-		}
-		return null
-	},
 
-	collectMarkdownToNoteTasks(selectedItems) {
-		let tasks = []
-		let seenAttachmentIDs = new Set()
-
-		let addTask = (sourceAttachment, parentItem) => {
-			if (!this.isMineruParseMarkdownAttachment(sourceAttachment)) return
-			if (seenAttachmentIDs.has(sourceAttachment.id)) return
-			if (parentItem && this.parentHasNoteWithTag(parentItem, "#DocFlow-Parse")) return
-			seenAttachmentIDs.add(sourceAttachment.id)
-			tasks.push({ sourceAttachment, parentItem })
-		}
-
-		for (let item of selectedItems) {
-			if (this.isMineruParseMarkdownAttachment(item)) {
-				let parentItem = item.parentItemID ? Zotero.Items.get(item.parentItemID) : null
-				addTask(item, parentItem)
-				continue
-			}
-
-			let parentItem = null
-			if (item.isRegularItem()) {
-				parentItem = item
-			}
-			else if (item.isAttachment() || item.isNote()) {
-				let parentID = item.parentItemID
-				parentItem = parentID ? Zotero.Items.get(parentID) : null
-			}
-			if (!parentItem?.isRegularItem?.()) continue
-
-			addTask(this.findMineruParseMarkdownAttachment(parentItem), parentItem)
-		}
-
-		return tasks
-	},
-	
 	showAlert(window, title, message) {
 		if (window) {
 			Zotero.alert(window, title, message);
@@ -410,7 +349,7 @@ DocFlow = {
 			if (!ids.includes(task.id) || !["failed", "wait_expired", "canceled"].includes(task.state)) continue;
 			let parserService = task.settings.parserService;
 			task.settings = task.kind === "translate" ? this.getTranslationSettings()
-				: ["outline", "parent", "metadata", "summary"].includes(task.kind) ? this.getLLMSettings(task.kind === "outline" ? undefined : task.kind) : this.getSettings(task.settings.apiMode);
+				: ["outline", "parent", "metadata", "summary"].includes(task.kind) ? this.getLLMSettings(task.kind) : this.getSettings(task.settings.apiMode);
 			if (task.kind === "parse" && parserService) task.settings.parserService = parserService;
 			task.state = "queued";
 			task.detail = task.jobID ? "等待继续查询原任务" : "等待重试";
@@ -2228,28 +2167,6 @@ DocFlow = {
 		return entries[0];
 	},
 
-	buildPrefixedNoteTitle(prefix, attachmentTitle) {
-		let baseTitle = String(attachmentTitle || "").trim() || "PDF";
-		let cleanPrefix = String(prefix || "").trim();
-		if (!cleanPrefix) return baseTitle;
-		let normalizedBase = baseTitle.toLowerCase();
-		let normalizedPrefix = cleanPrefix.toLowerCase();
-		if (
-			normalizedBase === normalizedPrefix
-			|| normalizedBase.startsWith(normalizedPrefix + " ")
-			|| normalizedBase.startsWith(normalizedPrefix + "-")
-			|| normalizedBase.startsWith(normalizedPrefix + "_")
-		) {
-			return baseTitle;
-		}
-		return `${cleanPrefix} ${baseTitle}`;
-	},
-
-	normalizeMarkdownAttachmentTitle(attachment) {
-		let title = attachment?.getField?.("title") || "Markdown"
-		title = String(title || "").trim()
-		return title.replace(/\.(md|markdown)$/i, "")
-	},
 
 	stripHTMLToPlainText(html) {
 		return String(html || "")
@@ -2282,57 +2199,6 @@ DocFlow = {
 		return `${titleParagraph}\n${html}`;
 	},
 
-	trySetNoteTitle(note, title) {
-		let cleanTitle = String(title || "").trim();
-		if (!note || !cleanTitle || typeof note.setField !== "function") return;
-		try {
-			note.setField("title", cleanTitle);
-		}
-		catch (e) {
-			this.log(`设置笔记标题失败: ${e?.message || e}`);
-		}
-	},
-
-	async saveResultAsNote({ attachment, parentItem, parsedResult, settings, sourceTitle = null }) {
-		let attachmentTitle = sourceTitle
-			|| attachment.getField("title")
-			|| this.fileNameFromPath(attachment.getFilePath() || "PDF");
-		let noteTitle = this.buildPrefixedNoteTitle(
-			settings?.noteTitlePrefix,
-			attachmentTitle
-		);
-		let note = new Zotero.Item("note");
-		note.libraryID = attachment.libraryID;
-		if (parentItem) {
-			note.parentID = parentItem.id;
-		}
-		
-		let markdownText = parsedResult?.markdownText || "";
-		let contentHTML = parsedResult?.contentHTML || this.convertMarkdownToBasicHTML(markdownText);
-		let embeddedImages = Array.isArray(parsedResult?.embeddedImages)
-			? parsedResult.embeddedImages
-			: [];
-		note.setNote("<p></p>");
-		this.trySetNoteTitle(note, noteTitle);
-		await note.saveTx();
-			let embeddedResult = await this.materializeEmbeddedImagesForNote({
-				note,
-				contentHTML,
-				embeddedImages
-			});
-			let noteHTML = this.ensureNoteTitleInHTML(
-				embeddedResult.contentHTML || "<p></p>",
-				noteTitle
-			);
-			note.setNote(noteHTML);
-			this.trySetNoteTitle(note, noteTitle);
-			note.addTag("#DocFlow-Parse", 0);
-			await note.saveTx();
-			if (parentItem) {
-				parentItem.addTag("#DocFlow-Parsed", 0);
-				await parentItem.saveTx();
-			}
-	},
 
 	rewriteImagePathsForStorage(rawMarkdownText, embeddedImages) {
 		if (!Array.isArray(embeddedImages) || !embeddedImages.length) {
@@ -2542,48 +2408,6 @@ DocFlow = {
 		}
 	},
 
-	async materializeEmbeddedImagesForNote({ note, contentHTML, embeddedImages }) {
-		let html = String(contentHTML || "");
-		if (!note?.id || !Array.isArray(embeddedImages) || !embeddedImages.length) {
-			return {
-				contentHTML: html,
-				importedCount: 0,
-				fallbackCount: 0
-			};
-		}
-		let importedCount = 0;
-		let fallbackCount = 0;
-		for (let image of embeddedImages) {
-			let attachmentKey = await this.importEmbeddedImageForNote({
-				noteID: note.id,
-				image
-			});
-			if (!attachmentKey) {
-				html = this.replaceImageMarkerWithDataURI(html, image.marker, image.dataURI);
-				fallbackCount++;
-				continue;
-			}
-			importedCount++;
-			html = this.replaceImageMarkerWithAttachment(
-				html,
-				image.marker,
-				attachmentKey,
-				image.mimeType,
-				image.fileName
-			);
-		}
-		for (let image of embeddedImages) {
-			if (html.includes(image.marker)) {
-				html = this.replaceImageMarkerWithDataURI(html, image.marker, image.dataURI);
-				fallbackCount++;
-			}
-		}
-		return {
-			contentHTML: html,
-			importedCount,
-			fallbackCount
-		};
-	},
 
 	resolveStoredAttachmentImagePath(markdownPath, resourceURL) {
 		let normalizedRef = this.normalizeArchiveReference(resourceURL)
@@ -2687,66 +2511,6 @@ DocFlow = {
 		}
 	},
 
-	async buildParsedResultFromMarkdownAttachment(markdownAttachment, options = {}) {
-		let includeImages = options.includeImages === true
-		let markdownPath = await markdownAttachment.getFilePath()
-		if (!markdownPath) {
-			throw new Error("MinerU 解析附件文件不存在")
-		}
-		let fileBytes = await IOUtils.read(markdownPath)
-		let markdownText = this.decodeDocumentMarkdown(new TextDecoder("utf-8").decode(fileBytes), markdownPath)
-		let sourceMarkdownText = includeImages
-			? markdownText
-			: this.removeLocalImageReferences(markdownText)
-		let inlinedResult = includeImages
-			? await this.inlineStoredImagesInMarkdownAttachment({
-				markdownText: sourceMarkdownText,
-				markdownPath
-			})
-			: {
-				markdownText: sourceMarkdownText,
-				embeddedImages: []
-			}
-		let rendered = await this.markdownToHTML(inlinedResult.markdownText)
-		return {
-			sourceKind: "markdown-attachment",
-			rawMarkdownText: markdownText,
-			rawMarkdownEntryName: this.fileNameFromPath(markdownPath),
-			markdownText: inlinedResult.markdownText,
-			contentHTML: rendered.html,
-			embeddedImageCount: inlinedResult.embeddedImages.length,
-			embeddedImages: inlinedResult.embeddedImages
-		}
-	},
-
-	async importEmbeddedImageForNote({ noteID, image }) {
-		if (!noteID || !image?.bytes || !Zotero?.Attachments) return null;
-		if (typeof Blob !== "function") {
-			this.log("Blob is unavailable; cannot import embedded images");
-			return null;
-		}
-		let blob = new Blob([image.bytes], {
-			type: image.mimeType || "application/octet-stream"
-		});
-		try {
-			if (typeof Zotero.Attachments.importEmbeddedImage === "function") {
-				let attachmentItem = await this.withTimeout(
-					() => Zotero.Attachments.importEmbeddedImage({
-						blob,
-						parentItemID: noteID
-					}),
-					15000,
-					"导入内嵌图片"
-				);
-				return attachmentItem?.key || null;
-			}
-		}
-		catch (e) {
-			this.log(`importEmbeddedImage failed: ${e}`);
-			Zotero.logError(e);
-		}
-		return null;
-	},
 
 	async withTimeout(taskFactory, timeoutMS, label = "任务") {
 		let timeoutID = null;
@@ -2809,33 +2573,6 @@ DocFlow = {
 		return result === 0 ? "retry" : result === 2 && completed ? "save" : "discard";
 	},
 
-	replaceImageMarkerWithAttachment(html, marker, attachmentKey, mimeType, fileName) {
-		if (!html || !marker || !attachmentKey) return html;
-		let escapedMarker = this.escapeRegExp(marker);
-		let ext = this.guessImageExtension(mimeType, fileName);
-		let src = `attachments/${attachmentKey}.${ext}`;
-		let imgTagRegex = new RegExp(`<img([^>]*?)\\bsrc=(["'])${escapedMarker}\\2([^>]*)>`, "gi");
-		return html.replace(imgTagRegex, (_m, before, _quote, after) => {
-			let tagBody = `${before || ""} ${after || ""}`;
-			let cleaned = tagBody
-				.replace(/\sdata-attachment-key=(["']).*?\1/gi, "")
-				.replace(/\ssrc=(["']).*?\1/gi, "")
-				.replace(/\sztype=(["']).*?\1/gi, "")
-				.replace(/\s+/g, " ")
-				.trim();
-			let attrs = cleaned ? ` ${cleaned}` : "";
-			return `<img data-attachment-key="${attachmentKey}" src="${src}" ztype="zimage"${attrs}>`;
-		});
-	},
-
-	replaceImageMarkerWithDataURI(html, marker, dataURI) {
-		if (!html || !marker || !dataURI) return html;
-		let escapedMarker = this.escapeRegExp(marker);
-		let imgTagRegex = new RegExp(`<img([^>]*?)\\bsrc=(["'])${escapedMarker}\\2([^>]*)>`, "gi");
-		return html.replace(imgTagRegex, (_m, before, _quote, after) => {
-			return `<img${before || ""} src="${dataURI}"${after || ""}>`;
-		});
-	},
 
 	guessImageExtension(mimeType, fileName = "") {
 		let mime = String(mimeType || "").toLowerCase();
@@ -3062,6 +2799,15 @@ DocFlow = {
 		}
 	},
 
+	aiOutputLimitError(payload, result) {
+		let limit = payload.max_completion_tokens || payload.max_tokens;
+		let usage = result.usage;
+		let details = [limit ? `输出上限 ${limit} tokens` : "达到服务端输出上限"];
+		if (usage?.completion_tokens) details.push(`已用 ${usage.completion_tokens} tokens`);
+		if (usage?.completion_tokens_details?.reasoning_tokens) details.push(`其中推理 ${usage.completion_tokens_details.reasoning_tokens} tokens`);
+		return new Error(`AI 输出被截断（${details.join("，")}）。请提高所选模型的“最大输出长度”；若“工作模型配置”中该工作的请求参数 JSON 已指定 max_tokens 或 max_completion_tokens，则需提高该参数，或缩短提示词要求的输出；确认模型支持该上限、上下文足够，保存后在队列中重试。`);
+	},
+
 	getLLMSettings(kind) {
 		let apiBaseURL = (Zotero.Prefs.get(this.PREF_BRANCH + "llmApiBaseURL", true) || "").trim();
 		apiBaseURL = apiBaseURL.replace(/\/+$/, "");
@@ -3101,7 +2847,7 @@ DocFlow = {
 		let index = Zotero.Prefs.get(this.PREF_BRANCH + "llmProviderIndex", true) || 0;
 		let selected = work.defaultModel || `${providers[index]?.id || "provider-" + index}:1`;
 		let config = kind ? work[kind] || {} : {};
-		let modelConcurrency = 1, modelContext = 32768;
+		let modelConcurrency = 1, modelContext = 32768, modelOutput = 0;
 		if (config.model && config.model !== "default") selected = config.model;
 		settings.modelID = selected;
 		if (providers.length) {
@@ -3114,6 +2860,7 @@ DocFlow = {
 			settings.providerName = provider.llmProviderName || "未命名配置";
 			modelConcurrency = Number(provider[slot === "2" ? "llmModel2Concurrency" : "llmModelConcurrency"]) || 1;
 			modelContext = Number(provider[slot === "2" ? "llmModel2Context" : "llmModelContext"]) || 32768;
+			modelOutput = Number(provider[slot === "2" ? "llmModel2MaxOutput" : "llmModelMaxOutput"]) || 0;
 			settings.summaryRequestJSON = provider.summaryRequestJSON || "";
 			settings.translateRequestJSON = provider.translateRequestJSON || "";
 		}
@@ -3122,6 +2869,7 @@ DocFlow = {
 			settings.workPrompt = (config.prompt ?? (kind === "summary" ? summaryPrompt : "")).trim();
 			settings.concurrency = modelConcurrency;
 			settings.contextWindow = modelContext;
+			settings.outputTokens = modelOutput;
 			let legacyParams = kind === "summary" ? settings.summaryRequestJSON : kind === "translate" ? settings.translateRequestJSON : "";
 			settings.summaryRequestJSON = (config.params ?? legacyParams ?? "").trim();
 			if (kind === "translate") {
@@ -3162,84 +2910,6 @@ DocFlow = {
 		return mergedPayload;
 	},
 
-	async handleMarkdownToNoteCommand({ window = null, selectedItems = null } = {}) {
-		let settings = this.getSettings()
-		let items = selectedItems
-			|| window?.ZoteroPane?.getSelectedItems?.()
-			|| []
-		let tasks = this.collectMarkdownToNoteTasks(items)
-		if (!tasks.length) {
-			this.showAlert(window, "MinerU", "当前选择里没有可转为笔记的 MinerU 解析附件。\n（已有 #DocFlow-Parse 笔记的条目会被跳过）")
-			return
-		}
-		let shouldContinue = this.showConfirm(
-			window,
-			"MinerU 解析附件转笔记",
-			"提示：如果笔记过长，可能会导致同步失败。\n\n是否继续转化为笔记？"
-		)
-		if (!shouldContinue) {
-			return
-		}
-
-		let progress = new Zotero.ProgressWindow({ closeOnClick: true })
-		progress.changeHeadline("MinerU 解析附件转笔记")
-		progress.show()
-
-		let successes = 0
-		let failures = []
-
-		for (let task of tasks) {
-			let title = task.parentItem?.getField("title")
-				|| task.sourceAttachment.getField("title")
-				|| "未知文献"
-			let itemProgress = new progress.ItemProgress(
-				"chrome://zotero/skin/treeitem-note.png",
-				title
-			)
-			try {
-				if (typeof itemProgress.setText === "function") {
-					itemProgress.setText(`${title}（读取解析附件）`)
-				}
-				let parsedResult = await this.buildParsedResultFromMarkdownAttachment(task.sourceAttachment, {
-					includeImages: settings.noteIncludeImages
-				})
-
-				if (typeof itemProgress.setText === "function") {
-					itemProgress.setText(`${title}（保存笔记）`)
-				}
-				await this.saveResultAsNote({
-					attachment: task.sourceAttachment,
-					parentItem: task.parentItem,
-					parsedResult,
-					settings,
-					sourceTitle: this.normalizeMarkdownAttachmentTitle(task.sourceAttachment)
-				})
-
-				if (typeof itemProgress.setText === "function") {
-					itemProgress.setText(`${title}（完成）`)
-				}
-				itemProgress.setProgress(100)
-				successes++
-			}
-			catch (e) {
-				if (typeof itemProgress.setText === "function") {
-					itemProgress.setText(`${title}（失败）`)
-				}
-				itemProgress.setError()
-				failures.push(`${title}: ${e.message || e}`)
-				Zotero.logError(e)
-			}
-		}
-
-		progress.addDescription(`完成 ${successes}/${tasks.length}`)
-		progress.startCloseTimer(5000)
-
-		if (failures.length) {
-			this.showAlert(window, "MinerU 转笔记部分失败", failures.slice(0, 10).join("\n"))
-		}
-	},
-
-	// ==================== Translation Feature ====================
 
 	collectTranslateTasks(selectedItems) {
 		let tasks = []
@@ -3495,18 +3165,7 @@ DocFlow = {
 			? `\n\nNote: This is part ${chunkIndex} of ${totalChunks}. Translate only this part, maintaining continuity.`
 			: ""
 
-		let systemPrompt = `You are a professional academic translator. Translate the following Markdown content into ${language}.
-
-Rules:
-- Preserve all Markdown formatting (headings, bold, italic, lists, code blocks, etc.)
-- Preserve all mathematical formulas ($...$ and $$...$$) without translation
-- Preserve all table structures
-- Preserve all links
-- Translate only the natural language text
-- Do not add explanations or notes
-- Output only the translated Markdown content${chunkHint}`
-
-		if (llmSettings.workPrompt) systemPrompt = llmSettings.workPrompt.replace(/\{\{language\}\}/g, () => language) + chunkHint;
+		let systemPrompt = OCRFlowPrompts.get("translate", llmSettings.workPrompt, language) + chunkHint;
 
 		if (batch) systemPrompt += "\nThe input is a JSON array of Markdown text fragments. Translate each fragment independently. Return only a JSON array of translated Markdown strings in exactly the same order and count. Do not merge fragments or add image references.";
 
@@ -3544,7 +3203,7 @@ Rules:
 			}
 
 			let result = await response.json()
-			if (result?.choices?.[0]?.finish_reason === "length") throw new Error("翻译输出被截断，请调整上下文或输出上限后重试。");
+			if (result?.choices?.[0]?.finish_reason === "length") throw this.aiOutputLimitError(payload, result);
 			let content = result?.choices?.[0]?.message?.content
 			if (!content || !content.trim()) {
 				throw new Error("LLM 返回内容为空")

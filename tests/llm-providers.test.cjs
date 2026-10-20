@@ -37,7 +37,7 @@ function fixture(prefs) {
     }
   };
   vm.createContext(context);
-  for (const file of ['prefs.js', 'docflow.js', 'workflow.js', 'preferences.js', 'outline.js']) {
+  for (const file of ['prompts.js','prefs.js', 'docflow.js', 'workflow.js', 'preferences.js', 'outline.js']) {
     vm.runInContext(fs.readFileSync(file, 'utf8'), context);
   }
   const panel = context.DocFlowPreferences, plugin = context.DocFlow;
@@ -230,4 +230,32 @@ test('old token counts display as K/M and save back without changing their exact
  const provider=JSON.parse(prefs.get(prefix+'llmProviders'))[0];assert.equal(provider.llmModelContext,1048576);assert.equal(provider.llmModel2Context,1000000);
  a.edit('ocrflow-work-ocr-model','provider-0:2');assert.equal(a.click('mineru-save-button'),true);assert.equal(a.plugin.getLLMSettings('ocr').contextWindow,1000000);
  assert(a.inputs.get('ocrflow-work-ocr-actual').textContent.includes('976.5625K'));
+});
+
+
+test('each model saves and reloads an independent output budget with tokens or K/M input',()=>{
+ const a=fixture(legacyPrefs());
+ for(const [input,tokens]of [['8K',8192],['1.5k',1536],['512',512],['1M',1048576],['','']])assert.equal(a.panel.parseOutputTokens(input),tokens);
+ for(const input of ['0','-1','1.5','1G','wrong'])assert.throws(()=>a.panel.parseOutputTokens(input),/最大输出长度/);
+ a.edit('ocrflow-model-1-context','64K');a.edit('ocrflow-model-1-max-output','16K');a.edit('mineru-llm-model-2','two');a.edit('ocrflow-model-2-max-output','8192');
+ assert.equal(a.click('ocrflow-ai-save'),true);
+ assert.equal(a.plugin.getLLMSettings('summary').outputTokens,16384);
+ a.edit('ocrflow-work-ocr-model','provider-0:2');assert.equal(a.click('mineru-save-button'),true);
+ assert.equal(a.plugin.getLLMSettings('ocr').outputTokens,8192);
+ a.panel.loadSettings();assert.equal(a.inputs.get('ocrflow-model-1-max-output').value,'16K');assert.equal(a.inputs.get('ocrflow-model-2-max-output').value,'8K');
+ assert.match(a.inputs.get('ocrflow-work-ocr-actual').textContent,/输出 8K/);
+ a.edit('ocrflow-model-1-max-output','');assert.equal(a.click('ocrflow-ai-save'),true);
+ assert.equal(a.plugin.getLLMSettings('summary').outputTokens,0);
+ assert.equal(a.plugin.getLLMSettings('ocr').outputTokens,8192);
+});
+
+test('output budgets cannot consume the entire context and invalid saves leave the provider unchanged',()=>{
+ const prefs=legacyPrefs(),a=fixture(prefs);
+ a.edit('ocrflow-model-1-max-output','8K');assert.equal(a.click('ocrflow-ai-save'),true);
+ const saved=prefs.get(prefix+'llmProviders');
+ for(const output of ['32K','64K','0','1G']){
+  a.edit('ocrflow-model-1-max-output',output);a.edit('mineru-llm-api-key','unsaved-key');
+  assert.equal(a.click('ocrflow-ai-save'),false);assert.equal(prefs.get(prefix+'llmProviders'),saved);
+ }
+ assert.equal(a.plugin.getLLMSettings('summary').outputTokens,8192);
 });

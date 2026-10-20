@@ -40,6 +40,7 @@ const reader = {type: 'pdf', _item: attachment, _initPromise: Promise.resolve(),
   navigate: async location => navigations.push(location.pageIndex)};
 const context = {Zotero: {Reader: {unregisterEventListener: () => {}}, logError: error => {throw error;}}};
 vm.createContext(context);
+vm.runInContext(fs.readFileSync('prompts.js', 'utf8'), context);
 vm.runInContext(fs.readFileSync('outline.js', 'utf8'), context);
 const feature = context.DocFlowOutline;
 feature.owner = {id: 'plugin', openParseQueueDialog: () => {}, processParseQueue: async () => {}};

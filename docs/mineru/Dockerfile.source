@@ -1,0 +1,91 @@
+# ==========================================================
+# MinerU 4.x GPU - China
+# NVIDIA GPU / CUDA / vLLM
+# ==========================================================
+
+# CUDA 13.0
+FROM docker.m.daocloud.io/vllm/vllm-openai:v0.21.0
+
+# 如果驱动不支持 CUDA 13，可以改成：
+# FROM docker.m.daocloud.io/vllm/vllm-openai:v0.21.0-cu129
+
+
+# ----------------------------------------------------------
+# System dependencies
+# ----------------------------------------------------------
+
+RUN apt-get update && \
+    apt-get install -y \
+        libgl1 \
+        curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+
+# ----------------------------------------------------------
+# Install MinerU
+# 从当前构建目录安装源码；先切换到 4.0.10 并在源码上应用补丁
+# ----------------------------------------------------------
+
+COPY . /opt/mineru-source
+
+RUN cd /opt/mineru-source && \
+    python3 -m pip install -U '.[torch]' \
+    -i https://mirrors.aliyun.com/pypi/simple \
+    --break-system-packages && \
+    python3 -m pip cache purge
+
+
+# ----------------------------------------------------------
+# MinerU backend
+# ----------------------------------------------------------
+
+ENV MINERU_MODEL_SMALL_BACKEND=torch
+ENV MINERU_MODEL_VLM_ENGINE=vllm
+
+
+# ----------------------------------------------------------
+# Download models from ModelScope
+#
+# standard 模型可以支持：
+# basic
+# standard
+# advanced
+# ----------------------------------------------------------
+
+RUN mineru-kit models download \
+    --tier standard \
+    --small-backend torch \
+    --vlm-engine vllm \
+    --source modelscope
+
+
+# ----------------------------------------------------------
+# Validate patched source installation
+# ----------------------------------------------------------
+
+RUN python3 -c 'from importlib.metadata import version; assert version("mineru") == "4.0.10"' && \
+    MINERU_PACKAGE_DIR="$(python3 -c 'from importlib.util import find_spec; from pathlib import Path; print(Path(find_spec("mineru").origin).parent)')" && \
+    python3 -m py_compile "$MINERU_PACKAGE_DIR/utils/page_progress.py" "$MINERU_PACKAGE_DIR/backend/analysis/pdf/window.py" "$MINERU_PACKAGE_DIR/parser/api_server.py"
+
+
+# ----------------------------------------------------------
+# Runtime model source / PDF processing window
+# ----------------------------------------------------------
+
+ENV MINERU_MODEL_SOURCE=local
+ENV MINERU_PROCESSING_WINDOW_SIZE=8
+
+
+# ----------------------------------------------------------
+# API port
+# ----------------------------------------------------------
+
+EXPOSE 8000
+
+
+# ----------------------------------------------------------
+# 默认启动 MinerU API Server
+# ----------------------------------------------------------
+
+CMD ["mineru-kit", "api-server", "--host", "0.0.0.0", "--port", "8000", "--tier", "standard"]

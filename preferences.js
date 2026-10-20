@@ -4,9 +4,9 @@ var DocFlowPreferences = {
 	loadedAPIMode: null,
 	API_FIELDS: ["apiBaseURL", "apiToken", "modelVersion", "pollIntervalSec", "timeoutSec"],
 	LLM_PROVIDER_LIMIT: 5,
-	LLM_PROVIDER_FIELDS: ["llmProviderName", "llmApiBaseURL", "llmApiKey", "llmModel", "llmModel2", "llmModelContext", "llmModelConcurrency", "llmModel2Context", "llmModel2Concurrency"],
+	LLM_PROVIDER_FIELDS: ["llmProviderName", "llmApiBaseURL", "llmApiKey", "llmModel", "llmModel2", "llmModelContext", "llmModelConcurrency", "llmModel2Context", "llmModel2Concurrency", "llmModelMaxOutput", "llmModel2MaxOutput"],
 	llmProviders: null,
-	WORK_KINDS: ["parent", "metadata", "summary", "ocr", "translate"],
+	WORK_KINDS: ["parent", "metadata", "summary", "ocr", "translate", "outline"],
 	workSettings: {},
 	loadedLLMProviderIndex: 0,
 	modelTests: {},
@@ -26,19 +26,19 @@ var DocFlowPreferences = {
 		{ id: "mineru-api-token", pref: "apiToken", type: "string" },
 		{ id: "mineru-model-version", pref: "modelVersion", type: "string" },
 		{ id: "mineru-cloud-language", pref: "cloudLanguage", type: "string", defaultValue: "auto" },
-		{ id: "mineru-note-include-images", pref: "noteIncludeImages", type: "bool" },
 		{ id: "mineru-poll-interval-sec", pref: "pollIntervalSec", type: "int" },
 		{ id: "mineru-timeout-sec", pref: "timeoutSec", type: "int" },
 		{ id: "mineru-local-job-timeout-sec", pref: "localJobTimeoutSec", type: "int", defaultValue: 7200 },
-		{ id: "mineru-note-title-prefix", pref: "noteTitlePrefix", type: "string" },
 		{ id: "mineru-llm-provider-name", pref: "llmProviderName", type: "string", defaultValue: "供应商 1" },
 		{ id: "mineru-llm-api-base-url", pref: "llmApiBaseURL", type: "string" },
 		{ id: "mineru-llm-api-key", pref: "llmApiKey", type: "string" },
 		{ id: "mineru-llm-model", pref: "llmModel", type: "string" },
 		{ id: "mineru-llm-model-2", pref: "llmModel2", type: "string" },
 		{ id: "ocrflow-model-1-context", pref: "llmModelContext", type: "context" },
+		{ id: "ocrflow-model-1-max-output", pref: "llmModelMaxOutput", type: "output" },
 		{ id: "ocrflow-model-1-concurrency", pref: "llmModelConcurrency", type: "optional-int", min: 1, max: 8 },
 		{ id: "ocrflow-model-2-context", pref: "llmModel2Context", type: "context" },
+		{ id: "ocrflow-model-2-max-output", pref: "llmModel2MaxOutput", type: "output" },
 		{ id: "ocrflow-model-2-concurrency", pref: "llmModel2Concurrency", type: "optional-int", min: 1, max: 8 },
 		{ id: "mineru-summary-language", pref: "summaryLanguage", type: "string" },
 		{ id: "mineru-summary-prompt", pref: "summaryPrompt", type: "string" },
@@ -71,7 +71,7 @@ var DocFlowPreferences = {
 		if (name === "markitdownBaseURL") return "markitdown";
 		if (this.API_FIELDS.includes(name) || ["apiMode", "localJobTimeoutSec", "cloudLanguage"].includes(name)) return "mineru";
 		if (this.LLM_PROVIDER_FIELDS.includes(name)) return "ai";
-		if (["summaryPrompt", "summaryRequestJSON", "translateRequestJSON"].includes(name)) return "work";
+		if (["summaryPrompt", "summaryRequestJSON", "translateRequestJSON", "summaryLanguage", "translateLanguage", "translateChunkSize", "translateRetryCount", "translateOutputFormat", "translateMode", "autoOutline", "outlineUseAI"].includes(name)) return "work";
 		return "all";
 	},
 
@@ -188,7 +188,7 @@ var DocFlowPreferences = {
 		let provider = this.llmProviders[this.loadedLLMProviderIndex];
 		for (let field of this.FIELDS.filter(field => this.LLM_PROVIDER_FIELDS.includes(field.pref))) {
 			let value = provider[field.pref] || "";
-			this.$(field.id).value = field.type === "context" && value ? this.formatContextTokens(Number(value)) : String(value);
+			this.$(field.id).value = ["context", "output"].includes(field.type) && value ? this.formatContextTokens(Number(value)) : String(value);
 		}
 		this.persistLLMProviders();
 		this.renderLLMProviders();
@@ -263,7 +263,7 @@ var DocFlowPreferences = {
 	},
 
 	formatContextTokens(tokens) {
-		return tokens >= 1048576 ? `${tokens / 1048576}M` : `${tokens / 1024}K`;
+		return tokens < 1024 ? String(tokens) : tokens >= 1048576 ? `${tokens / 1048576}M` : `${tokens / 1024}K`;
 	},
 
 	parseContextTokens(value) {
@@ -274,12 +274,21 @@ var DocFlowPreferences = {
 		return tokens;
 	},
 
+	parseOutputTokens(value) {
+		if (!value.trim()) return "";
+		let match = value.trim().match(/^(\d+(?:\.\d+)?|\.\d+)\s*([km])?$/i);
+		let tokens = match ? Number(match[1]) * (match[2]?.toUpperCase() === "M" ? 1048576 : match[2] ? 1024 : 1) : NaN;
+		if (!Number.isSafeInteger(tokens) || tokens < 1) throw new Error("最大输出长度请输入正整数 tokens，或 8K、16K 等格式；留空使用工作默认值。");
+		return tokens;
+	},
+
 	modelChoices() {
 		return this.llmProviders.flatMap(provider => [1, 2].filter(slot => provider[slot === 1 ? "llmModel" : "llmModel2"]?.trim()).map(slot => ({
 			value: provider.id + ":" + slot,
 			label: `${provider.llmProviderName || "未命名配置"} + ${provider[slot === 1 ? "llmModel" : "llmModel2"]}`,
 			context: Number(provider[slot === 1 ? "llmModelContext" : "llmModel2Context"]) || 32768,
-			concurrency: Number(provider[slot === 1 ? "llmModelConcurrency" : "llmModel2Concurrency"]) || 1
+			concurrency: Number(provider[slot === 1 ? "llmModelConcurrency" : "llmModel2Concurrency"]) || 1,
+			output: Number(provider[slot === 1 ? "llmModelMaxOutput" : "llmModel2MaxOutput"]) || 0
 		})));
 	},
 
@@ -290,6 +299,7 @@ var DocFlowPreferences = {
 
 	loadWorkSettings() {
 		for (let kind of this.WORK_KINDS) {
+			this.$("ocrflow-work-" + kind + "-default").value = OCRFlowPrompts.defaults[kind];
 			for (let field of ["prompt", "params"]) {
 				let input = this.$(this.workFieldID(kind, field));
 				let legacy = ({ "summary-prompt": "summaryPrompt", "summary-params": "summaryRequestJSON", "translate-params": "translateRequestJSON" })[kind + "-" + field];
@@ -300,9 +310,11 @@ var DocFlowPreferences = {
 					let id = selected.slice(0, selected.lastIndexOf(":"));
 					legacyValue = this.llmProviders.find(provider => provider.id === id)?.[legacy] || "";
 				}
-				input.value = String(this.workSettings[kind]?.[field] ?? legacyValue);
+				let value = String(this.workSettings[kind]?.[field] ?? legacyValue);
+				input.value = field === "prompt" ? value || OCRFlowPrompts.defaults[kind] : value;
 			}
 		}
+		for (let kind of ["parent", "metadata"]) this.$("ocrflow-work-" + kind + "-format").value = OCRFlowPrompts.metadataFormat();
 		this.renderWorkModels();
 	},
 
@@ -328,7 +340,7 @@ var DocFlowPreferences = {
 		for (let kind of this.WORK_KINDS) {
 			let selected = this.$("ocrflow-work-" + kind + "-model").value;
 			let choice = choices.find(option => option.value === (selected === "default" ? defaultModel : selected));
-			this.$("ocrflow-work-" + kind + "-actual").textContent = choice ? `实际使用：${choice.label} · 并发 ${choice.concurrency} · 上下文 ${this.formatContextTokens(choice.context)}` : "请先填写服务商模型";
+			this.$("ocrflow-work-" + kind + "-actual").textContent = choice ? `实际使用：${choice.label} · 并发 ${choice.concurrency} · 上下文 ${this.formatContextTokens(choice.context)} · 输出 ${choice.output ? this.formatContextTokens(choice.output) : "按工作默认"}` : "请先填写服务商模型";
 		}
 	},
 
@@ -346,7 +358,7 @@ var DocFlowPreferences = {
 				let input = this.$(this.workFieldID(kind, field)), value = input.value.trim();
 				if (field === "params") this.mergeRequestPayload({}, this.parseOptionalJSONObject(value, "工作请求参数"), ["model", "messages", "stream", "response_format"]);
 
-				work[kind][field] = value;
+				work[kind][field] = field === "prompt" && value === OCRFlowPrompts.defaults[kind] ? "" : value;
 			}
 		}
 		return work;
@@ -394,6 +406,7 @@ var DocFlowPreferences = {
 				if (!input) continue;
 				let value = field.pref === "apiMode" ? apiMode : field.type === "bool" ? !!input.checked : input.value.trim();
 				if (field.type === "context") value = this.parseContextTokens(value);
+				if (field.type === "output") value = this.parseOutputTokens(value);
 				if (field.type === "optional-int" && value) {
 					value = Number(value);
 					if (!Number.isInteger(value) || value < field.min || (field.max && value > field.max)) {
@@ -406,10 +419,19 @@ var DocFlowPreferences = {
 						throw new Error("数值须为正整数；任务等待上限可为 0。");
 					}
 				}
+				if (field.pref === "summaryPrompt" && value === OCRFlowPrompts.defaults.summary) value = "";
 				if (["summaryRequestJSON", "translateRequestJSON"].includes(field.pref)) this.parseOptionalJSONObject(value, field.pref === "summaryRequestJSON" ? "总结额外 JSON 参数" : "翻译额外 JSON 参数");
 				if (["apiToken", "llmApiKey"].includes(field.pref)) value = value.replace(/^Bearer\s+/i, "");
 				updates.push([this.PREF_BRANCH + (this.API_FIELDS.includes(field.pref) ? profile + "." : "") + field.pref, value]);
 			}
+			if (["all", "ai"].includes(section)) for (let slot of [1, 2]) {
+				let contextPref = slot === 1 ? "llmModelContext" : "llmModel2Context";
+				let outputPref = slot === 1 ? "llmModelMaxOutput" : "llmModel2MaxOutput";
+				let context = updates.find(([name]) => name === this.PREF_BRANCH + contextPref)?.[1] || 32768;
+				let output = updates.find(([name]) => name === this.PREF_BRANCH + outputPref)?.[1];
+				if (output && output >= context) throw new Error(`模型 ${slot} 的最大输出长度必须小于上下文窗口，需为输入和提示词保留空间。`);
+			}
+
 		} catch (error) {
 			if (!silent) this.setStatus(error.message || String(error), true, section);
 			return false;
@@ -759,8 +781,13 @@ var DocFlowPreferences = {
 			for (let kind of ["default", ...this.WORK_KINDS]) {
 				this.$("ocrflow-work-" + kind + "-model").addEventListener("change", () => { this.updateWorkLabels(); this.setStatus("有未保存的修改"); });
 			}
+			this.$("ocrflow-work-save").addEventListener("click", () => this.saveSettings({ section: "work" }));
+			for (let kind of this.WORK_KINDS) this.$("ocrflow-work-" + kind + "-reset").addEventListener("click", () => {
+				this.$(this.workFieldID(kind, "prompt")).value = OCRFlowPrompts.defaults[kind];
+				this.setStatus("有未保存的修改", false, "work");
+			});
 			for (let kind of this.WORK_KINDS) for (let field of ["prompt", "params"]) {
-				this.$(this.workFieldID(kind, field)).addEventListener("input", () => this.setStatus("有未保存的修改"));
+				this.$(this.workFieldID(kind, field)).addEventListener("input", () => this.setStatus("有未保存的修改", false, "work"));
 			}
 			let saveButton = this.$("mineru-save-button");
 			if (saveButton) {

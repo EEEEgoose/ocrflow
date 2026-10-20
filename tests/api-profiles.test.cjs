@@ -7,7 +7,7 @@ const context = {
   Zotero: {Prefs: {get: key => prefs.get(key), set: (key, value) => prefs.set(key, value)}}
 };
 vm.createContext(context);
-for (const file of ['prefs.js', 'docflow.js', 'preferences.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
+for (const file of ['prompts.js','prefs.js', 'docflow.js', 'preferences.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
 const panel = context.DocFlowPreferences, plugin = context.DocFlow;
 panel.renderLLMProviders = () => {}; // This fixture renders MinerU controls only.
 const prefix = panel.PREF_BRANCH;
