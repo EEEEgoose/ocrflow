@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"
+        xmlns:html="http://www.w3.org/1999/xhtml"
+        id="mineru-task-queue"
+        width="960" height="600" persist="width height">
+  <head>
+    <meta charset="utf-8" />
+    <title>OCRFlow — 任务队列</title>
+    <link rel="stylesheet" href="chrome://docflow/content/task-queue.css" />
+  </head>
+  <body>
+    <html:div class="queue-shell">
+      <html:h2>OCRFlow 任务队列</html:h2>
+      <html:p id="queue-summary" role="status">暂无任务</html:p>
+      <html:div class="queue-list">
+      <html:div id="queue-scroll" class="queue-scroll" tabindex="0" aria-label="任务列表">
+        <html:table>
+          <html:colgroup>
+            <html:col class="number-column" />
+            <html:col class="file-column" />
+            <html:col class="state-column" />
+            <html:col />
+            <html:col class="action-column" />
+          </html:colgroup>
+          <html:thead><html:tr>
+            <html:th scope="col">序号</html:th>
+            <html:th scope="col">文件 / 接口</html:th>
+            <html:th scope="col">状态</html:th>
+            <html:th scope="col">进度 / 错误</html:th>
+            <html:th scope="col">操作</html:th>
+          </html:tr></html:thead>
+          <html:tbody id="queue-body" />
+        </html:table>
+      </html:div>
+      <html:div id="queue-scrollbar" class="queue-scrollbar" role="scrollbar" tabindex="0"
+                aria-label="任务列表纵向滚动条" aria-controls="queue-scroll" aria-orientation="vertical"
+                aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+        <html:div id="queue-scroll-thumb" class="queue-scroll-thumb" />
+      </html:div>
+      </html:div>
+      <html:div class="queue-actions">
+        <html:button id="queue-retry-failed" type="button" disabled="disabled">重试全部失败项</html:button>
+        <html:button id="queue-clear" type="button" disabled="disabled">清除已结束任务</html:button>
+        <html:button id="queue-close" type="button">关闭</html:button>
+      </html:div>
+      <html:p id="queue-copy-status" role="status" aria-live="polite" />
+      <html:p class="queue-help">拖选文字后按 ⌘C（macOS）或 Ctrl+C 复制。每行“复制”可复制该条任务的完整信息。文档依次处理；建立父条目可按工作并发设置批量处理。每行可终止排队或运行中的任务，本地 V1 会请求取消服务端任务；官方云端任务仅停止客户端处理。保存阶段不可中断。“清除已结束任务”移除完成、失败和已终止的记录，保留进行中、等待已结束和取消未确认的任务。关闭窗口后队列继续运行，可从 OCRFlow 设置页重新打开。队列保留在当前 Zotero 会话中；本地等待超时的任务可继续查询原任务 ID。</html:p>
+    </html:div>
+    <script src="chrome://docflow/content/task-queue.js"></script>
+  </body>
+</html>

@@ -1,0 +1,375 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = require('node:path').posix;
+const {test} = require('node:test');
+
+function setup({mcp=false}={}) {
+  const items = new Map(), files = new Map(), prefs = new Map(), requests = [], uploads = [], mcpCalls = [];
+  let nextID = 1;
+  class Item {
+    constructor(type = 'attachment') {
+      this.id = nextID++; this.key = 'K' + this.id; this.libraryID = 1;
+      this.type = type; this.itemTypeID = type; this.fields = {}; this.tags = [];
+      this.relatedItems = []; this.creators = []; items.set(this.id, this);
+    }
+    get parentItemID() {return this.parentID || null;}
+    isAttachment() {return this.type === 'attachment';}
+    isNote() {return this.type === 'note';}
+    isRegularItem() {return !this.isAttachment() && !this.isNote();}
+    isPDFAttachment() {return this.isAttachment() && this.attachmentFilename?.endsWith('.pdf');}
+    getField(field) {return this.fields[field] || '';}
+    setField(field, value) {this.fields[field] = value;}
+    setType(type) {this.type = type; this.itemTypeID = type;}
+    getCollections() {return [42];}
+    setCollections(ids) {this.collections = Array.from(ids);}
+    getCreatorsJSON() {return this.creators;}
+    setCreators(creators) {this.creators = creators;}
+    getTags() {return this.tags.map(tag => ({tag}));}
+    hasTag(tag) {return this.tags.includes(tag);}
+    addTag(tag) {if (!this.hasTag(tag)) this.tags.push(tag);}
+    addRelatedItem(item) {if (this.relatedItems.includes(item.key)) return false; this.relatedItems.push(item.key); return true;}
+    getAttachments() {return [...items.values()].filter(item => item.parentID === this.id && item.isAttachment() && !item.deleted).map(item => item.id);}
+    getNotes() {return [...items.values()].filter(item => item.parentID === this.id && item.isNote()).map(item => item.id);}
+    getFilePath() {return this.path;}
+    setNote(text) {this.note = text;}
+    loadAllData() {return Promise.resolve();}
+    save() {return Promise.resolve(this.id);}
+    saveTx() {return this.save();}
+    eraseTx() {items.delete(this.id); return Promise.resolve();}
+  }
+  let reply = () => '学术总结';
+  const fetch = async (url, options) => {
+    if(url.endsWith('/health')) return {ok:!mcp,status:mcp?404:200,json:async()=>({status:'ok'})};
+    if(mcp && url.endsWith('/mcp/')) {
+      const payload=JSON.parse(options.body);mcpCalls.push(payload);
+      const result=payload.method==='initialize'?{protocolVersion:'2024-11-05',serverInfo:{name:'markitdown'}}:{content:[{type:'text',text:'# MCP converted EPUB'}]};
+      return {ok:true,headers:{get:()=>null},text:async()=>JSON.stringify({jsonrpc:'2.0',id:payload.id,result})};
+    }
+    const payload = JSON.parse(options.body); requests.push({url, payload, signal: options.signal});
+    return {ok: true, json: async () => ({choices: [{finish_reason: 'stop', message: {content: await reply(payload)}}]})};
+  };
+  const win = {AbortController, FormData, Blob, fetch: async (url, options) => {
+    uploads.push({url, form: options.body});
+    return {ok: true, json: async () => ({markdown: '# 正文\n\n完整文档内容'})};
+  }};
+  const context = {
+    TextDecoder, TextEncoder, Uint8Array, ArrayBuffer, URL, setTimeout, clearTimeout, atob, btoa, fetch,
+    PathUtils: {join: path.join, parent: path.dirname, tempDir: '/tmp'},
+    IOUtils: {
+      exists: async name => files.has(name),
+      getChildren: async dir => Array.from(files.keys()).filter(name => path.dirname(name) === dir),
+      read: async name => {if (!files.has(name)) throw new Error('missing ' + name); return files.get(name);},
+      write: async (name, bytes) => files.set(name, bytes),
+      writeUTF8: async (name, text) => files.set(name, new TextEncoder().encode(text)),
+      makeDirectory: async () => {}, remove: async () => {}
+    },
+    Zotero: {
+      Item, debug: () => {}, logError: () => {}, getMainWindow: () => win,
+      Items: {get: id => items.get(id), getByLibraryAndKey: (library, key) => [...items.values()].find(item => item.libraryID === library && item.key === key)},
+      Prefs: {get: key => prefs.get(key), set: (key, value) => prefs.set(key, value)},
+      DB: {executeTransaction: fn => fn()},
+      ItemTypes: {getID: type => type}, ItemFields: {isValidForType: () => true},
+      CreatorTypes: {getID: type => type, isValidForItemType: () => true},
+      Attachments: {importFromFile: async options => {
+        const item = new Item(); item.parentID = options.parentItemID; item.fields.title = options.title;
+        item.attachmentFilename = path.basename(options.file); item.attachmentContentType = options.contentType;
+        item.path = '/storage/' + item.key + '/' + item.attachmentFilename;
+        files.set(item.path, files.get(options.file)); return item;
+      }}
+    }
+  };
+  vm.createContext(context);
+  for (const filename of ['docflow.js','markitdown.js','metadata.js','workflow.js']) vm.runInContext(fs.readFileSync(filename,'utf8'),context);
+  const plugin = context.DocFlow;
+  plugin.openParseQueueDialog = () => {}; plugin.refreshParseQueueDialog = () => {};
+  plugin.mathRenderer = require('../vendor/katex/katex.min.js');
+  const put = (name, text) => files.set(name, new TextEncoder().encode(text));
+  const file = (name, parent) => {
+    const item = new Item(); item.attachmentFilename = name; item.fields.title = name;
+    item.path = '/source/' + item.key + '/' + name; item.parentID = parent?.id; put(item.path, 'file bytes'); return item;
+  };
+  const parsed = (original, text) => {
+    const result = file(original.key + '.md', items.get(original.parentID)); result.addTag('#DocFlow-Parse');
+    original.addRelatedItem(result); result.addRelatedItem(original); put(result.path, text); return result;
+  };
+  for (const [key,value] of Object.entries({llmApiBaseURL:'https://ai.example/v1',llmModel:'test',parserService:'markitdown',markitdownBaseURL:'http://converter.example',parseGenerateHTML:true})) prefs.set('extensions.docflow.' + key,value);
+  return {plugin, context, items, files, prefs, requests, uploads, mcpCalls, file, parsed, put, Item, setReply: fn => reply = fn};
+}
+
+test('manual defaults and menu dispatch; file-name action creates only the parent and moves related text', async () => {
+  const s = setup();
+  const defaults = new Map(); vm.runInNewContext(fs.readFileSync('prefs.js','utf8'),{pref:(key,value)=>defaults.set(key,value)});
+  assert.equal(defaults.get('extensions.docflow.autoOutline'),false);
+  assert.equal(defaults.get('extensions.docflow.parseGenerateHTML'),true);
+  assert.equal(defaults.has('extensions.docflow.autoImport'),false);
+  assert.deepEqual(Array.from(s.plugin.getContextMenuDefinitions().slice(0,4), item => item.label),['建立父条目','建立文本 OCR / 转为 Markdown','补充父条目信息','总结文档']);
+  const original = s.file('Smith 2024 History.epub');
+  const markdown = s.parsed(original,'SECRET FULL TEXT MUST NOT BE SENT');
+  s.setReply(() => JSON.stringify({itemType:'book',title:'History',date:'2024',creators:[{lastName:'Smith',creatorType:'author'}]}));
+  await s.plugin.handleDocumentCommand('parent',{selectedItems:[original]});
+  assert.equal(s.requests.length,1); assert.equal(s.uploads.length,0);
+  const sent = JSON.stringify(s.requests[0].payload); assert(sent.includes('Smith 2024 History.epub')); assert(!sent.includes('SECRET FULL TEXT'));
+  const parent = s.items.get(original.parentID); assert.equal(parent.getField('title'),'History');
+  assert.deepEqual(parent.collections,[42]); assert.equal(markdown.parentID,parent.id); assert.equal(original.getField('title'),'Smith 2024 History.epub');
+  await assert.rejects(() => s.plugin.handleDocumentCommand('parent',{selectedItems:[original]}),/尚无父条目/);
+  assert.equal(s.requests.length,1);
+});
+
+test('PDF and EPUB convert full files, preserve their names, and save required formats with source relations', async () => {
+  const s = setup(); const parent = new s.Item('book'); parent.setField('title','书籍');
+  const pdf = s.file('document.pdf',parent), epub = s.file('book.epub',parent);
+  await s.plugin.handleParseCommand({selectedItems:[pdf,epub]});
+  assert.deepEqual(Array.from(s.plugin.parseQueue, task => task.state),['completed','completed']);
+  assert.equal(s.requests.length,0,'OCR must not start metadata or summary requests');
+  assert.equal(s.uploads.length,2); assert.equal(s.uploads[0].form.get('file').name,'document.pdf'); assert.equal(s.uploads[1].form.get('file').name,'book.epub');
+  const pdfResult=s.plugin.findDocumentMarkdown(pdf), epubResult=s.plugin.findDocumentMarkdown(epub);
+  assert(pdfResult.attachmentFilename.endsWith('.html')); assert(epubResult.attachmentFilename.endsWith('.md'));
+  const companion = pdfResult.path.replace(/\.html$/,'.md'); assert(s.files.has(companion));
+  assert(new TextDecoder().decode(s.files.get(companion)).includes('完整文档内容'));
+  assert(pdfResult.relatedItems.includes(pdf.key)); assert(epubResult.relatedItems.includes(epub.key));
+  assert.equal(s.plugin.collectSourceFiles([parent]).length,2,'generated HTML must not be offered for re-OCR');
+});
+
+test('metadata reads the selected document Markdown, corrects initial fields and leaves missing fields intact', async () => {
+  const s=setup(); const parent=new s.Item('book'); parent.setField('title','filename guess'); parent.setField('ISBN','keep-isbn');
+  const a=s.file('first.pdf',parent), b=s.file('second.pdf',parent);
+  s.parsed(a,'WRONG_DOCUMENT'); s.parsed(b,'RIGHT_DOCUMENT\nPublisher proof');
+  s.setReply(payload => {assert(JSON.stringify(payload).includes('RIGHT_DOCUMENT')); assert(!JSON.stringify(payload).includes('WRONG_DOCUMENT'));
+    return JSON.stringify({itemType:'book',title:'Correct title',publisher:'Publisher',ISBN:'',creators:[]});});
+  await s.plugin.handleDocumentCommand('metadata',{selectedItems:[b]});
+  assert.equal(s.plugin.parseQueue[0].state,'completed'); assert.equal(parent.getField('title'),'Correct title'); assert.equal(parent.getField('ISBN'),'keep-isbn');
+  assert.equal(s.uploads.length,0);
+});
+
+test('metadata enrichment saves a Chinese title translation in shortTitle and preserves the original title and language',async()=>{
+  for(const [language,title,translated] of [
+    ['fr','Étude d’un document','文献研究'],['ar','دراسة في التاريخ','历史研究'],['ja','近代日本の思想','近代日本思想']
+  ]) {
+    const s=setup(),parent=new s.Item('book'),original=s.file('book.pdf',parent);
+    parent.setField('title',title);parent.setField('language',language);parent.setField('publisher','keep-publisher');
+    s.parsed(original,'Title: '+title+'\nPublication language: '+language);
+    s.setReply(payload=>{
+      const system=payload.messages[0].content;
+      assert(system.includes('shortTitle 必须填写该题名的完整简体中文译名'));
+      assert(system.includes('title 必须保留完整原文题名'));assert(system.includes('日文等非中文资料也需要中文译名'));
+      return JSON.stringify({itemType:'book',title,shortTitle:translated,language,creators:[]});
+    });
+    await s.plugin.handleDocumentCommand('metadata',{selectedItems:[original]});
+    assert.equal(s.plugin.parseQueue[0].state,'completed');assert.equal(parent.getField('title'),title);
+    assert.equal(parent.getField('shortTitle'),translated);assert.equal(parent.getField('language'),language);assert.equal(parent.getField('publisher'),'keep-publisher');
+    assert.equal(s.requests.length,1,'translation shares the metadata request');
+  }
+});
+
+test('Chinese metadata and missing translation results do not erase an existing short title',async()=>{
+  for(const language of ['zh-CN','fr']) {
+    const s=setup(),parent=new s.Item('book'),original=s.file('book.pdf',parent);
+    parent.setField('title',language==='fr'?'Étude d’un document':'文献研究');parent.setField('shortTitle','已有短标题');
+    s.parsed(original,'Publication language: '+language);
+    s.setReply(payload=>{
+      assert(payload.messages[0].content.includes('中文版本不另行翻译题名'));
+      return JSON.stringify({title:parent.getField('title'),shortTitle:'',language,creators:[]});
+    });
+    await s.plugin.handleDocumentCommand('metadata',{selectedItems:[original]});
+    assert.equal(s.plugin.parseQueue[0].state,'completed');assert.equal(parent.getField('shortTitle'),'已有短标题');
+  }
+});
+
+test('later document chunks cannot replace a title translation identified on publication pages',async()=>{
+  const s=setup(),parent=new s.Item('book'),original=s.file('long.pdf',parent);
+  s.parsed(original,'Étude d’un document\n\n'+'正文分段\n\n'.repeat(9000));
+  s.setReply(()=>JSON.stringify(s.requests.length===1?{title:'Étude d’un document',shortTitle:'文献研究',language:'fr'}:{title:'A cited book',shortTitle:'参考文献书名',language:'en'}));
+  await s.plugin.handleDocumentCommand('metadata',{selectedItems:[original]});
+  assert.equal(s.plugin.parseQueue[0].state,'completed');assert(s.requests.length>1);
+  assert.equal(parent.getField('title'),'Étude d’un document');assert.equal(parent.getField('shortTitle'),'文献研究');assert.equal(parent.getField('language'),'fr');
+});
+
+test('filename-only parent creation keeps its existing original-language behavior',async()=>{
+  const s=setup(),original=s.file('Étude d’un document.pdf');
+  s.setReply(payload=>{
+    assert(payload.messages[0].content.includes('外文文献保持其原文，不翻译成中文。'));
+    assert(!payload.messages[0].content.includes('shortTitle 必须填写该题名的完整简体中文译名'));
+    return JSON.stringify({itemType:'book',title:'Étude d’un document',shortTitle:'Étude',language:'fr'});
+  });
+  await s.plugin.handleDocumentCommand('parent',{selectedItems:[original]});
+  const parent=s.items.get(original.parentID);assert.equal(parent.getField('shortTitle'),'Étude');
+});
+
+test('missing Markdown and missing parent fail without starting hidden OCR or creating items', async () => {
+  const s=setup(); const parent=new s.Item('book'), original=s.file('missing.pdf',parent), independent=s.file('alone.pdf');
+  s.parsed(independent,'body');
+  await s.plugin.handleDocumentCommand('summary',{selectedItems:[original,independent]});
+  assert.deepEqual(Array.from(s.plugin.parseQueue, task => task.state),['failed','failed']);
+  assert.match(s.plugin.parseQueue[0].error,/Markdown/); assert.match(s.plugin.parseQueue[1].error,/父条目/);
+  assert.equal(s.requests.length,0); assert.equal(s.uploads.length,0); assert.equal(parent.getNotes().length,0);
+});
+
+test('long document summaries include the tail and reruns update only the matching note', async () => {
+  const s=setup(), parent=new s.Item('book'); const a=s.file('long.pdf',parent), b=s.file('other.pdf',parent);
+  s.parsed(a,'FIRST_SECTION\n\n' + '正文 evidence\n\n'.repeat(8000) + 'TAIL_MUST_BE_READ'); s.parsed(b,'OTHER_DOCUMENT');
+  s.setReply(payload => JSON.stringify(payload).includes('TAIL_MUST_BE_READ') ? '末尾结论：TAIL_EVIDENCE' : '学术摘要');
+  await s.plugin.handleDocumentCommand('summary',{selectedItems:[a]});
+  assert.equal(s.plugin.parseQueue.at(-1).state,'completed');
+  assert(s.requests.some(({payload}) => JSON.stringify(payload).includes('TAIL_MUST_BE_READ')));
+  assert(s.requests.at(-1).payload.messages[1].content.includes('TAIL_EVIDENCE'));
+  assert.equal(parent.getNotes().length,1); const firstNote=s.items.get(parent.getNotes()[0]); assert(firstNote.relatedItems.includes(a.key));
+  s.setReply(() => 'UPDATED SUMMARY'); await s.plugin.handleDocumentCommand('summary',{selectedItems:[a,b]});
+  assert.equal(parent.getNotes().length,2); assert(firstNote.note.includes('UPDATED SUMMARY'));
+  assert(s.items.get(parent.getNotes()[1]).relatedItems.includes(b.key));
+});
+
+test('AI OCR sends image content', async () => {
+  const s=setup(); const image=s.file('scan.png'); s.prefs.set('extensions.docflow.parserService','ai');
+  s.setReply(payload => {const input=payload.messages[1].content; assert.equal(input[1].type,'image_url'); return 'recognized page';});
+  let settings=s.plugin.getSettings();
+  const result=await s.plugin.parseAttachmentWithMineru(image,settings,{signal:new AbortController().signal});
+  assert(result.markdownText.includes('recognized page')); assert.equal(settings.outputFormat,'html');
+});
+
+for (const alreadyOpen of [true,false]) test(`PDF AI OCR ${alreadyOpen?'reuses an open':'opens a new'} Zotero 10 reader and processes every page`, async () => {
+  const s=setup(),pdf=s.file('scan.pdf'); let rendered=0,opened=0;
+  const canvas={getContext:()=>({}), toDataURL:()=> 'data:image/jpeg;base64,YQ=='};
+  const readerRealm=vm.runInNewContext('({Object})');
+  let initialized=false,viewReady=false;
+  const reader={itemID:pdf.id,_initPromise:Promise.resolve().then(()=>{
+    initialized=true;
+    reader._internalReader={_primaryView:{initializedPromise:Promise.resolve().then(()=>{viewReady=true;}),_iframeWindow:{...readerRealm,document:{createElement:()=>canvas}}}};
+  })};
+  s.context.Zotero.Reader={
+    _readers:[{itemID:pdf.id,_isTabClosed:true},...(alreadyOpen?[reader]:[])],
+    open:async(id,location,options)=>{opened++;assert.equal(id,pdf.id);assert.equal(options.openInBackground,true);return reader;}
+  };
+  s.plugin.outline={getReaderApp:()=>{
+    assert(initialized);assert(viewReady);
+    return {pdfDocument:{numPages:3,getPage:async()=>{
+      const page={
+        getViewport:options=>{assert.equal(Object.getPrototypeOf(options),readerRealm.Object.prototype);return {width:100*options.scale,height:200*options.scale};},
+        render:options=>{assert.equal(Object.getPrototypeOf(options),readerRealm.Object.prototype);assert(options.canvasContext);assert(options.viewport);rendered++;return {promise:Promise.resolve()};}
+      };
+      return alreadyOpen?page:{wrappedJSObject:page};
+    }}};
+  }};
+  s.setReply(()=>`recognized page ${s.requests.length}`);
+  const full=await s.plugin.parseWithVision(pdf,s.plugin.getSettings().llmSettings,{signal:new AbortController().signal});
+  assert.equal(opened,alreadyOpen?0:1);assert.equal(rendered,3); assert.equal(full.outlinePages.length,3); assert.equal(s.requests.length,3);
+  assert.deepEqual(Array.from(full.outlinePages),['recognized page 1','recognized page 2','recognized page 3']);
+  assert(full.markdownText.indexOf('recognized page 1')<full.markdownText.indexOf('recognized page 3'));
+  assert.equal(canvas.width,0);assert.equal(canvas.height,0);
+});
+
+test('canceling a metadata task while AI is in flight prevents field writes', async () => {
+  const s=setup(), parent=new s.Item('book'); parent.setField('title','before'); const original=s.file('test.pdf',parent); s.parsed(original,'body');
+  let release, started; const gate=new Promise(resolve=>release=resolve), inFlight=new Promise(resolve=>started=resolve);
+  s.setReply(async()=>{started(); await gate; return JSON.stringify({title:'must not be written',creators:[]});});
+  const running=s.plugin.handleDocumentCommand('metadata',{selectedItems:[original]}); await inFlight;
+  await s.plugin.cancelParseQueueTask(s.plugin.parseQueue[0].id); release(); await running;
+  assert.equal(parent.getField('title'),'before'); assert.equal(s.plugin.parseQueue[0].state,'canceled');
+});
+
+test('source selection uses the latest related text while an explicitly chosen older Markdown is respected', async () => {
+  const s=setup(), parent=new s.Item('book'), original=s.file('versioned.pdf',parent);
+  const old=s.parsed(original,'OLD_VERSION'), latest=s.parsed(original,'LATEST_VERSION');
+  original.relatedItems.reverse();
+  assert.equal(s.plugin.findDocumentMarkdown(original),latest);
+  s.setReply(payload => {
+    const text=JSON.stringify(payload);
+    assert(text.includes('OLD_VERSION')); assert(!text.includes('LATEST_VERSION'));
+    return JSON.stringify({title:'From chosen old version',creators:[]});
+  });
+  await s.plugin.handleDocumentCommand('metadata',{selectedItems:[old]});
+  assert.equal(s.plugin.parseQueue.at(-1).state,'completed');
+  assert.equal(parent.getField('title'),'From chosen old version');
+});
+
+test('retrying an EPUB save failure keeps Markdown output and reuses the completed conversion', async () => {
+  const s=setup(), original=s.file('retry.epub');
+  const importer=s.context.Zotero.Attachments.importFromFile;
+  let attempts=0;
+  s.context.Zotero.Attachments.importFromFile=async options => {
+    if (++attempts===1) throw new Error('disk full');
+    return importer(options);
+  };
+  await s.plugin.handleParseCommand({selectedItems:[original]});
+  const task=s.plugin.parseQueue[0]; assert.equal(task.state,'failed'); assert(task.parsedResult);
+  await s.plugin.retryParseQueueTasks([task.id]);
+  assert.equal(task.state,'completed'); assert.equal(s.uploads.length,1);
+  assert(s.plugin.findDocumentMarkdown(original).attachmentFilename.endsWith('.md'));
+});
+
+test('HTML and source relations remain optional throughout extraction and saving',async()=>{
+  for(const html of [true,false]) for(const related of [true,false]) {
+    const s=setup(), parent=new s.Item('book'), original=s.file('optional.pdf',parent);
+    s.prefs.set('extensions.docflow.parseGenerateHTML',html);s.prefs.set('extensions.docflow.parseLinkSourcePDF',related);
+    await s.plugin.handleParseCommand({selectedItems:[original]});
+    assert.equal(s.plugin.parseQueue[0].state,'completed');
+    const result=[...s.items.values()].find(item=>item.hasTag('#DocFlow-Parse'));
+    assert(result.attachmentFilename.endsWith(html?'.html':'.md'));
+    assert.equal(original.relatedItems.includes(result.key),related);assert.equal(result.relatedItems.includes(original.key),related);
+  }
+});
+
+test('a MarkItDown MCP service receives document bytes as a data URI and saves its Markdown result',async()=>{
+  const s=setup({mcp:true}),original=s.file('book.epub');
+  await s.plugin.handleParseCommand({selectedItems:[original]});
+  assert.equal(s.plugin.parseQueue[0].state,'completed');
+  assert.equal(s.uploads.length,0,'MCP conversion must not call the REST upload endpoint');
+  const conversion=s.mcpCalls.find(call=>call.method==='tools/call');
+  assert.equal(conversion.params.name,'convert_to_markdown');
+  assert(conversion.params.arguments.uri.startsWith('data:application/epub+zip;base64,'));
+  const markdown=s.plugin.findDocumentMarkdown(original);
+  assert((await s.plugin.readSourceMarkdown(markdown)).markdown.includes('MCP converted EPUB'));
+});
+
+function oversizedEPUB(s, {failBatch=0,cancel}={}) {
+  const original=s.context.fetch,converted=[];
+  s.plugin.readEPUBForMarkItDown=async()=>({metadata:'**Title:** Test book',html:'chapter bodies',chapters:2,
+    embeddedImages:[{id:'img-1',marker:'docflow-image://img-1',fileName:'cover.jpg',mimeType:'image/jpeg',bytes:Uint8Array.from([1,2,3])}]});
+  s.plugin.splitMarkItDownHTML=()=>['<h1>Chapter One</h1>','<h1>Chapter Two</h1>'];
+  s.context.fetch=async(url,options={})=>{
+    const request=options.body&&JSON.parse(options.body);
+    if(request?.method!=='tools/call')return original(url,options);
+    const uri=request.params.arguments.uri;
+    if(uri.startsWith('data:application/epub+zip;'))return {ok:false,status:413,text:async()=>'Payload Too Large'};
+    assert(uri.startsWith('data:text/html;base64,'));
+    converted.push(new TextDecoder().decode(Uint8Array.from(atob(uri.split(',')[1]),c=>c.charCodeAt(0))));
+    if(cancel)cancel.abort();
+    return {ok:true,headers:{get:()=>null},text:async()=>JSON.stringify({id:2,result:{isError:converted.length===failBatch,content:[{type:'text',text:converted.length===failBatch?'conversion failed':`# Chapter ${converted.length}`+(converted.length===1?'\n\n![cover](docflow-image://img-1)':'')}]}})};
+  };
+  return converted;
+}
+
+test('an oversized EPUB switches to ordered HTML batches and saves one complete Markdown attachment',async()=>{
+  const s=setup({mcp:true}),original=s.file('large.epub'),converted=oversizedEPUB(s);
+  await s.plugin.handleParseCommand({selectedItems:[original]});
+  assert.equal(s.plugin.parseQueue[0].state,'completed');assert.equal(converted.length,2);
+  assert(converted[0].includes('Chapter One'));assert(converted[1].includes('Chapter Two'));
+  const results=[...s.items.values()].filter(item=>item.hasTag('#DocFlow-Parse'));assert.equal(results.length,1);
+  const {markdown}=await s.plugin.readSourceMarkdown(results[0]);
+  assert(markdown.includes('**Title:** Test book'));assert(markdown.indexOf('# Chapter 1')<markdown.indexOf('# Chapter 2'));
+  assert(markdown.includes('![cover](images/image-1.jpg)'));assert([...s.files.keys()].some(name=>name.endsWith('/images/image-1.jpg')));
+});
+
+test('a failed EPUB batch fails the task without saving partial content',async()=>{
+  const s=setup({mcp:true}),original=s.file('large.epub');oversizedEPUB(s,{failBatch:2});
+  await s.plugin.handleParseCommand({selectedItems:[original]});
+  assert.equal(s.plugin.parseQueue[0].state,'failed');assert.match(s.plugin.parseQueue[0].error,/conversion failed/);
+  assert(![...s.items.values()].some(item=>item.hasTag('#DocFlow-Parse')));
+});
+
+test('canceling EPUB batch conversion prevents later requests and partial output',async()=>{
+  const s=setup({mcp:true}),original=s.file('large.epub'),controller=new AbortController();
+  const converted=oversizedEPUB(s,{cancel:controller});
+  await assert.rejects(()=>s.plugin.parseWithMarkItDown(original,s.plugin.getSettings(),{signal:controller.signal}),{name:'AbortError'});
+  assert.equal(converted.length,1);assert(![...s.items.values()].some(item=>item.hasTag('#DocFlow-Parse')));
+});
+
+test('images converted to PDF also receive the parent document cloud language',async()=>{
+  const s=setup(),parent=new s.Item('book'),original=s.file('scan.png',parent);
+  parent.setField('language','ar-SA');
+  s.plugin.getPDFLibrary=()=>({PDFDocument:{create:async()=>({embedPng:async()=>({width:100,height:100}),addPage:()=>({drawImage:()=>{}}),save:async()=>Uint8Array.from([1,2])})}});
+  let language;
+  s.plugin.parseAttachmentWithCloud=async(_bytes,_name,_id,settings)=>{language=settings.recognitionLanguage;return {markdownText:'image text'};};
+  const result=await s.plugin.parseAttachmentWithMineru(original,{apiMode:'cloud',apiToken:'test',parserService:'mineru',cloudLanguage:'auto'},{});
+  assert.equal(language,'arabic');assert.equal(result.markdownText,'image text');
+});

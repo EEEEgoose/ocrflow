@@ -1,0 +1,29 @@
+#mineru-task-queue { min-width: 720px; min-height: 380px; color-scheme: light dark; background: Canvas; color: CanvasText; }
+.queue-shell { position: fixed; inset: 0; box-sizing: border-box; padding: 20px; display: flex; flex-direction: column; gap: 12px; font: message-box; user-select: text; -moz-window-dragging: no-drag; }
+.queue-shell button, .queue-scrollbar { user-select: none; }
+.queue-scroll, .queue-scroll * { user-select: text; }
+.queue-shell h2 { margin: 0; font-size: 20px; }
+.queue-shell p { margin: 0; line-height: 1.5; }
+.queue-list { display: flex; flex: 1; min-height: 0; gap: 8px; }
+.queue-scroll { flex: 1; min-width: 0; min-height: 0; overflow: auto; scrollbar-width: none; border: 1px solid GrayText; border-radius: 6px; }
+.queue-scrollbar { position: relative; width: 14px; flex-shrink: 0; border: 1px solid GrayText; border-radius: 8px; background: color-mix(in srgb, GrayText 12%, Canvas); touch-action: none; }
+.queue-scroll-thumb { position: absolute; left: 2px; right: 2px; border-radius: 6px; background: GrayText; cursor: grab; }
+.queue-scrollbar:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+.queue-shell table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.queue-shell th, .queue-shell td { padding: 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid color-mix(in srgb, GrayText 25%, transparent); }
+.queue-shell th { position: sticky; top: 0; background: Canvas; z-index: 1; }
+.number-column { width: 52px; }
+.file-column { width: 24%; }
+.state-column { width: 100px; }
+.action-column { width: 110px; }
+.queue-mode, .queue-job-id, .queue-help { font-size: 12px; color: GrayText; }
+.queue-detail, .queue-error { white-space: pre-wrap; }
+#queue-copy-status:empty { display: none; }
+.queue-error { margin-top: 6px; color: light-dark(#a12622, #ff9b94); }
+.queue-state[data-state="completed"] { color: light-dark(#216a34, #80cf94); }
+.queue-state[data-state="failed"] { color: light-dark(#a12622, #ff9b94); }
+.queue-state[data-state="canceled"] { color: GrayText; }
+.queue-row-actions button { display: block; margin-bottom: 6px; }
+.queue-actions { display: flex; flex-shrink: 0; gap: 10px; justify-content: space-between; }
+.queue-shell button { font: inherit; padding: 6px 12px; cursor: pointer; }
+.queue-shell button:disabled { cursor: default; }

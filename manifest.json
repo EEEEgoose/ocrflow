@@ -1,0 +1,20 @@
+{
+  "manifest_version": 2,
+  "name": "OCRFlow",
+  "version": "0.2.17",
+  "description": "Manual document workflows: parent items, OCR, Markdown, metadata and academic summaries",
+  "author": "Egooose",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "96": "icon96.png"
+  },
+  "applications": {
+    "zotero": {
+      "id": "docflow@egooose.local",
+      "update_url": "https://example.invalid/docflow/updates.json",
+      "strict_min_version": "10.0",
+      "strict_max_version": "10.0.*"
+    }
+  }
+}
