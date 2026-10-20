@@ -1,0 +1,14 @@
+/dist/
+/outputs/
+*.xpi
+*.zip
+*.log
+.DS_Store
+__pycache__/
+*.py[cod]
+node_modules/
+.env
+.env.*
+!.env.example
+/.idea/
+/.vscode/
