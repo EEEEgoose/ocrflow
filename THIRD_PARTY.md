@@ -36,3 +36,9 @@ OCRFlow 由作者在自有项目 Auto parent item 的基础上开发，曾使用
 ## 可选的 MinerU 服务端补丁
 
 `docs/mineru/` 保存 MinerU 4.0.10 页进度补丁及 Docker 部署示例，修改作者为 Egooose。补丁涉及的上游代码保留 [MinerU 许可](docs/mineru/LICENSE.md)。这些文件仅随源码分发，不包含在 Zotero XPI 中；插件其余组件的许可记录见上文。
+
+## 1.0 结构与校勘设计参考
+
+- [PaddleOCR 官方 API](https://www.paddleocr.ai/latest/en/version3.x/inference_deployment/serving/paddleocr_official_api/cli.html) 与 [PaddleOCR-VL 服务接口](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/pipeline_usage/PaddleOCR-VL.en.md)：官方异步任务及自部署文档解析协议，未随包分发模型或 SDK。
+- [md1012](https://github.com/1012-web/md1012)、[Docling](https://github.com/docling-project/docling)、[PDF Craft](https://github.com/oomol-lab/pdf-craft)、[Marker](https://github.com/datalab-to/marker)：结构保留、脚注图注恢复、来源映射与翻译单元的设计参考，未随包分发这些库。
+- [BabelDOC](https://github.com/funstory-ai/BabelDOC)：段落翻译与公式占位的设计参考，未复制或分发其 AGPL 代码。

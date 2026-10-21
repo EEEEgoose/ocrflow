@@ -1,13 +1,14 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-let opened = 0, focusCount = 0;
-const context = {Zotero: {debug: () => {}, logError: () => {}, getMainWindow: () => ({AbortController, openDialog: (url, _name, _flags, args) => {
-  assert.equal(url, 'chrome://docflow/content/task-queue.xhtml');
-  assert.equal(args.plugin, context.DocFlow);
-  opened++;
-  return {closed: false, focus: () => focusCount++, DocFlowTaskQueue: {render: () => {}}};
-}})}};
+let opened = 0;
+const prefWindow = {document:{readyState:'complete'}, Zotero_Preferences:{
+  waitForFirstPaneLoad:async()=>{}, navigateToPane:async()=>{}, getScope:()=>({DocFlowPreferences:{showSection:key=>assert.equal(key,'tasks')}})
+}};
+const context = {Zotero: {debug: () => {}, logError: () => {},
+  PreferencePanes:{pluginPanes:[{pluginID:null,id:'ocrflow-preferences'}]},
+  Utilities:{Internal:{openPreferences:id=>{assert.equal(id,'ocrflow-preferences');opened++;return prefWindow;}}},
+  getMainWindow:()=>({AbortController})}};
 vm.createContext(context);
 for (const name of ['prompts.js','docflow.js', 'workflow.js']) vm.runInContext(fs.readFileSync(name, 'utf8'), context);
 const plugin = context.DocFlow;
@@ -48,12 +49,16 @@ plugin.saveResultAsMarkdownAttachment = async ({attachment}) => {
   return {};
 };
 async function run() {
+  const deadView = new Proxy({}, {get(){throw new TypeError("can't access dead object");}});
+  plugin.parseQueueViews.add(deadView);
+
   const first = plugin.handleParseCommand({selectedItems: [file(1), file(2)]});
   assert.equal(plugin.parseQueue[0].state, 'running');
+  assert.equal(plugin.parseQueueViews.has(deadView),false,'a disposed UI view must not stop the queue worker');
   await plugin.handleParseCommand({selectedItems: [file(1), file(3)]});
   assert.equal(plugin.parseQueue.length, 3);
-  assert.equal(opened, 1); assert.equal(focusCount, 1);
-  plugin.parseQueueWindow.closed = true; // Closing the dialog does not stop work.
+  assert.equal(opened, 2);
+  // Leaving preferences does not stop the queue.
   releaseFirst(); await first;
   assert.deepEqual(Array.from(plugin.parseQueue, task => task.state), ['completed', 'failed', 'failed']);
   assert.match(plugin.parseQueue[1].error, /Server failure/);
@@ -68,7 +73,7 @@ async function run() {
   await plugin.retryParseQueueTasks([1]);
   assert.deepEqual(parseCalls, [1, 2, 3, 2]);
   await plugin.handleParseCommand({selectedItems: [file(4)]});
-  assert.equal(opened, 2);
+  assert.equal(opened, 3);
   assert.equal(plugin.parseQueue[3].state, 'wait_expired');
   await plugin.retryParseQueueTasks([4]);
   assert.equal(plugin.parseQueue[3].state, 'completed');
@@ -96,6 +101,6 @@ async function run() {
   assert.match(plugin.parseQueue[0].error, /Controller setup failed/);
   assert.equal(plugin.parseQueue[0].active, false);
   assert.equal(plugin.parseQueueRunning, false);
-  console.log('PASS: one dialog, sequential queue, additions during work, failure retries, save-only retry, no duplicate clicks, and wait continuation.');
+  console.log('PASS: settings queue navigation, sequential queue, additions during work, failure retries, save-only retry, no duplicate clicks, and wait continuation.');
 }
 run().catch(error => {console.error(error); process.exitCode = 1;});

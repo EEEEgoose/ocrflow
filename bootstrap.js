@@ -22,6 +22,14 @@ async function startup({ id, version, rootURI }) {
 	Services.scriptloader.loadSubScript(rootURI + 'markitdown.js');
 	Services.scriptloader.loadSubScript(rootURI + 'metadata.js');
 	Services.scriptloader.loadSubScript(rootURI + 'workflow.js');
+	Services.scriptloader.loadSubScript(rootURI + 'document.js');
+	Services.scriptloader.loadSubScript(rootURI + 'paddleocr.js');
+	Services.scriptloader.loadSubScript(rootURI + 'ocr-sources.js');
+	Services.scriptloader.loadSubScript(rootURI + 'translation.js');
+	Services.scriptloader.loadSubScript(rootURI + 'collation.js');
+	Services.scriptloader.loadSubScript(rootURI + "task-sidebar.js");
+	OCRFlowTaskSidebar.init(DocFlow);
+	DocFlow.sidebar = OCRFlowTaskSidebar;
 	Services.scriptloader.loadSubScript(rootURI + "outline.js");
 	DocFlowOutline.init(DocFlow);
 	DocFlow.outline = DocFlowOutline;
@@ -29,7 +37,7 @@ async function startup({ id, version, rootURI }) {
 		id: "ocrflow-preferences",
 		pluginID: id,
 		src: "chrome://docflow/content/preferences.xhtml",
-		scripts: ["chrome://docflow/content/prompts.js", "chrome://docflow/content/markitdown.js", "chrome://docflow/content/preferences.js"],
+		scripts: ["chrome://docflow/content/prompts.js", "chrome://docflow/content/markitdown.js", "chrome://docflow/content/ocr-sources.js", "chrome://docflow/content/task-queue.js", "chrome://docflow/content/preferences.js"],
 		label: "OCRFlow",
 		image: "chrome://docflow/content/icon48.png"
 	});
@@ -50,6 +58,7 @@ function shutdown() {
 	log("Shutting down OCRFlow");
 	DocFlow.parseQueueStopped = true;
 	DocFlow.outline?.shutdown();
+	DocFlow.sidebar?.shutdown();
 	DocFlow.parseQueueWindow?.close();
 	DocFlow.removeFromAllWindows();
 	DocFlow = undefined;

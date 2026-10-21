@@ -1,5 +1,7 @@
 docflow-menu-root =
     .label = OCRFlow
+docflow-menu-organize =
+    .label = Organize Document
 docflow-menu-create-parent =
     .label = Create Parent Item
 docflow-menu-parse-pdf =
@@ -22,3 +24,12 @@ docflow-menu-ai-translate =
     .label = Translate Document
 docflow-menu-outline =
     .label = Generate Reader Outline
+
+docflow-menu-ocr-paddle-cloud =
+    .label = PaddleOCR (Official API)
+docflow-menu-ocr-paddle-local =
+    .label = PaddleOCR (Self-hosted API)
+ocrflow-menu-review-collation =
+    .label = Review OCR Disagreements
+ocrflow-menu-changes =
+    .label = View Processing Changes

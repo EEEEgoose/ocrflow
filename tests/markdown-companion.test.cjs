@@ -42,6 +42,7 @@ test('an exact companion takes precedence and multiple unmatched Markdown files 
 
 test('missing Markdown does not fall back to HTML or another storage directory',async()=>{
   const s=setup();s.put('/storage/EMPTY/book.html','<script type="application/json" id="mineru-source">{"markdown":"STALE"}</script>');s.put('/storage/OTHER/book.md','WRONG DOCUMENT');
-  await assert.rejects(()=>s.plugin.readSourceMarkdown(s.item('/storage/EMPTY/book.html')),/原始 Markdown/);
+  await assert.rejects(()=>s.plugin.readSourceMarkdown(s.item('/storage/EMPTY/book.html')),/缺少配套的原始 Markdown.*恢复.*重新执行/);
   await assert.rejects(()=>s.plugin.readSourceMarkdown(s.item('/storage/EMPTY/missing.md')),/原始 Markdown/);
+  await assert.rejects(()=>s.plugin.readSourceMarkdown(s.item(null)),/全文附件文件不存在.*下载或重新定位/);
 });

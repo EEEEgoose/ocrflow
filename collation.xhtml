@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>OCRFlow 原图校勘</title><style>
+:root{color-scheme:light dark;--surface:#ffffff;--background:#f5f6f8;--text:#24262b;--muted:#626773;--border:#d8dbe2;--accent:#2f63b7;background-color:var(--background);color:var(--text)}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden;background-color:var(--background)}
+body{display:flex;flex-direction:column;font:14px/1.6 system-ui,sans-serif;color:var(--text)}
+header{flex:none;padding:16px 20px;border-bottom:1px solid var(--border);background:var(--surface)}
+h1{font-size:20px;line-height:1.4;margin:0 0 6px}h2{font-size:15px;margin:0 0 10px}
+#status{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);margin:0 0 12px}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+button{appearance:none;font:inherit;line-height:1.4;max-height:none;height:auto;margin:0;padding:8px 12px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)}button:disabled{opacity:.48;cursor:default}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#save,#confirm{background:var(--accent);border-color:var(--accent);color:#fff}#save{margin-inline-start:auto}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;flex:1;min-height:0;padding:16px;overflow:hidden}
+#page,#review-content{min-width:0;min-height:0;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+#page{overflow:auto}#image-status{margin:12px 16px;color:var(--muted)}#retry-image{margin:0 16px 12px}
+#image{display:block;width:100%;height:auto;background:#fff}#image:not([src]){display:none}
+#review-content{display:flex;flex-direction:column;overflow:hidden}
+.review-scroll{flex:1;min-height:0;padding:16px;overflow:auto}
+.review-section+.review-section{border-top:1px solid var(--border);margin-top:20px;padding-top:20px}
+pre{font:14px/1.8 system-ui,sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;text-align:start;unicode-bidi:plaintext;max-height:32vh;overflow:auto;background:var(--background);color:var(--text);border:1px solid var(--border);border-radius:6px;margin:8px 0 12px;padding:12px}
+textarea,input[type=text]{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;width:100%;line-height:1.8;text-align:start}
+textarea{display:block;min-height:112px;resize:vertical;margin-top:6px}textarea:disabled{background:var(--background)}
+label{display:block;margin:12px 0;color:var(--muted)}#ai-status{color:var(--muted);margin:0}
+.confirmation{flex:none;padding:12px 16px;border-top:1px solid var(--border);background:var(--surface)}
+.confirmation label{margin:0 0 8px}.check-label{display:flex;align-items:center;gap:8px;color:var(--text)}
+#checked{margin:0;accent-color:var(--accent)}.reason-row{display:flex;align-items:center;gap:12px}.reason-row label{flex:1;margin:0}
+.note{font-size:12px;color:var(--muted);margin:10px 0 0}
+@media(prefers-color-scheme:dark){:root{--surface:#26282d;--background:#1e2024;--text:#eef0f4;--muted:#b2b7c2;--border:#494d57;--accent:#477bd0}}
+@media(max-width:760px){header{padding:12px}main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(120px,40%) minmax(0,1fr);padding:10px;gap:10px}#save{margin-inline-start:0}h1{font-size:18px}.note{display:none}}
+</style></head>
+<body>
+<header>
+<h1>对照原图确认识别分歧</h1>
+<p id="status" role="status"/>
+<div class="toolbar">
+<button id="previous" type="button">上一项</button><button id="next" type="button">下一项</button>
+<button id="retry" type="button" hidden="hidden">重试对照识别 B</button>
+<button id="ai-retry" type="button" hidden="hidden">AI 复核 / 重试</button>
+<button id="save" type="button">保存校勘新版本</button>
+</div></header>
+<main>
+<div id="page" aria-label="原文页面"><p id="image-status" role="status"/><button id="retry-image" type="button" hidden="hidden">重试原图</button><img id="image" alt="原文页面"/></div>
+<div id="review-content">
+<div class="review-scroll">
+<section class="review-section"><h2>对照识别 B</h2><pre id="reader-b" dir="auto"/>
+<button id="use-b" type="button">采用 B（单块差异）</button></section>
+<section class="review-section"><h2>AI 辅助校勘建议</h2><p id="ai-status" role="status"/><pre id="ai-advice" dir="auto"/><button id="use-ai" type="button" disabled="disabled">填入 AI 建议（仍需核原图确认）</button></section>
+<section class="review-section"><h2>底稿 A / 修改后内容</h2><div id="edits"/></section>
+</div>
+<div class="confirmation">
+<label class="check-label"><input id="checked" type="checkbox"/>我已核对左侧原图</label>
+<div class="reason-row"><label>依据或说明<input id="reason" type="text" dir="auto"/></label><button id="confirm" type="button">确认本项</button></div>
+<p class="note">未确认项保留原文。保存会生成新的全文附件，保留先前版本。结构差异可在对应文本块中手动修改；PDF 页码与块来源继续保留。</p>
+</div>
+</div>
+</main>
+<script src="chrome://docflow/content/collation-dialog.js"/>
+</body></html>

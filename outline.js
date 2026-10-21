@@ -124,7 +124,8 @@ var DocFlowOutline = {
 		let attachments = this.collectPDFs(items);
 		if (!attachments.length) throw new Error("请选择 PDF 或带 PDF 的文献条目。");
 		for (let attachment of attachments) this.enqueue(attachment, true);
-		this.owner.openParseQueueDialog();
+		if (this.owner.sidebar) this.owner.sidebar.showTask(this.owner.parseQueue.at(-1));
+		else this.owner.openParseQueueDialog();
 		await this.owner.processParseQueue();
 	},
 
@@ -198,10 +199,13 @@ var DocFlowOutline = {
 		let value = String(text).trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
 		let parsed;
 		try { parsed = JSON.parse(value); }
-		catch (error) {
+		catch {
 			let fragment = value.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-			try { parsed = JSON.parse(fragment ? fragment[0] : value); }
-			catch (_) { throw new Error(`LLM 返回的大纲不是有效 JSON：${error.message}`); }
+			// Keep unrecognized model-generated escapes as literal text, preserving valid JSON escapes.
+			let repaired = (fragment ? fragment[0] : value).replace(/\\(?:u[0-9a-fA-F]{4}|[\s\S])/g,
+				escape => /^\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})$/.test(escape) ? escape : "\\" + escape);
+			try { parsed = JSON.parse(repaired); }
+			catch (repairError) { throw new Error(`LLM 返回的大纲不是有效 JSON：${repairError.message}`); }
 		}
 		let outline = Array.isArray(parsed) ? parsed : parsed.outline;
 		if (!Array.isArray(outline)) throw new Error("LLM 未返回目录 JSON 数组。");

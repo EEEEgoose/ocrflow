@@ -1,4 +1,5 @@
 <vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul" xmlns:html="http://www.w3.org/1999/xhtml" id="docflow-prefpane" flex="1" onload="if (window.DocFlowPreferences) { window.DocFlowPreferences.init(); }">
+	<html:link rel="stylesheet" href="chrome://docflow/content/task-queue.css" />
 	<html:style><![CDATA[
 .ocrflow-pane {
 	--ocrflow-bg: light-dark(#f7f7f9, #232326);
@@ -71,43 +72,38 @@
 .ocrflow-prompt-actions { grid-column: 2; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 @media (max-width: 600px) { .ocrflow-prompt-actions { grid-column: 1; } }
 @media (max-width: 600px) { .ocrflow-work-heading { grid-template-columns: minmax(0,1fr); } .ocrflow-model-test { grid-column: 1; } }
+
+.ocrflow-tabs { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--ocrflow-border); margin:16px 0 22px; padding-bottom:8px; }
+.ocrflow-tabs button { background:transparent; border-color:transparent; padding:8px 10px; }
+.ocrflow-tabs button[aria-pressed="true"] { color:var(--ocrflow-accent); border-bottom-color:var(--ocrflow-accent); background:light-dark(#eaf1ff,#293344); }
+.ocrflow-section { border:0; border-radius:0; background:transparent; padding:12px 0; }
+.ocrflow-work { border:0; margin:0; padding:0; }
+#ocrflow-paddle-cloud-fields, #ocrflow-paddle-local-fields { margin-top:16px; }
+.ocrflow-footer { position:sticky; bottom:0; background:var(--ocrflow-bg); padding-bottom:12px; z-index:2; }
+.ocrflow-pane { width:100%; max-width:960px; }
+.queue-shell { position:static; padding:0; font:inherit; gap:12px; }
+.queue-list { height:360px; flex:none; }
+.queue-shell .state-column { width:80px; }
+.queue-shell .action-column { width:78px; }
+.queue-shell th, .queue-shell td { padding:8px; }
+.queue-shell .queue-actions { justify-content:flex-start; flex-wrap:wrap; }
 ]]></html:style>
-	<html:div class="ocrflow-pane">
-		<html:header class="ocrflow-header">
+	<html:div class="ocrflow-pane"><html:header class="ocrflow-header">
 			<html:img src="chrome://docflow/content/icon96.png" width="40" height="40" alt="" />
 			<html:div>
 				<html:h2>OCRFlow 设置</html:h2>
 				<html:p class="mineru-help">按需提取全文、整理条目与生成学术笔记</html:p>
 			</html:div>
-		</html:header>
-		<html:div class="mineru-grid ocrflow-service-choice">
+		</html:header><html:nav class="ocrflow-tabs" aria-label="OCRFlow 设置分类"><html:button id="ocrflow-tab-services" type="button" aria-pressed="false">提取服务</html:button><html:button id="ocrflow-tab-ai" type="button" aria-pressed="false">AI 服务商</html:button><html:button id="ocrflow-tab-work" type="button" aria-pressed="false">工作配置</html:button><html:button id="ocrflow-tab-collation" type="button" aria-pressed="false">双引擎校勘</html:button><html:button id="ocrflow-tab-output" type="button" aria-pressed="false">输出保存</html:button><html:button id="ocrflow-tab-tasks" type="button" aria-pressed="false">任务队列</html:button></html:nav><html:div id="ocrflow-panel-services"><html:div class="mineru-grid ocrflow-service-choice">
 			<html:label for="docflow-parser-service">PDF / 图片提取服务</html:label>
 			<menulist id="docflow-parser-service" native="true">
 				<menupopup>
-					<menuitem label="MinerU" value="mineru" />
+					<menuitem label="MinerU" value="mineru" /><menuitem label="PaddleOCR" value="paddle" />
 					<menuitem label="MarkItDown" value="markitdown" />
 					<menuitem label="AI 视觉 OCR" value="ai" />
 				</menupopup>
 			</menulist>
-		</html:div>
-		<html:section class="ocrflow-section" aria-labelledby="ocrflow-markitdown-heading">
-			<html:div class="ocrflow-section-heading">
-				<html:h3 id="ocrflow-markitdown-heading">MarkItDown</html:h3>
-				<html:span class="mineru-help">EPUB、Office 等文档转 Markdown</html:span>
-			</html:div>
-			<html:div class="mineru-grid">
-				<html:label for="docflow-markitdown-url">服务地址</html:label>
-				<html:input id="docflow-markitdown-url" type="url" placeholder="http://127.0.0.1:33001" />
-			</html:div>
-			<html:div class="ocrflow-group-actions">
-				<html:button id="ocrflow-markitdown-save" type="button">保存</html:button>
-				<html:button id="ocrflow-markitdown-test" type="button">测试连接</html:button>
-				<html:span id="ocrflow-markitdown-status" role="status" aria-live="polite" class="ocrflow-status" />
-			</html:div>
-			<html:pre id="ocrflow-markitdown-output" hidden="hidden" class="mineru-test-output" />
-			<html:p class="mineru-help">可填写服务根地址或 MCP 地址，例如 http://127.0.0.1:33001/mcp/。</html:p>
-		</html:section>
-		<html:section class="ocrflow-section" aria-labelledby="ocrflow-mineru-heading">
+		</html:div><html:p class="mineru-help">EPUB、Office 和 HTML 等文档仍由 MarkItDown 转换。</html:p><html:nav class="ocrflow-tabs" aria-label="转换服务"><html:button id="ocrflow-service-tab-mineru" type="button" aria-pressed="false">MinerU</html:button><html:button id="ocrflow-service-tab-paddle" type="button" aria-pressed="false">PaddleOCR</html:button><html:button id="ocrflow-service-tab-markitdown" type="button" aria-pressed="false">MarkItDown</html:button><html:button id="ocrflow-service-tab-ai" type="button" aria-pressed="false">AI 视觉</html:button></html:nav><html:div id="ocrflow-service-panel-mineru"><html:section class="ocrflow-section" aria-labelledby="ocrflow-mineru-heading">
 			<html:div class="ocrflow-section-heading">
 				<html:h3 id="ocrflow-mineru-heading">MinerU</html:h3>
 				<html:span class="mineru-help">PDF 与扫描文档识别</html:span>
@@ -171,15 +167,39 @@
 				<html:div class="mineru-grid">
 					<html:label for="mineru-poll-interval-sec">轮询间隔(秒)</html:label>
 					<html:input id="mineru-poll-interval-sec" type="number" min="1" max="60" step="1" />
-					<html:label for="mineru-timeout-sec">请求超时(秒)</html:label>
+					<html:label for="mineru-timeout-sec">网络请求超时（秒）</html:label>
 					<html:input id="mineru-timeout-sec" type="number" min="5" max="3600" step="1" />
 					<html:label for="mineru-local-job-timeout-sec">本地任务总等待上限(秒)</html:label>
 					<html:input id="mineru-local-job-timeout-sec" type="number" min="0" max="14400" step="60" />
 				</html:div>
-				<html:p class="mineru-help">本地任务等待上限设为 0 时持续等待。关闭客户端等待不会取消服务端任务。</html:p>
+				<html:p class="mineru-help">单次网络请求默认等待 1200 秒（20 分钟），与整项任务的等待上限分开。本地任务等待上限设为 0 时持续等待。关闭客户端等待不会取消服务端任务。</html:p>
 			</html:details>
-		</html:section>
-		<html:section class="ocrflow-section" aria-labelledby="ocrflow-ai-heading">
+		</html:section></html:div><html:div id="ocrflow-service-panel-paddle"><html:section class="ocrflow-section" aria-labelledby="ocrflow-paddle-heading">
+			<html:h3 id="ocrflow-paddle-heading">PaddleOCR 文档解析</html:h3>
+			<html:p class="mineru-help">官方 API 会上传文件到 PaddleOCR 服务；自部署使用完整文档解析服务地址。两种配置分别保存。</html:p>
+			<html:div class="mineru-grid"><html:label for="ocrflow-paddle-mode">接口类型</html:label><html:select id="ocrflow-paddle-mode"><html:option value="cloud">官方 API</html:option><html:option value="local">自部署 API</html:option></html:select></html:div><html:div id="ocrflow-paddle-cloud-fields" class="mineru-grid">				<html:label for="ocrflow-paddle-cloud-url">官方 API 地址</html:label><html:input id="ocrflow-paddle-cloud-url" type="url"/>
+				<html:label for="ocrflow-paddle-cloud-token">官方访问令牌</html:label><html:input id="ocrflow-paddle-cloud-token" type="password"/>
+				<html:label for="ocrflow-paddle-cloud-model">官方模型名称</html:label><html:input id="ocrflow-paddle-cloud-model" type="text"/></html:div><html:div id="ocrflow-paddle-local-fields" class="mineru-grid">				<html:label for="ocrflow-paddle-local-url">自部署服务地址</html:label><html:input id="ocrflow-paddle-local-url" type="url" placeholder="http://127.0.0.1:8080"/>
+				<html:label for="ocrflow-paddle-local-token">自部署令牌（可空）</html:label><html:input id="ocrflow-paddle-local-token" type="password"/>
+				<html:label for="ocrflow-paddle-local-model">部署模型（记录用）</html:label><html:input id="ocrflow-paddle-local-model" type="text"/></html:div>
+			<html:div class="ocrflow-group-actions"><html:button id="ocrflow-paddle-save" type="button">保存 PaddleOCR 配置</html:button><html:span id="ocrflow-paddle-status" class="ocrflow-status"/></html:div>
+		</html:section></html:div><html:div id="ocrflow-service-panel-markitdown"><html:section class="ocrflow-section" aria-labelledby="ocrflow-markitdown-heading">
+			<html:div class="ocrflow-section-heading">
+				<html:h3 id="ocrflow-markitdown-heading">MarkItDown</html:h3>
+				<html:span class="mineru-help">EPUB、Office 等文档转 Markdown</html:span>
+			</html:div>
+			<html:div class="mineru-grid">
+				<html:label for="docflow-markitdown-url">服务地址</html:label>
+				<html:input id="docflow-markitdown-url" type="url" placeholder="http://127.0.0.1:33001" />
+			</html:div>
+			<html:div class="ocrflow-group-actions">
+				<html:button id="ocrflow-markitdown-save" type="button">保存</html:button>
+				<html:button id="ocrflow-markitdown-test" type="button">测试连接</html:button>
+				<html:span id="ocrflow-markitdown-status" role="status" aria-live="polite" class="ocrflow-status" />
+			</html:div>
+			<html:pre id="ocrflow-markitdown-output" hidden="hidden" class="mineru-test-output" />
+			<html:p class="mineru-help">可填写服务根地址或 MCP 地址，例如 http://127.0.0.1:33001/mcp/。</html:p>
+		</html:section></html:div><html:div id="ocrflow-service-panel-ai"><html:h3>AI 视觉 OCR</html:h3><html:p class="mineru-help">连接信息在“AI 服务商”中配置；识别模型、提示词与页面参数在“工作配置 → OCR”中选择。</html:p><html:button id="ocrflow-go-ai" type="button">配置 AI 服务商</html:button><html:button id="ocrflow-go-ocr" type="button">配置 OCR 工作</html:button></html:div></html:div><html:div id="ocrflow-panel-ai"><html:section class="ocrflow-section" aria-labelledby="ocrflow-ai-heading">
 			<html:div class="ocrflow-section-heading">
 				<html:h3 id="ocrflow-ai-heading">服务商配置</html:h3>
 				<html:span class="mineru-help">每个配置最多两个模型，共用连接信息</html:span>
@@ -227,11 +247,10 @@
 				<html:span id="ocrflow-ai-status" role="status" aria-live="polite" class="ocrflow-status" />
 			</html:div>
 			<html:p class="mineru-help ocrflow-action-help">保存当前服务商配置；两个模型分别设置上下文、最大输出长度与并发，留空使用默认值。最大输出长度填写 8K、16K 或整数 tokens；应小于上下文并符合模型实际能力。工作请求参数中的 max_tokens / max_completion_tokens 优先于此设置。上下文直接填写 128K 或 1M（1K＝1024 tokens，1M＝1024K）。每个模型下的“测试连接”只测试该模型，使用当前填写内容，不自动保存。</html:p>
-		</html:section>
-		<html:section class="ocrflow-section" aria-labelledby="ocrflow-work-heading">
+		</html:section></html:div><html:div id="ocrflow-panel-work"><html:section class="ocrflow-section" aria-labelledby="ocrflow-work-heading">
 			<html:div class="ocrflow-section-heading"><html:h3 id="ocrflow-work-heading">工作模型配置</html:h3><html:span class="mineru-help">内置提示词可直接编辑，支持恢复默认</html:span></html:div>
 			<html:div class="mineru-grid"><html:label for="ocrflow-work-default-model">默认模型</html:label><html:select id="ocrflow-work-default-model" /></html:div>
-			<html:div class="ocrflow-work" id="ocrflow-work-parent">
+			<html:nav class="ocrflow-tabs" aria-label="工作类型"><html:button id="ocrflow-work-tab-parent" type="button" aria-pressed="false">建立父条目</html:button><html:button id="ocrflow-work-tab-metadata" type="button" aria-pressed="false">补充信息</html:button><html:button id="ocrflow-work-tab-summary" type="button" aria-pressed="false">总结</html:button><html:button id="ocrflow-work-tab-ocr" type="button" aria-pressed="false">OCR</html:button><html:button id="ocrflow-work-tab-translate" type="button" aria-pressed="false">翻译</html:button><html:button id="ocrflow-work-tab-outline" type="button" aria-pressed="false">大纲</html:button></html:nav><html:div class="ocrflow-work" id="ocrflow-work-parent">
 				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-parent-model">建立父条目</html:label><html:p class="mineru-help">根据文件名识别条目信息</html:p></html:div><html:div><html:select id="ocrflow-work-parent-model" /><html:p id="ocrflow-work-parent-actual" class="mineru-help" /></html:div></html:div>
 				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
 					<html:label for="ocrflow-work-parent-prompt">提示词</html:label>
@@ -356,8 +375,18 @@
 			</html:div>
 			<html:p class="mineru-help">各工作分别选择模型、编辑提示词和请求参数；上下文与并发统一读取所选模型的设置。文档依次处理，分段和 OCR 页面按模型并发请求；同一模型的父条目可批量建立。</html:p>
 			<html:div class="ocrflow-group-actions"><html:button id="ocrflow-work-save" type="button">保存工作设置</html:button><html:span id="ocrflow-work-status" role="status" aria-live="polite" class="ocrflow-status" /></html:div>
-		</html:section>
-		<html:section class="ocrflow-section" aria-labelledby="ocrflow-output-heading">
+		</html:section></html:div><html:div id="ocrflow-panel-collation"><html:section class="ocrflow-section" aria-labelledby="ocrflow-collation-heading">
+			<html:h3 id="ocrflow-collation-heading">双引擎校勘</html:h3>
+			<html:label class="ocrflow-check"><html:input id="ocrflow-collation-enabled" type="checkbox"/>启用双引擎：按 A 生成底稿，再用 B 独立识别并生成疑字清单</html:label>
+			<html:div class="mineru-grid">
+				<html:label for="ocrflow-collation-a">主识别来源 A</html:label><html:select id="ocrflow-collation-a"/>
+				<html:label for="ocrflow-collation-b">对照识别来源 B</html:label><html:select id="ocrflow-collation-b"/>
+			</html:div>
+			<html:label class="ocrflow-check"><html:input id="ocrflow-collation-ai-enabled" type="checkbox"/>启用 AI 辅助校勘：结合原图复核 A/B 分歧，生成建议</html:label>
+			<html:div class="mineru-grid"><html:label for="ocrflow-collation-ai-model">AI 校勘模型</html:label><html:select id="ocrflow-collation-ai-model"/></html:div>
+			<html:p class="mineru-help">请选择支持图片的模型。AI 建议单独保存，采用建议后仍需核对原图并确认。</html:p>
+			<html:p class="mineru-help">疑字由用户核对原图后确认。完成后右键全文选择“审阅 OCR 校勘”。</html:p>
+		</html:section></html:div><html:div id="ocrflow-panel-output"><html:section class="ocrflow-section" aria-labelledby="ocrflow-output-heading">
 			<html:div class="ocrflow-section-heading">
 				<html:h3 id="ocrflow-output-heading">全文保存</html:h3>
 				<html:span class="mineru-help">Markdown 始终保留</html:span>
@@ -385,26 +414,60 @@
 					<html:small class="mineru-help">关闭后，可直接选中全文附件补充信息或总结。</html:small>
 				</html:span>
 			</html:label>
-		</html:section>
+		</html:section></html:div><html:div id="ocrflow-panel-tasks"><html:div class="queue-shell">
+      <html:h2>OCRFlow 任务队列</html:h2>
+      <html:p id="queue-summary" role="status">暂无任务</html:p>
+      <html:div class="queue-list">
+      <html:div id="queue-scroll" class="queue-scroll" tabindex="0" aria-label="任务列表">
+        <html:table>
+          <html:colgroup>
+            <html:col class="number-column" />
+            <html:col class="file-column" />
+            <html:col class="state-column" />
+            <html:col />
+            <html:col class="action-column" />
+          </html:colgroup>
+          <html:thead><html:tr>
+            <html:th scope="col">序号</html:th>
+            <html:th scope="col">文件 / 接口</html:th>
+            <html:th scope="col">状态</html:th>
+            <html:th scope="col">进度 / 错误</html:th>
+            <html:th scope="col">操作</html:th>
+          </html:tr></html:thead>
+          <html:tbody id="queue-body" />
+        </html:table>
+      </html:div>
+      <html:div id="queue-scrollbar" class="queue-scrollbar" role="scrollbar" tabindex="0"
+                aria-label="任务列表纵向滚动条" aria-controls="queue-scroll" aria-orientation="vertical"
+                aria-valuemin="0" aria-valuemax="0" aria-valuenow="0">
+        <html:div id="queue-scroll-thumb" class="queue-scroll-thumb" />
+      </html:div>
+      </html:div>
+      <html:div class="queue-actions">
+        <html:button id="queue-retry-failed" type="button" disabled="disabled">重试全部失败项</html:button>
+        <html:button id="queue-clear" type="button" disabled="disabled">清除已结束任务</html:button>
 
-		<html:details class="ocrflow-details">
-			<html:summary>任务队列与本地进度</html:summary>
+      </html:div>
+      <html:p id="queue-copy-status" role="status" aria-live="polite" />
+      <html:p class="queue-help">拖选文字后按 ⌘C（macOS）或 Ctrl+C 复制。每行“复制”可复制该条任务的完整信息。文档依次处理；建立父条目可按工作并发设置批量处理。每行可终止排队或运行中的任务，本地 V1 会请求取消服务端任务；官方云端任务仅停止客户端处理。保存阶段不可中断。“清除已结束任务”移除完成、失败和已终止的记录，保留进行中、等待已结束和取消未确认的任务。离开设置页后队列继续运行。队列保留在当前 Zotero 会话中；本地等待超时的任务可继续查询原任务 ID。</html:p>
+    </html:div>
+<html:details class="ocrflow-details">
+			<html:summary>查询本地 MinerU 任务</html:summary>
 			<html:div class="mineru-grid">
 				<html:label for="mineru-job-id">任务 ID</html:label>
 				<html:input id="mineru-job-id" type="text" placeholder="留空查询最近提交的任务，或粘贴 job_..." />
 			</html:div>
 			<html:div class="mineru-actions">
-				<html:button id="mineru-open-queue-button" type="button">打开任务队列</html:button>
+
 				<html:button id="mineru-job-progress-button" type="button">查询任务进度</html:button>
 			</html:div>
 			<html:pre id="mineru-job-progress-output" class="mineru-test-output" />
-		</html:details>
-		<html:footer class="ocrflow-footer">
+		</html:details></html:div><html:footer class="ocrflow-footer">
 			<html:div>
 				<html:span class="mineru-help">保存当前页面的全部设置</html:span>
 				<html:span id="mineru-status" role="status" class="ocrflow-status" aria-live="polite" />
 			</html:div>
-			<html:button id="mineru-save-button" type="button">保存</html:button>
+			<html:button id="mineru-save-button" type="button">保存全部设置</html:button>
 		</html:footer>
 	</html:div>
 </vbox>

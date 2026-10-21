@@ -97,13 +97,31 @@ function setup({mcp=false}={}) {
   return {plugin, context, items, files, prefs, requests, uploads, mcpCalls, file, parsed, put, Item, setReply: fn => reply = fn};
 }
 
+test('translation accepts ordinary Markdown and keeps an explicitly selected full text ahead of other results',()=>{
+ const s=setup(),parent=new s.Item('book'),original=s.file('book.pdf',parent),generated=s.parsed(original,'OCR TEXT'),plain=s.file('notes.markdown',parent);
+ let tasks=s.plugin.collectTranslateTasks([parent,plain]);
+ assert.equal(tasks.length,1);assert.equal(tasks[0].mineruSource,plain);
+ tasks=s.plugin.collectTranslateTasks([plain]);assert.equal(tasks[0].mineruSource,plain);
+ const note=new s.Item('note');note.parentID=parent.id;
+ assert.equal(s.plugin.collectTranslateTasks([note])[0].mineruSource,generated);
+ generated.deleted=true;
+ assert.equal(s.plugin.collectTranslateTasks([parent])[0].mineruSource,plain);
+ const html=s.file('ocr.html',parent);html.addTag('#DocFlow-Parse');
+ assert.equal(s.plugin.collectTranslateTasks([html])[0].mineruSource,html);
+ const unprocessedHTML=s.file('web.html',parent);
+ assert.notEqual(s.plugin.collectTranslateTasks([unprocessedHTML])[0].mineruSource,unprocessedHTML);
+ const standalone=s.file('standalone.md');assert.equal(s.plugin.collectTranslateTasks([standalone]).length,0);
+ const translation=s.file('translated.html',parent);translation.addTag('#DocFlow-Translation');
+ assert.equal(s.plugin.collectTranslateTasks([plain]).length,0);
+});
+
 test('manual defaults and menu dispatch; file-name action creates only the parent and moves related text', async () => {
   const s = setup();
   const defaults = new Map(); vm.runInNewContext(fs.readFileSync('prefs.js','utf8'),{pref:(key,value)=>defaults.set(key,value)});
   assert.equal(defaults.get('extensions.docflow.autoOutline'),false);
   assert.equal(defaults.get('extensions.docflow.parseGenerateHTML'),true);
   assert.equal(defaults.has('extensions.docflow.autoImport'),false);
-  assert.deepEqual(Array.from(s.plugin.getContextMenuDefinitions().slice(0,4), item => item.label),['建立父条目','建立文本 OCR / 转为 Markdown','补充父条目信息','总结文档']);
+  assert.deepEqual(Array.from(s.plugin.getContextMenuDefinitions().slice(0,4), item => item.label),['一键整理','提取全文 / OCR','建立父条目','补充父条目信息']);
   const original = s.file('Smith 2024 History.epub');
   const markdown = s.parsed(original,'SECRET FULL TEXT MUST NOT BE SENT');
   s.setReply(() => JSON.stringify({itemType:'book',title:'History',date:'2024',creators:[{lastName:'Smith',creatorType:'author'}]}));
@@ -114,6 +132,220 @@ test('manual defaults and menu dispatch; file-name action creates only the paren
   assert.deepEqual(parent.collections,[42]); assert.equal(markdown.parentID,parent.id); assert.equal(original.getField('title'),'Smith 2024 History.epub');
   await assert.rejects(() => s.plugin.handleDocumentCommand('parent',{selectedItems:[original]}),/尚无父条目/);
   assert.equal(s.requests.length,1);
+});
+
+test('organize creates a parent from extracted content and keeps the source and text together without source links',async()=>{
+  for(const related of [true,false]) {
+    const s=setup(),original=s.file('download.epub');
+    s.prefs.set('extensions.docflow.parseLinkSourcePDF',related);
+    s.setReply(payload=>{
+      assert.equal(s.uploads.length,1,'the document must be extracted before identifying its parent');
+      assert(JSON.stringify(payload).includes('完整文档内容'));
+      assert(!JSON.stringify(payload).includes('仅分析上述文件名'));
+      return JSON.stringify({itemType:'book',title:'Title on publication page',date:'2024',creators:[{lastName:'Author',creatorType:'author'}]});
+    });
+    const action=s.plugin.getContextMenuDefinitions().find(item=>item.id==='docflow-organize');
+    assert(action);assert.equal(action.label,'一键整理');
+    await action.run({selectedItems:[original]});
+    const task=s.plugin.parseQueue[0],parent=s.items.get(original.parentID);
+    assert.equal(task.kind,'organize');assert.equal(task.state,'completed');
+    assert.equal(parent.getField('title'),'Title on publication page');assert.deepEqual(parent.collections,[42]);
+    const result=[...s.items.values()].find(item=>item.hasTag('#DocFlow-Parse'));
+    assert.equal(result.parentID,parent.id);assert.equal(task.source,result);
+    assert.equal(original.relatedItems.includes(result.key),related);
+    assert.equal(result.relatedItems.includes(original.key),related);
+    assert.equal(s.requests.length,1);assert.equal(parent.getNotes().length,0,'organize must not automatically summarize');
+    await s.plugin.handleOrganizeCommand({selectedItems:[parent,original]});
+    assert.equal(s.plugin.parseQueue.length,1);assert.equal(s.uploads.length,1);assert.equal(s.requests.length,1);
+  }
+});
+
+test('organize reuses Markdown and fills only missing metadata on an existing parent',async()=>{
+  const s=setup(),parent=new s.Item('book'),original=s.file('existing.pdf',parent);
+  parent.setField('title','Connector title');parent.setField('publisher','Connector publisher');
+  parent.setCreators([{lastName:'Existing author',creatorType:'author'}]);
+  const markdown=s.parsed(original,'PUBLICATION_PAGE');
+  s.setReply(payload=>{
+    assert(JSON.stringify(payload).includes('PUBLICATION_PAGE'));
+    return JSON.stringify({itemType:'report',title:'Different title',publisher:'Different publisher',ISBN:'9780000000002',
+      creators:[{lastName:'Replacement author',creatorType:'author'},{lastName:'New editor',creatorType:'editor'}]});
+  });
+  await s.plugin.handleOrganizeCommand({selectedItems:[parent,original]});
+  assert.equal(s.plugin.parseQueue.length,1);assert.equal(s.plugin.parseQueue[0].state,'completed');
+  assert.equal(parent.type,'book');assert.equal(parent.getField('title'),'Connector title');
+  assert.equal(parent.getField('publisher'),'Connector publisher');assert.equal(parent.getField('ISBN'),'9780000000002');
+  assert.deepEqual(Array.from(parent.creators,creator=>[creator.lastName,creator.creatorType]).sort(),[['Existing author','author'],['New editor','editor']]);
+  assert.equal(s.plugin.parseQueue[0].source,markdown);assert.equal(s.uploads.length,0);
+  await s.plugin.handleOrganizeCommand({selectedItems:[parent]});
+  assert.equal(s.plugin.parseQueue.length,1);assert.equal(s.requests.length,1);
+});
+
+test('organize uses an explicitly selected older Markdown and returns to the latest text for the original',async()=>{
+  const s=setup(),parent=new s.Item('book'),original=s.file('versions.pdf',parent);
+  const old=s.parsed(original,'OLD_PUBLICATION_PAGE'),latest=s.parsed(original,'LATEST_PUBLICATION_PAGE');
+  s.setReply(payload=>{
+    assert(JSON.stringify(payload).includes('OLD_PUBLICATION_PAGE'));
+    assert(!JSON.stringify(payload).includes('LATEST_PUBLICATION_PAGE'));
+    return JSON.stringify({title:'Title from chosen text'});
+  });
+  await s.plugin.handleOrganizeCommand({selectedItems:[old]});
+  const task=s.plugin.parseQueue[0];assert.equal(task.state,'completed');assert.equal(task.source,old);
+  assert.equal(parent.getField('title'),'Title from chosen text');
+  s.setReply(payload=>{
+    assert(JSON.stringify(payload).includes('LATEST_PUBLICATION_PAGE'));
+    assert(!JSON.stringify(payload).includes('OLD_PUBLICATION_PAGE'));
+    return JSON.stringify({title:'Latest title',date:'2024'});
+  });
+  await s.plugin.handleOrganizeCommand({selectedItems:[original]});
+  assert.equal(s.plugin.parseQueue.length,1);assert.equal(task.source,latest);assert.equal(task.state,'completed');
+  assert.equal(parent.getField('title'),'Title from chosen text');assert.equal(parent.getField('date'),'2024');
+  assert.equal(s.uploads.length,0);
+});
+
+test('organize waits for an attachment and continues after the user supplies one',async()=>{
+  const s=setup(),parent=new s.Item('book');parent.setField('title','Known bibliography');
+  await s.plugin.handleOrganizeCommand({selectedItems:[parent]});
+  const waiting=s.plugin.parseQueue[0];assert.equal(waiting.state,'waiting');
+  assert.equal(s.requests.length,0);assert.equal(s.uploads.length,0);
+  const original=s.file('supplied.pdf',parent);
+  s.setReply(()=>JSON.stringify({title:'Known bibliography',publisher:'Publisher from supplied text'}));
+  await s.plugin.handleOrganizeCommand({selectedItems:[parent]});
+  assert.equal(s.plugin.parseQueue.length,1);assert.equal(waiting.state,'completed');
+  assert.equal(waiting.attachment.id,original.id);assert.equal(parent.getField('publisher'),'Publisher from supplied text');
+});
+
+test('organize asks for a source when a parent has multiple originals and respects an explicit attachment',async()=>{
+  const s=setup(),parent=new s.Item('book'),first=s.file('main.pdf',parent),second=s.file('supplement.pdf',parent);
+  parent.setField('title','Book');
+  await s.plugin.handleOrganizeCommand({selectedItems:[parent]});
+  assert.equal(s.plugin.parseQueue[0].state,'waiting');assert.equal(s.requests.length,0);assert.equal(s.uploads.length,0);
+  s.parsed(first,'MAIN_DOCUMENT');s.parsed(second,'SUPPLEMENT_DOCUMENT');
+  s.setReply(payload=>{
+    assert(JSON.stringify(payload).includes('MAIN_DOCUMENT'));assert(!JSON.stringify(payload).includes('SUPPLEMENT_DOCUMENT'));
+    return JSON.stringify({title:'Book',publisher:'Main publisher'});
+  });
+  await s.plugin.handleOrganizeCommand({selectedItems:[parent,first]});
+  assert.equal(s.requests.length,1);assert.equal(s.uploads.length,0);
+  assert.equal(parent.getField('publisher'),'Main publisher');
+  assert(!s.plugin.parseQueue.some(task=>task.attachment.id===second.id));
+});
+
+test('organize waits for an unavailable local file instead of submitting an empty conversion',async()=>{
+  const s=setup(),parent=new s.Item('book'),original=s.file('not-downloaded.pdf',parent);
+  s.files.delete(original.path);
+  await s.plugin.handleOrganizeCommand({selectedItems:[original]});
+  const task=s.plugin.parseQueue[0];assert.equal(task.state,'waiting');
+  assert.equal(s.requests.length,0);assert.equal(s.uploads.length,0);
+  s.put(original.path,'downloaded bytes');s.setReply(()=>JSON.stringify({title:'Downloaded book'}));
+  await s.plugin.handleOrganizeCommand({selectedItems:[original]});
+  assert.equal(s.plugin.parseQueue.length,1);assert.equal(task.state,'completed');assert.equal(s.uploads.length,1);
+});
+
+test('organize offers other Zotero file attachments to the converter and reports its actual unsupported-format error',async()=>{
+  const s=setup(),original=s.file('document.odt');
+  s.setReply(()=>JSON.stringify({itemType:'document',title:'Open document'}));
+  await s.plugin.handleOrganizeCommand({selectedItems:[original]});
+  assert.equal(s.plugin.parseQueue[0].state,'completed');assert.equal(s.uploads[0].form.get('file').name,'document.odt');
+  const unsupported=s.file('archive.mobi');
+  s.plugin.parseAttachmentWithMineru=async attachment=>{
+    assert.equal(attachment,unsupported);throw new Error('MarkItDown: unsupported file format mobi');
+  };
+  await s.plugin.handleOrganizeCommand({selectedItems:[unsupported]});
+  assert.equal(s.plugin.parseQueue.at(-1).state,'failed');
+  assert.match(s.plugin.parseQueue.at(-1).error,/unsupported file format mobi/);
+  assert.equal(unsupported.parentID,undefined);
+});
+
+test('organize reuses an unlinked conversion of another file type after the queue is cleared',async()=>{
+  const s=setup(),original=s.file('document.odt');
+  s.prefs.set('extensions.docflow.parseLinkSourcePDF',false);
+  s.setReply(()=>JSON.stringify({itemType:'document',title:'Open document'}));
+  await s.plugin.handleOrganizeCommand({selectedItems:[original]});
+  assert.equal(s.plugin.parseQueue[0].state,'completed');
+  s.plugin.clearParseQueueTasks();
+  await s.plugin.handleOrganizeCommand({selectedItems:[s.items.get(original.parentID)]});
+  assert.equal(s.plugin.parseQueue[0].state,'completed');
+  assert.equal(s.uploads.length,1,'an existing unambiguous Markdown must be reused for every accepted original file type');
+  assert.equal([...s.items.values()].filter(item=>item.hasTag('#DocFlow-Parse')).length,1);
+});
+
+test('organize resumes a failed metadata step without converting the document again',async()=>{
+  const s=setup(),original=s.file('retry.epub');
+  s.setReply(()=>{throw new Error('AI unavailable');});
+  await s.plugin.handleOrganizeCommand({selectedItems:[original]});
+  const task=s.plugin.parseQueue[0];assert.equal(task.state,'failed');assert.match(task.error,/AI unavailable/);
+  assert(task.source);assert.equal(original.parentID,undefined);assert.equal(s.uploads.length,1);
+  s.setReply(()=>JSON.stringify({itemType:'book',title:'Recovered title'}));
+  await s.plugin.retryParseQueueTasks([task.id]);
+  assert.equal(task.state,'completed');assert.equal(s.uploads.length,1);
+  assert.equal(s.items.get(original.parentID).getField('title'),'Recovered title');
+  assert.equal([...s.items.values()].filter(item=>item.hasTag('#DocFlow-Parse')).length,1);
+});
+
+test('organize extracts the original when its only existing Markdown is a translation',async()=>{
+  const s=setup(),parent=new s.Item('book'),original=s.file('original.epub',parent);
+  parent.setField('title','Book');
+  const translation=s.file('translated.md',parent);translation.addTag('#DocFlow-Translation');
+  s.put(translation.path,'TRANSLATED_TEXT_MUST_NOT_IDENTIFY_THE_ORIGINAL');
+  s.setReply(payload=>{
+    assert(JSON.stringify(payload).includes('完整文档内容'));
+    assert(!JSON.stringify(payload).includes('TRANSLATED_TEXT_MUST_NOT_IDENTIFY_THE_ORIGINAL'));
+    return JSON.stringify({title:'Book',publisher:'Original publisher'});
+  });
+  await s.plugin.handleOrganizeCommand({selectedItems:[parent]});
+  assert.equal(s.plugin.parseQueue[0].state,'completed');assert.equal(s.uploads.length,1);
+  assert.equal(parent.getField('publisher'),'Original publisher');
+});
+
+test('organize continues a pending parse with its original service when the default changes',async()=>{
+  const s=setup(),original=s.file('pending.pdf');
+  s.prefs.set('extensions.docflow.apiMode','local-v1');
+  s.prefs.set('extensions.docflow.parserService','mineru');
+  const services=[];
+  s.plugin.parseAttachmentWithMineru=async(_attachment,settings,options)=>{
+    services.push([settings.apiMode,settings.parserService,options.jobID]);
+    if(services.length===1) {
+      options.onStatus({jobID:'original-job'});
+      const error=new Error('still running');error.name='MineruJobWaitTimeout';throw error;
+    }
+    return {markdownText:'Publication page'};
+  };
+  s.setReply(()=>JSON.stringify({itemType:'book',title:'Recovered book'}));
+  await s.plugin.handleOrganizeCommand({selectedItems:[original]});
+  const task=s.plugin.parseQueue[0];assert.equal(task.state,'wait_expired');
+  s.prefs.set('extensions.docflow.apiMode','cloud');s.prefs.set('extensions.docflow.parserService','ai');
+  await s.plugin.retryParseQueueTasks([task.id]);
+  assert.equal(task.state,'completed');assert.equal(task.jobID,null);
+  assert.deepEqual(services,[['local-v1','mineru',null],['local-v1','mineru','original-job']]);
+});
+
+test('organize retries a failed attachment save without repeating conversion',async()=>{
+  const s=setup(),original=s.file('save-retry.epub'),importer=s.context.Zotero.Attachments.importFromFile;
+  let imports=0;s.context.Zotero.Attachments.importFromFile=async options=>{
+    if(++imports===1)throw new Error('disk full');
+    return importer(options);
+  };
+  s.setReply(()=>JSON.stringify({itemType:'book',title:'Saved title'}));
+  await s.plugin.handleOrganizeCommand({selectedItems:[original]});
+  const task=s.plugin.parseQueue[0];assert.equal(task.state,'failed');assert(task.parsedResult);
+  assert.equal(s.requests.length,0);
+  await s.plugin.retryParseQueueTasks([task.id]);
+  assert.equal(task.state,'completed');assert.equal(s.uploads.length,1);assert.equal(s.requests.length,1);
+  assert.equal(task.parsedResult,null);
+});
+
+test('organize remains cancelable after saving text and resumes without repeating conversion',async()=>{
+  const s=setup(),parent=new s.Item('book'),original=s.file('cancel.pdf',parent);
+  parent.setField('title','Existing title');
+  let started,release;const inFlight=new Promise(resolve=>started=resolve),gate=new Promise(resolve=>release=resolve);
+  s.setReply(async()=>{started();await gate;return JSON.stringify({title:'Existing title',publisher:'Must not be saved'});});
+  const running=s.plugin.handleOrganizeCommand({selectedItems:[original]});await inFlight;
+  const task=s.plugin.parseQueue[0];assert(task.source);assert.equal(task.saving,false);
+  await s.plugin.cancelParseQueueTask(task.id);release();await running;
+  assert.equal(task.state,'canceled');assert.equal(parent.getField('publisher'),'');assert.equal(s.uploads.length,1);
+  s.setReply(()=>JSON.stringify({title:'Existing title',publisher:'Recovered publisher'}));
+  await s.plugin.retryParseQueueTasks([task.id]);
+  assert.equal(task.state,'completed');assert.equal(s.uploads.length,1);assert.equal(parent.getField('publisher'),'Recovered publisher');
 });
 
 test('PDF and EPUB convert full files, preserve their names, and save required formats with source relations', async () => {
@@ -367,7 +599,7 @@ test('canceling EPUB batch conversion prevents later requests and partial output
 test('images converted to PDF also receive the parent document cloud language',async()=>{
   const s=setup(),parent=new s.Item('book'),original=s.file('scan.png',parent);
   parent.setField('language','ar-SA');
-  s.plugin.getPDFLibrary=()=>({PDFDocument:{create:async()=>({embedPng:async()=>({width:100,height:100}),addPage:()=>({drawImage:()=>{}}),save:async()=>Uint8Array.from([1,2])})}});
+  s.plugin.getPDFLibrary=()=>({PDFDocument:{create:async()=>({embedPng:async()=>({width:100,height:100}),addPage:()=>({setSize:()=>{},drawImage:()=>{}}),save:async()=>Uint8Array.from([1,2])})}});
   let language;
   s.plugin.parseAttachmentWithCloud=async(_bytes,_name,_id,settings)=>{language=settings.recognitionLanguage;return {markdownText:'image text'};};
   const result=await s.plugin.parseAttachmentWithMineru(original,{apiMode:'cloud',apiToken:'test',parserService:'mineru',cloudLanguage:'auto'},{});

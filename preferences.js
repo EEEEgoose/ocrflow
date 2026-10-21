@@ -12,6 +12,14 @@ var DocFlowPreferences = {
 	modelTests: {},
 
 	FIELDS: [
+		...["cloud", "local"].flatMap(mode => ["url", "token", "model"].map(name => ({ id: `ocrflow-paddle-${mode}-${name}`,
+			pref: `paddle.${mode}.${name}`, type: "string", defaultValue: name === "model" ? "PaddleOCR-VL-1.6" : name === "url" && mode === "cloud" ? "https://paddleocr.aistudio-app.com/api/v2/ocr" : "" }))),
+		{ id: "ocrflow-collation-ai-enabled", pref: "collationAIEnabled", type: "bool", defaultValue: false },
+		{ id: "ocrflow-collation-ai-model", pref: "collationAIModel", type: "string", defaultValue: "" },
+		{ id: "ocrflow-collation-enabled", pref: "collationEnabled", type: "bool", defaultValue: false },
+		{ id: "ocrflow-collation-a", pref: "collationA", type: "string", defaultValue: "mineru-cloud" },
+		{ id: "ocrflow-collation-b", pref: "collationB", type: "string" },
+		{ id: "ocrflow-paddle-mode", pref: "paddleMode", type: "string", defaultValue: "cloud" },
 		{ id: "docflow-parser-service", pref: "parserService", type: "string", defaultValue: "mineru" },
 		{ id: "docflow-markitdown-url", pref: "markitdownBaseURL", type: "string" },
 		{ id: "mineru-auto-outline", pref: "autoOutline", type: "bool", defaultValue: false },
@@ -61,6 +69,7 @@ var DocFlowPreferences = {
 	},
 
 	setStatus(message, isError = false, section = "all") {
+		if (section !== "all" && message === "有未保存的修改") this.setStatus(message);
 		let status = this.$(section === "all" ? "mineru-status" : `ocrflow-${section}-status`);
 		if (!status) return;
 		status.textContent = message || "";
@@ -68,6 +77,8 @@ var DocFlowPreferences = {
 	},
 
 	sectionForField(name) {
+		if (name === "paddleMode" || name.startsWith("paddle.")) return "paddle";
+		if (name.startsWith("collation")) return "work";
 		if (name === "markitdownBaseURL") return "markitdown";
 		if (this.API_FIELDS.includes(name) || ["apiMode", "localJobTimeoutSec", "cloudLanguage"].includes(name)) return "mineru";
 		if (this.LLM_PROVIDER_FIELDS.includes(name)) return "ai";
@@ -128,7 +139,7 @@ var DocFlowPreferences = {
 		}
 		return {
 			apiBaseURL: mode === "local-v1" ? "http://127.0.0.1:8000" : "https://mineru.net/api/v4",
-			apiToken: "", modelVersion: mode === "local-v1" ? "basic" : "pipeline", pollIntervalSec: 5, timeoutSec: 120
+			apiToken: "", modelVersion: mode === "local-v1" ? "basic" : "pipeline", pollIntervalSec: 5, timeoutSec: 1200
 		}[name];
 	},
 
@@ -332,7 +343,35 @@ var DocFlowPreferences = {
 			}
 			input.value = value;
 		}
+		let reviewModel = this.$("ocrflow-collation-ai-model");
+		if (reviewModel) {
+			let selected = this.collationModelLoaded ? reviewModel.value : Zotero.Prefs.get(this.PREF_BRANCH + "collationAIModel", true) || reviewModel.value;
+			this.collationModelLoaded = true; reviewModel.replaceChildren();
+			for (let choice of [{value:"",label:"请选择支持图片的模型"}, ...choices]) {
+				let option = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); option.value = choice.value; option.textContent = choice.label; reviewModel.appendChild(option);
+			}
+			reviewModel.value = choices.some(choice => choice.value === selected) ? selected : "";
+		}
 		this.updateWorkLabels();
+		this.renderOCRSources();
+	},
+
+	renderOCRSources() {
+		if (typeof OCRFlowSources === "undefined") return;
+		let a = this.$("ocrflow-collation-a"), b = this.$("ocrflow-collation-b");
+		if (!a || !b) return;
+		let choices = OCRFlowSources.choices(this.llmProviders || []), first = a.value || (!this.ocrSourcesLoaded && Zotero.Prefs.get(this.PREF_BRANCH + "collationA", true)) || "mineru-cloud", second = b.value || (!this.ocrSourcesLoaded && Zotero.Prefs.get(this.PREF_BRANCH + "collationB", true)) || "";
+		this.ocrSourcesLoaded = true;
+		for (let [input, selected, other] of [[a, first, ""], [b, second, first]]) {
+			input.replaceChildren();
+			let empty = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); empty.value = ""; empty.textContent = "请选择识别来源"; input.appendChild(empty);
+			for (let choice of choices) {
+				if (other && !OCRFlowSources.valid(other, choice.value, this.llmProviders || [])) continue;
+				let option = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); option.value = choice.value; option.textContent = choice.label; input.appendChild(option);
+			}
+			input.value = choices.some(choice => choice.value === selected && (!other || OCRFlowSources.valid(other, selected, this.llmProviders || []))) ? selected : "";
+		}
+		if (second && !OCRFlowSources.valid(a.value, second, this.llmProviders || [])) { b.value = ""; this.setStatus("来源 A 已改变，请重新选择不同的来源 B。", false, "work"); }
 	},
 
 	updateWorkLabels() {
@@ -346,7 +385,9 @@ var DocFlowPreferences = {
 
 	isModelInUse(value) {
 		let saved = JSON.parse(Zotero.Prefs.get(this.PREF_BRANCH + "aiWorkSettings", true) || "{}");
-		return saved.defaultModel === value || this.$("ocrflow-work-default-model").value === value || this.WORK_KINDS.some(kind =>
+		return this.$("ocrflow-collation-ai-model")?.value === value || Zotero.Prefs.get(this.PREF_BRANCH + "collationAIModel", true) === value || ["a", "b"].some(slot => this.$("ocrflow-collation-" + slot)?.value === "ai:" + value ||
+			Zotero.Prefs.get(this.PREF_BRANCH + "collation" + slot.toUpperCase(), true) === "ai:" + value) ||
+			saved.defaultModel === value || this.$("ocrflow-work-default-model").value === value || this.WORK_KINDS.some(kind =>
 			saved[kind]?.model === value || this.$("ocrflow-work-" + kind + "-model").value === value);
 	},
 
@@ -366,6 +407,7 @@ var DocFlowPreferences = {
 
 	loadSettings(apiMode = Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true) || "cloud") {
 		this.loadedAPIMode = apiMode;
+		this.collationModelLoaded = false; this.ocrSourcesLoaded = false;
 		this.syncParseOptions(apiMode);
 		for (let field of this.FIELDS) {
 			let input = this.$(field.id);
@@ -374,6 +416,10 @@ var DocFlowPreferences = {
 				: this.API_FIELDS.includes(field.pref) ? this.readAPIPref(field.pref, apiMode)
 				: Zotero.Prefs.get(this.PREF_BRANCH + field.pref, true);
 			if (value === undefined || value === null) value = field.defaultValue ?? "";
+			if (field.pref === "parserService" && String(value).startsWith("paddle-")) {
+				this.$("ocrflow-paddle-mode").value = String(value).slice(7);
+				value = "paddle";
+			}
 			if (field.pref === "modelVersion") value = this.normalizeModelVersion(value, apiMode);
 			if (field.type === "bool") {
 				input.checked = !!value;
@@ -395,6 +441,11 @@ var DocFlowPreferences = {
 		let profile = apiMode === "local-v1" ? "local" : "cloud";
 		let updates = [], work;
 		try {
+			if (["all", "work"].includes(section) && this.$("ocrflow-collation-enabled")?.checked && typeof OCRFlowSources !== "undefined") {
+				if (!OCRFlowSources.valid(this.$("ocrflow-collation-a").value, this.$("ocrflow-collation-b").value, this.llmProviders || [])) throw new Error("双引擎须选择不同来源；MinerU 本地/云端、PaddleOCR 官方/自部署分别互斥。");
+			}
+			if (["all", "work"].includes(section) && this.$("ocrflow-collation-enabled")?.checked && this.$("ocrflow-collation-ai-enabled")?.checked &&
+				!this.modelChoices().some(choice => choice.value === this.$("ocrflow-collation-ai-model").value)) throw new Error("请选择支持图片的 AI 校勘模型。");
 			if (["all", "work"].includes(section)) work = this.readWorkSettings();
 			if (["all", "ai"].includes(section)) for (let slot of [1, 2]) {
 				let provider = this.llmProviders[this.loadedLLMProviderIndex], name = slot === 1 ? "llmModel" : "llmModel2";
@@ -468,7 +519,7 @@ var DocFlowPreferences = {
 		apiToken = apiToken.replace(/^Bearer\s+/i, "");
 
 		let timeoutSec = parseInt(read("timeoutSec"), 10);
-		if (!Number.isFinite(timeoutSec) || timeoutSec <= 0) timeoutSec = 120;
+		if (!Number.isFinite(timeoutSec) || timeoutSec <= 0) timeoutSec = 1200;
 
 		let modelVersion = this.normalizeModelVersion((read("modelVersion") || "").trim(), apiMode);
 
@@ -769,10 +820,61 @@ var DocFlowPreferences = {
 		}
 	},
 
+	showSection(selected) {
+		for (let key of ["services", "ai", "work", "collation", "output", "tasks"]) {
+			let panel = this.$("ocrflow-panel-" + key);
+			if (panel) panel.hidden = key !== selected;
+			this.$("ocrflow-tab-" + key)?.setAttribute("aria-pressed", String(key === selected));
+		}
+		if (selected === "tasks") this.queueView?.render();
+	},
+
+	showService(selected) {
+		for (let key of ["mineru", "paddle", "markitdown", "ai"]) {
+			let panel = this.$("ocrflow-service-panel-" + key);
+			if (panel) panel.hidden = key !== selected;
+			this.$("ocrflow-service-tab-" + key)?.setAttribute("aria-pressed", String(key === selected));
+		}
+	},
+
+	showWork(selected) {
+		for (let key of this.WORK_KINDS) {
+			this.$("ocrflow-work-" + key).hidden = key !== selected;
+			this.$("ocrflow-work-tab-" + key)?.setAttribute("aria-pressed", String(key === selected));
+		}
+	},
+
+	syncPaddleMode() {
+		for (let key of ["cloud", "local"]) {
+			let panel = this.$("ocrflow-paddle-" + key + "-fields");
+			if (panel) panel.hidden = this.$("ocrflow-paddle-mode").value !== key;
+		}
+	},
+
+	initNavigation() {
+		for (let key of ["services", "ai", "work", "collation", "output", "tasks"]) this.$("ocrflow-tab-" + key)?.addEventListener("click", () => this.showSection(key));
+		for (let key of ["mineru", "paddle", "markitdown", "ai"]) this.$("ocrflow-service-tab-" + key)?.addEventListener("click", () => this.showService(key));
+		for (let key of this.WORK_KINDS) this.$("ocrflow-work-tab-" + key)?.addEventListener("click", () => this.showWork(key));
+		this.$("ocrflow-paddle-mode")?.addEventListener("change", () => this.syncPaddleMode());
+		this.$("ocrflow-go-ai")?.addEventListener("click", () => this.showSection("ai"));
+		this.$("ocrflow-go-ocr")?.addEventListener("click", () => { this.showSection("work"); this.showWork("ocr"); });
+		this.showService(this.$("docflow-parser-service").value);
+		this.showWork("parent");
+		this.syncPaddleMode();
+		let plugin = Zotero.getMainWindow?.()?.DocFlow;
+		if (plugin && typeof DocFlowTaskQueue !== "undefined") {
+			this.queueView = DocFlowTaskQueue;
+			this.queueView.init(plugin);
+		}
+		this.showSection(plugin?.requestedPreferencesSection || "services");
+		if (plugin) plugin.requestedPreferencesSection = null;
+	},
+
 	init() {
 		if (this.initialized) return;
 		try {
 			this.loadSettings();
+			this.initNavigation();
 			for (let index = 0; index < this.LLM_PROVIDER_LIMIT; index++) {
 				this.$("mineru-llm-provider-" + index).addEventListener("click", () => this.switchLLMProvider(index));
 			}
@@ -782,6 +884,8 @@ var DocFlowPreferences = {
 				this.$("ocrflow-work-" + kind + "-model").addEventListener("change", () => { this.updateWorkLabels(); this.setStatus("有未保存的修改"); });
 			}
 			this.$("ocrflow-work-save").addEventListener("click", () => this.saveSettings({ section: "work" }));
+			this.$("ocrflow-paddle-save")?.addEventListener("click", () => this.saveSettings({ section: "paddle" }));
+			this.$("ocrflow-collation-a")?.addEventListener("change", () => this.renderOCRSources());
 			for (let kind of this.WORK_KINDS) this.$("ocrflow-work-" + kind + "-reset").addEventListener("click", () => {
 				this.$(this.workFieldID(kind, "prompt")).value = OCRFlowPrompts.defaults[kind];
 				this.setStatus("有未保存的修改", false, "work");
@@ -820,6 +924,7 @@ var DocFlowPreferences = {
 				let markChanged = () => {
 					if (["llmApiBaseURL", "llmApiKey"].includes(field.pref)) for (let slot of [1, 2]) this.resetModelTest(slot);
 					if (field.pref === "llmModel" || field.pref === "llmModel2") this.resetModelTest(field.pref === "llmModel" ? 1 : 2);
+					if (field.pref === "parserService") this.showService(input.value);
 					this.syncTranslationMode();
 					this.setStatus("有未保存的修改", false, this.sectionForField(field.pref));
 					if (field.pref === "llmProviderName") this.$("mineru-llm-provider-" + this.loadedLLMProviderIndex).textContent = input.value || "未命名供应商";

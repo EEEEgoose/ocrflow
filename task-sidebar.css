@@ -1,0 +1,64 @@
+.ocrflow-sidebar-button { appearance:none; max-height:none; min-height:32px; position:relative; align-self:center; flex-shrink:0; width:32px; height:32px; margin:4px; padding:6px; border:0; border-radius:5px; background:transparent; color:inherit; cursor:pointer; }
+.ocrflow-sidebar-button:hover, .ocrflow-sidebar-button[aria-expanded="true"] { background:light-dark(#e3ebfa,#30405b); }
+.ocrflow-sidebar-icon { display:block; width:20px; height:20px; pointer-events:none; background:light-dark(#487bd0,#91b4f2); mask:url("chrome://docflow/content/sidebar-icon.svg") center / contain no-repeat; }
+.ocrflow-task-badge { position:absolute; top:0; right:-2px; min-width:13px; padding:0 2px; border-radius:7px; background:#226cd3; color:white; font:10px/14px sans-serif; pointer-events:none; }
+#ocrflow-task-sidebar { display:none; min-width:0; flex:1; overflow:auto; color:light-dark(#242428,#ededf0); background:light-dark(#fafafa,#262628); font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; user-select:text; }
+#ocrflow-task-sidebar[hidden] { display:none !important; }
+#ocrflow-task-sidebar * { box-sizing:border-box; }
+.ocrflow-sidebar-open > #zotero-item-pane-content { display:none !important; }
+.ocrflow-sidebar-open > #ocrflow-task-sidebar { display:block; }
+#ocrflow-task-sidebar header, #ocrflow-task-sidebar footer { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:14px; background:light-dark(#fafafa,#262628); }
+#ocrflow-task-sidebar header { position:sticky; top:0; z-index:1; border-bottom:1px solid light-dark(#ddd,#444); }
+#ocrflow-task-sidebar footer { border-top:1px solid light-dark(#ddd,#444); }
+#ocrflow-task-sidebar h3 { font-size:15px; line-height:1.5; margin:18px 0 5px; overflow-wrap:anywhere; }
+#ocrflow-task-sidebar p { margin:8px 0; overflow-wrap:anywhere; white-space:pre-wrap; }
+#ocrflow-task-sidebar button, #ocrflow-task-sidebar select { font:inherit; color:inherit; border:1px solid light-dark(#d3d3d8,#505056); border-radius:5px; background:light-dark(#fff,#303034); padding:5px 9px; }
+#ocrflow-task-sidebar button { appearance:none; height:auto; max-height:none; min-height:28px; margin:0; line-height:1.5; white-space:normal; cursor:pointer; }
+#ocrflow-task-sidebar button:disabled { opacity:.5; cursor:default; }
+#ocrflow-task-sidebar select { width:100%; min-width:0; }
+#ocrflow-task-sidebar .of-content { padding:16px; }
+#ocrflow-task-sidebar .of-muted { font-size:12px; color:light-dark(#686872,#aaaab4); }
+#ocrflow-task-sidebar .of-status { color:light-dark(#2463ba,#91b6ff); margin-bottom:20px; }
+#ocrflow-task-sidebar .of-timeline { padding:0; margin:0; list-style:none; }
+#ocrflow-task-sidebar .of-step { border-left:1px solid light-dark(#ddd,#4d4d55); padding:0 0 18px 13px; margin-left:5px; }
+#ocrflow-task-sidebar summary { cursor:pointer; font-weight:500; overflow-wrap:anywhere; }
+#ocrflow-task-sidebar .of-step[data-state="completed"] summary { color:light-dark(#347444,#8ac69d); }
+#ocrflow-task-sidebar .of-step[data-state="running"] summary { color:light-dark(#2463ba,#91b6ff); }
+#ocrflow-task-sidebar .of-step-detail { font-size:12px; color:light-dark(#686872,#aaaab4); }
+#ocrflow-task-sidebar .of-tool { background:light-dark(#f0f1f4,#303034); padding:12px; border-radius:7px; margin-bottom:16px; }
+#ocrflow-task-sidebar progress { width:100%; height:6px; accent-color:#5b91ed; }
+#ocrflow-task-sidebar .of-error { color:light-dark(#ad3434,#ffadad); }
+#ocrflow-task-sidebar .of-actions { display:flex; gap:8px; flex-wrap:wrap; }
+#ocrflow-task-sidebar .of-caption { font-size:11px; color:light-dark(#686872,#aaaab4); margin:0 0 6px; }
+#ocrflow-task-sidebar .of-content>h3 { margin:0; }
+#ocrflow-task-sidebar .of-file { display:flex; align-items:center; gap:8px; background:light-dark(#f0f1f4,#303034); border-radius:6px; padding:9px 10px; margin-top:12px; min-width:0; }
+#ocrflow-task-sidebar .of-file>span { flex:1; min-width:0; overflow-wrap:anywhere; }
+#ocrflow-task-sidebar .of-file>select { flex:1; min-width:0; }
+#ocrflow-task-sidebar .of-file>button, #ocrflow-task-sidebar .of-source>button, #ocrflow-task-sidebar .of-section-title>button { border:0; background:transparent; color:light-dark(#2463ba,#91b6ff); padding:0; white-space:nowrap; }
+#ocrflow-task-sidebar .of-source { display:flex; align-items:center; gap:12px; margin:10px 0 18px; }
+#ocrflow-task-sidebar .of-section-title { display:flex; align-items:center; justify-content:space-between; gap:8px; color:light-dark(#686872,#aaaab4); font-size:11px; margin:18px 0 10px; }
+#ocrflow-task-sidebar .of-primary { display:grid; grid-template-columns:16px minmax(0,1fr); gap:3px 9px; align-items:center; width:100%; text-align:left; padding:11px 12px; background:light-dark(#2e64b5,#a1c0f4); color:light-dark(#fff,#142b4b); border-color:transparent; }
+#ocrflow-task-sidebar .of-primary small { display:block; grid-column:2; font-size:11px; opacity:.85; }
+#ocrflow-task-sidebar .of-action-label { min-width:0; line-height:inherit; white-space:normal; overflow-wrap:anywhere; }
+#ocrflow-task-sidebar .of-action-icon { width:16px; height:16px; flex-shrink:0; fill:currentColor; -moz-context-properties:fill; }
+#ocrflow-task-sidebar .of-document-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; margin:10px 0; }
+#ocrflow-task-sidebar .of-document-actions button { display:flex; align-items:center; gap:7px; text-align:left; padding:9px 8px; min-width:0; overflow-wrap:anywhere; }
+#ocrflow-task-sidebar .of-more { margin:13px 0 18px; padding-bottom:15px; border-bottom:1px solid light-dark(#ddd,#444); }
+#ocrflow-task-sidebar .of-more>summary { font-size:12px; color:light-dark(#686872,#aaaab4); }
+#ocrflow-task-sidebar .of-more .of-actions { margin-top:10px; }
+#ocrflow-task-sidebar .of-step { position:relative; margin:0; border:0; padding:0 0 18px 26px; min-width:0; }
+#ocrflow-task-sidebar .of-step:before { content:""; position:absolute; left:7px; top:20px; bottom:3px; width:1px; background:light-dark(#ddd,#4d4d55); }
+#ocrflow-task-sidebar .of-step:last-child:before { display:none; }
+#ocrflow-task-sidebar .of-step-mark { position:absolute; top:0; left:0; width:16px; text-align:center; color:light-dark(#686872,#aaaab4); }
+#ocrflow-task-sidebar .of-step[data-state="completed"] .of-step-mark { color:light-dark(#347444,#8ac69d); }
+#ocrflow-task-sidebar .of-step[data-state="running"] .of-step-mark { color:light-dark(#2463ba,#91b6ff); }
+#ocrflow-task-sidebar .of-step[data-state="failed"] .of-step-mark { color:light-dark(#ad3434,#ffadad); }
+#ocrflow-task-sidebar .of-step>details>summary { display:flex; align-items:flex-start; gap:8px; list-style:none; font-size:12px; color:inherit; }
+#ocrflow-task-sidebar .of-step>details>summary::-webkit-details-marker { display:none; }
+#ocrflow-task-sidebar .of-step-label { flex:1; min-width:0; }
+#ocrflow-task-sidebar .of-step-state { font-size:11px; font-weight:400; white-space:nowrap; color:light-dark(#686872,#aaaab4); }
+#ocrflow-task-sidebar .of-step>details>summary:after { content:"⌄"; color:light-dark(#686872,#aaaab4); }
+#ocrflow-task-sidebar .of-step>details[open]>summary:after { content:"⌃"; }
+#ocrflow-task-sidebar .of-step[data-state="running"] .of-step-label { color:light-dark(#2463ba,#91b6ff); }
+#ocrflow-task-sidebar .of-step[data-state="pending"] .of-step-label, #ocrflow-task-sidebar .of-step[data-state="not_run"] .of-step-label { color:light-dark(#686872,#aaaab4); }
+#ocrflow-task-sidebar .of-step .of-tool { margin:10px 0 0; }

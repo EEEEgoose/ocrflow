@@ -15,7 +15,8 @@ test('a standalone checkout builds installable and clean source archives in defa
   fs.writeFileSync(path.join(repo,'scratch.log'),'not-for-release');
   fs.writeFileSync(path.join(repo,'vendor','private-setting.json'),'not-for-installation');
   fs.writeFileSync(path.join(repo,'locale','scratch.log'),'not-for-installation');
-  const version=JSON.parse(fs.readFileSync(path.join(repo,'manifest.json'),'utf8')).version;
+  const baseVersion=JSON.parse(fs.readFileSync(path.join(repo,'manifest.json'),'utf8')).version;
+  const version=baseVersion+'.1';
   for(const directory of [null,path.join(temp,'custom-output')]){
    const result=spawnSync('python3',['build.py',...(directory?['--output-dir',directory]:[])],{cwd:repo,encoding:'utf8'});
    assert.equal(result.status,0,result.stderr);
@@ -28,7 +29,10 @@ test('a standalone checkout builds installable and clean source archives in defa
    const data=JSON.parse(inspected.stdout);
    assert.equal(data.manifest.version,version);assert.equal(data.manifest.applications.zotero.id,'docflow@egooose.local');
    for(const file of ['bootstrap.js','prompts.js','workflow.js','preferences.xhtml','vendor/katex/katex.min.js','vendor/katex/LICENSE','vendor/pdf-lib/pdf-lib.min.js','vendor/pdf-lib/LICENSE.md','vendor/paper-outline/LICENSE'])assert(data.runtime.includes(file),file);
-   assert(!data.runtime.some(file=>/^(tests\/|docs\/|\.github\/)|README|\.svg$|private-setting|scratch\.log/.test(file)));
+   assert(!data.runtime.some(file=>/^(tests\/|docs\/|\.github\/)|README|private-setting|scratch\.log/.test(file)));
+   assert(data.runtime.includes('sidebar-icon.svg'));
+   assert(data.runtime.includes('menu-icons/ocr.svg'));
+   assert(data.runtime.filter(file=>file.endsWith('.svg')).every(file=>file==='sidebar-icon.svg'||file.startsWith('menu-icons/')),'only runtime vectors belong in the installation');
    for(const file of ['README.md','README.zh-CN.md','CHANGELOG.md','VALIDATION.md','docs/DEVELOPMENT.md','.github/workflows/ci.yml','.gitignore','tests/build.test.cjs','build.py'])assert(data.source.includes('ocrflow/'+file),file);
    assert.equal(new Set(data.source).size,data.source.length);
    assert(data.source.every(file=>file.startsWith('ocrflow/')));
@@ -41,7 +45,10 @@ test('a standalone checkout builds installable and clean source archives in defa
    assert.equal(update.update_link,`https://github.com/EEEEgoose/ocrflow/releases/download/v${version}/ocrflow-${version}.xpi`);
    assert.deepEqual(update.applications.zotero,{strict_min_version:'10.0',strict_max_version:'10.0.*'});
   }
-  const releaseVersion=version+'.12';
+  const second=spawnSync('python3',['build.py'],{cwd:repo,encoding:'utf8'});
+  assert.equal(second.status,0,second.stderr);
+  assert(fs.existsSync(path.join(repo,'dist',`ocrflow-${baseVersion}.2.xpi`)));
+  const releaseVersion=baseVersion+'.12';
   const release=spawnSync('python3',['build.py','--version',releaseVersion],{cwd:repo,encoding:'utf8'});
   assert.equal(release.status,0,release.stderr);
   for(const [filename,entry] of [[`ocrflow-${releaseVersion}.xpi`,'manifest.json'],[`ocrflow-${releaseVersion}-source.zip`,'ocrflow/manifest.json']]){
@@ -50,6 +57,10 @@ test('a standalone checkout builds installable and clean source archives in defa
    assert.equal(inspected.stdout.trim(),releaseVersion);
   }
   assert.equal(JSON.parse(fs.readFileSync(path.join(repo,'dist','updates.json'),'utf8')).addons['docflow@egooose.local'].updates[0].version,releaseVersion);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(repo,'manifest.json'),'utf8')).version,version,'release builds must not modify the checkout');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(repo,'manifest.json'),'utf8')).version,baseVersion,'release builds must not modify the checkout');
+  const next=spawnSync('python3',['build.py'],{cwd:repo,encoding:'utf8'});
+  assert.equal(next.status,0,next.stderr);
+  assert(fs.existsSync(path.join(repo,'dist',`ocrflow-${baseVersion}.13.xpi`)));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(repo,'dist','updates.json'),'utf8')).addons['docflow@egooose.local'].updates[0].version,baseVersion+'.13');
  }finally{fs.rmSync(temp,{recursive:true,force:true});}
 });

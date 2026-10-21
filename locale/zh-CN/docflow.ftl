@@ -1,9 +1,11 @@
 docflow-menu-root =
     .label = OCRFlow
+docflow-menu-organize =
+    .label = 一键整理
 docflow-menu-create-parent =
     .label = 建立父条目
 docflow-menu-parse-pdf =
-    .label = 建立文本 OCR / 转为 Markdown
+    .label = 提取全文 / OCR
 docflow-menu-ocr-default =
     .label = 使用设置中的服务
 docflow-menu-ocr-mineru-local =
@@ -22,3 +24,12 @@ docflow-menu-ai-translate =
     .label = 翻译文档
 docflow-menu-outline =
     .label = 生成阅读器大纲
+
+docflow-menu-ocr-paddle-cloud =
+    .label = PaddleOCR（官方 API）
+docflow-menu-ocr-paddle-local =
+    .label = PaddleOCR（自部署 API）
+ocrflow-menu-review-collation =
+    .label = 审阅 OCR 校勘
+ocrflow-menu-changes =
+    .label = 查看整理差异

@@ -1,24 +1,40 @@
 var DocFlowTaskQueue = {
-	plugin: window.arguments[0].plugin,
+	plugin: window.arguments?.[0]?.plugin || null,
 	rows: new Map(),
-	labels: { queued: "排队中", running: "处理中", stopping: "终止中", canceled: "已终止", completed: "已完成", failed: "失败", wait_expired: "等待已结束" },
+	labels: { queued: "排队中", running: "处理中", stopping: "终止中", canceled: "已终止", completed: "已完成", failed: "失败", wait_expired: "等待已结束", waiting: "待补充" },
 
-	init() {
-		this.plugin = window.arguments[0].plugin;
+	init(plugin = window.arguments[0].plugin) {
+		if (this.initialized) return;
+		this.initialized = true;
+		this.plugin = plugin;
+		plugin.parseQueueViews.add(this);
+		this.owner = document.getElementById("docflow-prefpane") || window;
+		this.onUnload = () => this.destroy();
+		this.owner.addEventListener("unload", this.onUnload, { once: true });
 		document.getElementById("queue-retry-failed").addEventListener("click", () => {
 			this.retry(this.plugin.parseQueue.filter(task => task.state === "failed").map(task => task.id));
 		});
-		document.getElementById("queue-close").addEventListener("click", () => window.close());
+		document.getElementById("queue-close")?.addEventListener("click", () => window.close());
 		document.getElementById("queue-clear").addEventListener("click", () => this.plugin.clearParseQueueTasks());
-		window.addEventListener("keydown", event => {
+		this.onCopyKey = event => {
 			if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "c") return;
 			let text = window.getSelection()?.toString();
 			if (!text) return;
 			this.copyText(text, "已复制所选文字");
 			event.preventDefault();
-		});
+		};
+		window.addEventListener("keydown", this.onCopyKey);
 		this.initScrollbar();
 		this.render();
+	},
+
+	destroy() {
+		this.resizeObserver?.disconnect();
+		window.removeEventListener("keydown", this.onCopyKey);
+		this.owner.removeEventListener("unload", this.onUnload);
+		this.plugin.parseQueueViews.delete(this);
+		if (this.plugin.parseQueueWindow === window) this.plugin.parseQueueWindow = null;
+		if (window.DocFlowTaskQueue === this) delete window.DocFlowTaskQueue;
 	},
 
 	taskText(row) {
@@ -117,7 +133,7 @@ var DocFlowTaskQueue = {
 		for (let [id, row] of this.rows) {
 			if (!taskIDs.has(id)) { row.element.remove(); this.rows.delete(id); }
 		}
-		let counts = { queued: 0, running: 0, stopping: 0, canceled: 0, completed: 0, failed: 0, wait_expired: 0 };
+		let counts = { queued: 0, running: 0, stopping: 0, canceled: 0, completed: 0, failed: 0, wait_expired: 0, waiting: 0 };
 		for (let [index, task] of this.plugin.parseQueue.entries()) {
 			counts[task.state]++;
 			let row = this.rows.get(task.id);
@@ -145,17 +161,17 @@ var DocFlowTaskQueue = {
 			}
 			setText(row.number, index + 1);
 			setText(row.title, task.title);
-			let mode = ({parent: "建立父条目", metadata: "补充父条目信息", summary: "总结文档", outline: "阅读器大纲", translate: `翻译文档 → ${task.settings.translateLanguage || "中文"}`})[task.kind]
-				|| (task.settings.parserService === "ai" ? "AI 视觉 OCR" : task.settings.parserService === "markitdown" ? "MarkItDown" : task.settings.apiMode === "local-v1" ? "本地 MinerU" : "MinerU 官方 API");
-			let ai = task.settings.parserService === "ai" ? task.settings.llmSettings : task.kind !== "parse" ? task.settings : null;
+			let mode = ({organize: "一键整理", parent: "建立父条目", metadata: "补充父条目信息", summary: "总结文档", outline: "阅读器大纲", translate: `翻译文档 → ${task.settings.translateLanguage || "中文"}`})[task.kind]
+				|| (task.settings.parserService === "ai" ? "AI 视觉 OCR" : task.settings.parserService === "markitdown" ? "MarkItDown" : task.settings.parserService?.startsWith("paddle-") ? (task.settings.parserService === "paddle-local" ? "PaddleOCR 自部署 API" : "PaddleOCR 官方 API") : task.settings.apiMode === "local-v1" ? "本地 MinerU" : "MinerU 官方 API");
+			let ai = task.kind === "organize" ? null : task.settings.parserService === "ai" ? task.settings.llmSettings : task.kind !== "parse" ? task.settings : null;
 			setText(row.mode, mode + (ai?.providerName ? ` · ${ai.providerName} + ${ai.model}` : ""));
 			setText(row.state, this.labels[task.state]);
 			row.state.dataset.state = task.state;
 			setText(row.detail, task.detail);
 			setText(row.job, task.jobID ? `任务 ID: ${task.jobID}` : "");
 			setText(row.error, task.error);
-			setText(row.retry, task.state === "wait_expired" ? "继续等待" : task.state === "canceled" ? "重新处理" : "重试");
-			row.retry.disabled = !["failed", "wait_expired", "canceled"].includes(task.state);
+			setText(row.retry, task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : task.state === "canceled" ? "重新处理" : "重试");
+			row.retry.disabled = !["failed", "wait_expired", "canceled", "waiting"].includes(task.state);
 			setText(row.cancel, task.cancelFailed ? "重试终止" : "终止");
 			row.cancel.disabled = !!task.saving || (!["queued", "running", "wait_expired"].includes(task.state) && !task.cancelFailed);
 		}
@@ -168,8 +184,6 @@ var DocFlowTaskQueue = {
 };
 
 window.DocFlowTaskQueue = DocFlowTaskQueue;
-window.addEventListener("DOMContentLoaded", () => DocFlowTaskQueue.init(), { once: true });
-window.addEventListener("unload", () => {
-	DocFlowTaskQueue.resizeObserver?.disconnect();
-	if (DocFlowTaskQueue.plugin?.parseQueueWindow === window) DocFlowTaskQueue.plugin.parseQueueWindow = null;
-});
+if (window.arguments?.[0]?.plugin) {
+	window.addEventListener("DOMContentLoaded", () => DocFlowTaskQueue.init(), { once: true });
+}
