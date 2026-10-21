@@ -15,6 +15,7 @@ class Element {
 const elements = new Map(Array.from(fs.readFileSync('task-queue.xhtml', 'utf8').matchAll(/\bid="([^"]+)"/g), match => [match[1], new Element()]));
 const retries = [], cancellations = [];
 const plugin = {
+  parseQueueViews:new Set(),
   parseQueue: [
     {id: 1, title: '书籍.pdf', settings: {apiMode: 'local-v1'}, state: 'running', detail: '已等待 2 分钟', jobID: 'job-live', error: ''},
     {id: 2, title: '失败.pdf', settings: {apiMode: 'cloud'}, state: 'failed', detail: '失败', error: 'API error'},
@@ -25,7 +26,7 @@ const plugin = {
 };
 const events = {};
 let selection='';const copied=[];
-const window = {arguments: [{plugin}],getSelection:()=>({toString:()=>selection}), ResizeObserver: class {observe() {} disconnect() {}}, addEventListener: (type, callback) => events[type] = callback, close: () => events.unload()};
+const window = {arguments: [{plugin}],getSelection:()=>({toString:()=>selection}), ResizeObserver: class {observe() {} disconnect() {}}, addEventListener: (type, callback) => events[type] = callback, removeEventListener:type=>delete events[type], close: () => events.unload()};
 plugin.parseQueueWindow = window;
 const context = {window,Components:{classes:{'@mozilla.org/widget/clipboardhelper;1':{getService:()=>({copyString:text=>copied.push(text)})}},interfaces:{nsIClipboardHelper:{}}}, document: {getElementById: id => elements.get(id), createElementNS: () => new Element()}};
 vm.createContext(context);
@@ -112,7 +113,19 @@ plugin.parseQueue.push({id: 7, title: '新任务.pdf', settings: {apiMode: 'loca
 view.render();
 assert.equal(elements.get('queue-body').children.length, 1);
 assert.equal(view.rows.get(7).number.textContent, '1');
+plugin.parseQueue.push({id: 8, kind: 'organize', title: '等待附件', settings: {}, state: 'waiting', detail: '添加文件后继续整理'});
+view.render();
+assert.equal(view.rows.get(8).mode.textContent, '一键整理');
+assert.equal(view.rows.get(8).state.textContent, '待补充');
+assert.equal(view.rows.get(8).retry.textContent, '继续整理');
+assert.equal(view.rows.get(8).retry.disabled, false);
+assert.equal(view.rows.get(8).cancel.disabled, true);
+view.rows.get(8).retry.listeners.click();
+assert.deepEqual(retries.at(-1), [8]);
+assert(plugin.canClearParseQueueTask(plugin.parseQueue.at(-1)));
 elements.get('queue-close').listeners.click();
 assert.equal(plugin.parseQueueWindow, null);
+assert.equal(plugin.parseQueueViews.size,0,'closing the view unregisters it before its script scope is destroyed');
+assert(!events.keydown,'closing removes the window clipboard listener');
 assert.equal(plugin.parseQueue[0].state, 'running');
 console.log('PASS: dialog rows, button binding, retry-all selection, early rendering and close without task cancellation.');

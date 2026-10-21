@@ -15,23 +15,34 @@ manifest = json.loads((root / "manifest.json").read_text())
 for field in ("id", "update_url", "strict_max_version"):
     if not manifest.get("applications", {}).get("zotero", {}).get(field):
         raise ValueError(f"Zotero requires applications.zotero.{field}")
-version = args.version or manifest["version"]
-if not re.fullmatch(r"\d+\.\d+\.\d+(?:\.\d+)?", version):
-    parser.error("Version must contain three or four numeric components")
+out = args.output_dir.resolve()
+version = args.version
+if not version:
+    base = manifest["version"]
+    prefix, initial = (base.rsplit(".", 1)[0], int(base.rsplit(".", 1)[1])) if base.count(".") == 3 else (base, 0)
+    builds = [initial]
+    for package in out.glob("ocrflow-*.xpi"):
+        match = re.fullmatch(re.escape("ocrflow-" + prefix + ".") + r"(\d+)\.xpi", package.name)
+        if match:
+            builds.append(int(match.group(1)))
+    version = f"{prefix}.{max(builds) + 1}"
+if not re.fullmatch(r"\d+\.\d+(?:\.\d+){0,2}", version):
+    parser.error("Version must contain two to four numeric components")
 manifest["version"] = version
 manifest_bytes = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-out = args.output_dir.resolve()
 out.mkdir(parents=True, exist_ok=True)
 assets = [
     "manifest.json", "bootstrap.js", "prompts.js", "docflow.js", "markitdown.js", "metadata.js", "workflow.js",
-    "outline.js", "preferences.js", "preferences.xhtml",
-    "task-queue.xhtml", "task-queue.js", "task-queue.css", "prefs.js",
+    "outline.js", "preferences.js", "preferences.xhtml", "document.js", "paddleocr.js", "translation.js",
+    "collation.js", "collation-dialog.js", "collation.xhtml", "ocr-sources.js",
+    "task-queue.xhtml", "task-queue.js", "task-queue.css", "task-sidebar.js", "task-sidebar.css", "sidebar-icon.svg", "prefs.js",
     "icon16.png", "icon48.png", "icon96.png", "LICENSE", "THIRD_PARTY.md",
+    *[f"menu-icons/{name}.svg" for name in ("ocr", "organize", "parent", "metadata", "summary", "translate", "outline", "review", "changes")],
     "locale/en-US/docflow.ftl", "locale/zh-CN/docflow.ftl",
     "vendor/katex/katex.min.js", "vendor/katex/LICENSE",
     "vendor/pdf-lib/pdf-lib.min.js", "vendor/pdf-lib/LICENSE.md", "vendor/paper-outline/LICENSE",
 ]
-for name in ("preferences.xhtml", "task-queue.xhtml"):
+for name in ("preferences.xhtml", "task-queue.xhtml", "collation.xhtml"):
     ET.parse(root / name)
 package = out / f"ocrflow-{version}.xpi"
 with ZipFile(package, "w", ZIP_DEFLATED) as archive:

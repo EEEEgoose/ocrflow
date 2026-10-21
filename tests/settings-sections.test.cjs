@@ -201,3 +201,59 @@ test('saving work options preserves service credentials and updates the outline 
   assert.notEqual(s.prefs.get(prefix+'llmApiKey'),'UNSAVED_KEY');
   s.panel.loadSettings();assert.equal(s.elements.get('mineru-translate-language').value,'Français');
 });
+
+
+test('settings navigation keeps unsaved values and shows one module at a time',()=>{
+  const s=setup();
+  s.value('mineru-llm-api-key','unsaved-key');
+  const before=JSON.stringify([...s.prefs]);
+  s.elements.get('ocrflow-tab-ai').click();
+  assert.equal(s.elements.get('ocrflow-panel-ai').hidden,false);
+  assert.equal(s.elements.get('ocrflow-panel-services').hidden,true);
+  s.elements.get('ocrflow-tab-work').click();
+  s.elements.get('ocrflow-work-tab-translate').click();
+  assert.equal(s.elements.get('ocrflow-work-translate').hidden,false);
+  assert.equal(s.elements.get('ocrflow-work-summary').hidden,true);
+  s.elements.get('ocrflow-tab-ai').click();
+  assert.equal(s.elements.get('mineru-llm-api-key').value,'unsaved-key');
+  assert.equal(JSON.stringify([...s.prefs]),before);
+  for(const key of ['services','ai','work','collation','output','tasks']) assert(s.elements.has('ocrflow-tab-'+key));
+  assert(s.source.includes('id="queue-body"'));
+  assert(!s.elements.has('mineru-open-queue-button'));
+});
+
+test('one PaddleOCR entry resolves the chosen API and preserves both profiles',()=>{
+  const s=setup();
+  const picker=s.source.slice(s.source.indexOf('id="docflow-parser-service"'),s.source.indexOf('</menulist>',s.source.indexOf('id="docflow-parser-service"')));
+  assert.equal((picker.match(/label="PaddleOCR"/g)||[]).length,1);
+  assert(!picker.includes('paddle-local'));assert(!picker.includes('paddle-cloud'));
+  s.prefs.set(prefix+'parserService','paddle-local');s.panel.loadSettings();
+  assert.equal(s.elements.get('docflow-parser-service').value,'paddle');
+  assert.equal(s.elements.get('ocrflow-paddle-mode').value,'local');
+  s.value('ocrflow-paddle-cloud-url','https://cloud.example/ocr');s.value('ocrflow-paddle-local-url','http://local.example');
+  assert(s.panel.saveSettings());assert.equal(s.plugin.getSettings().parserService,'paddle-local');
+  s.value('ocrflow-paddle-mode','cloud');s.panel.syncPaddleMode();assert(s.panel.saveSettings());
+  assert.equal(s.plugin.getSettings().parserService,'paddle-cloud');
+  assert.equal(s.prefs.get(prefix+'paddle.local.url'),'http://local.example');
+  assert.equal(s.elements.get('ocrflow-paddle-local-fields').hidden,true);
+  s.value('ocrflow-paddle-mode','local');s.panel.syncPaddleMode();
+  assert.equal(s.elements.get('ocrflow-paddle-cloud-url').value,'https://cloud.example/ocr');
+});
+
+test('network timeout defaults to 1200 seconds and retains explicit saved values',()=>{
+  const s=setup();
+  assert.equal(s.plugin.getSettings().timeoutMS,1200000);
+  assert.equal(s.panel.readCurrentSettings(true).timeoutMS,1200000);
+  s.prefs.set(prefix+'local.timeoutSec',90);s.panel.loadSettings();
+  assert.equal(s.plugin.getSettings().timeoutMS,90000);
+  assert.equal(s.elements.get('mineru-timeout-sec').value,'90');
+});
+
+test('AI collation requires an independently selected model and restores it after reload',()=>{
+ const s=setup();s.elements.get('ocrflow-collation-enabled').checked=true;s.elements.get('ocrflow-collation-ai-enabled').checked=true;
+ assert.equal(s.panel.saveSettings({section:'work'}),false);assert.match(s.elements.get('ocrflow-work-status').textContent,/AI 校勘模型/);
+ s.value('mineru-llm-model-2','proof-model');assert(s.panel.saveSettings({section:'ai'}));
+ s.value('ocrflow-collation-ai-model','provider-0:2');assert(s.panel.saveSettings({section:'work'}));
+ assert.equal(s.prefs.get(prefix+'collationAIModel'),'provider-0:2');assert(s.panel.isModelInUse('provider-0:2'));
+ s.panel.loadSettings();assert.equal(s.elements.get('ocrflow-collation-ai-model').value,'provider-0:2');assert(s.elements.get('ocrflow-collation-ai-enabled').checked);
+});

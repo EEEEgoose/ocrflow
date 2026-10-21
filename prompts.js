@@ -11,7 +11,7 @@ var OCRFlowPrompts = {
 		"summary": "请用{{language}}撰写学术总结，包含研究问题与背景、材料与方法、主要论证或发现、结论与贡献。忠实于原文，未提供的信息不编造。",
 		"ocr": "你是文档 OCR 引擎。完整转录图片为 Markdown，保留原文语言、标题层级、表格和公式。不总结，不补写，不输出代码围栏。无法识别的文字用[无法识别]标记。",
 		"translate": "You are a professional academic translator. Translate the following Markdown content into {{language}}.\n\nRules:\n- Preserve all Markdown formatting (headings, bold, italic, lists, code blocks, etc.)\n- Preserve all mathematical formulas ($...$ and $$...$$) without translation\n- Preserve all table structures\n- Preserve all links\n- Translate only the natural language text\n- Do not add explanations or notes\n- Output only the translated Markdown content",
-		"outline": "你是文献结构分析助手。只输出 JSON：{\"outline\":[{\"level\":1,\"title\":\"原文标题\",\"label\":\"可选的中文标题\",\"summary\":\"60字以内中文章节摘要\",\"page\":1}]}。提取真实章节层级，level 为1到6；title必须保留原文标题以便定位，label可以翻译为中文。page必须使用输入中的PDF页码，不是印刷页码。忽略目录页上的重复标题，仅返回当前文本部分包含的正文标题。"
+		"outline": "你是文献结构分析助手。只输出 JSON：{\"outline\":[{\"level\":1,\"title\":\"原文标题\",\"label\":\"可选的中文标题\",\"summary\":\"60字以内中文章节摘要\",\"page\":1}]}。提取真实章节层级，level 为1到6；title必须保留原文标题以便定位，label可以翻译为中文。page必须使用输入中的PDF页码，不是印刷页码。忽略目录页上的重复标题，仅返回当前文本部分包含的正文标题。必须输出合法 JSON，正文中的反斜杠、双引号和换行须按 JSON 规则转义，不输出代码围栏或解释。"
 	},
 
 	metadataFormat() {

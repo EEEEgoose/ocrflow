@@ -15,20 +15,20 @@ function setup() {
 
 test('OCR submenu choices use saved service profiles without changing defaults',async()=>{
   const s=setup(),choices=s.plugin.getContextMenuDefinitions()[1].children,before=Array.from(s.prefs);
-  assert.deepEqual(Array.from(choices,choice=>choice.id),['docflow-ocr-default','docflow-ocr-mineru-local','docflow-ocr-mineru-cloud','docflow-ocr-markitdown','docflow-ocr-ai']);
+  assert.deepEqual(Array.from(choices,choice=>choice.id),['docflow-ocr-default','docflow-ocr-mineru-local','docflow-ocr-mineru-cloud','docflow-ocr-markitdown','docflow-ocr-paddle-cloud','docflow-ocr-paddle-local','docflow-ocr-ai']);
   for(const choice of choices)await choice.run({selectedItems:[s.pdf,s.image,s.epub]});
-  assert.deepEqual(s.calls.map(call=>call.settings.parserService),['ai','mineru','mineru','markitdown','ai']);
+  assert.deepEqual(s.calls.map(call=>call.settings.parserService),['ai','mineru','mineru','markitdown','paddle-cloud','paddle-local','ai']);
   assert.equal(s.calls[1].settings.apiBaseURL,'http://local.example');assert.equal(s.calls[1].settings.modelVersion,'advanced');
   assert.equal(s.calls[2].settings.apiMode,'cloud');assert.equal(s.calls[2].settings.apiBaseURL,'https://cloud.example/v4');assert.equal(s.calls[2].settings.apiToken,'cloud-token');
-  assert.deepEqual(s.calls.map(call=>Array.from(call.tasks,task=>task.attachment.id)),[[1,2,3],[1,2],[1,2],[1,2,3],[1,2]]);
+  assert.deepEqual(s.calls.map(call=>Array.from(call.tasks,task=>task.attachment.id)),[[1,2,3],[1,2],[1,2],[1,2,3],[1,2],[1,2],[1,2]]);
   assert.deepEqual(Array.from(s.prefs),before);
 });
 
 test('MenuManager receives a nested OCR menu and enables only supported input formats',()=>{
   const s=setup();assert(s.plugin.registerMenuForZotero8());
-  const menu=s.registered[0].menus[0].menus[1];assert.equal(menu.menuType,'submenu');assert.equal(menu.menus.length,5);assert.equal(menu.onCommand,undefined);
+  const menu=s.registered[0].menus[0].menus.find(menu=>menu.l10nID==="docflow-menu-parse-pdf");assert.equal(menu.menuType,'submenu');assert.equal(menu.menus.length,7);assert.equal(menu.onCommand,undefined);
   const enabled=[];for(const leaf of menu.menus)leaf.onShowing(null,{items:[s.epub],setEnabled:value=>enabled.push(value)});
-  assert.deepEqual(enabled,[true,false,false,true,false]);
+  assert.deepEqual(enabled,[true,false,false,true,false,false,false]);
   menu.menus[2].onCommand(null,{items:[s.pdf],menuElem:{ownerGlobal:{}}});
   assert.equal(s.calls[0].settings.parserService,'mineru');assert.equal(s.calls[0].settings.apiMode,'cloud');
 });
@@ -59,4 +59,21 @@ test('the existing direct-menu fallback also builds OCR choices and dispatches o
   assert.equal(elements.get('docflow-parse-pdf').tag,'menu');assert.equal(elements.get('docflow-ocr-ai').tag,'menuitem');
   elements.get('docflow-ocr-ai').events.command();
   assert.equal(s.calls.length,1);assert.equal(s.calls[0].settings.parserService,'ai');assert.equal(s.calls[0].tasks[0].attachment.id,s.pdf.id);
+});
+
+
+test('menu actions have native label attributes, vector icons and compact functional groups',()=>{
+  const s=setup();s.plugin.registerMenuForZotero8();
+  const root=s.registered[0].menus[0], actions=root.menus.filter(menu=>menu.menuType!=='separator');
+  assert.equal(actions[0].l10nID,'docflow-menu-organize');
+  assert.equal(root.menus.filter(menu=>menu.menuType==='separator').length,3);
+  const walk=items=>items.flatMap(item=>[item,...(item.children?walk(item.children):[])]);
+  for(const locale of ['zh-CN','en-US']) {
+    const text=fs.readFileSync(`locale/${locale}/docflow.ftl`,'utf8');
+    for(const definition of walk(s.plugin.getContextMenuDefinitions())) {
+      const entry=text.split(definition.l10nID+' =')[1]?.split(/\n(?=\S)/)[0];
+      assert(entry&&/^\s+\.label = \S/m.test(entry),locale+' '+definition.l10nID+' must supply a native menu label');
+    }
+  }
+  for(const item of actions) {assert(item.icon.endsWith('.svg'));assert(fs.existsSync(item.icon));}
 });

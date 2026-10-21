@@ -27,6 +27,7 @@ python3 build.py --output-dir ./dist
 | --- | --- |
 | `manifest.json` | 插件名称、版本、图标、Zotero 兼容范围和稳定 ID |
 | `bootstrap.js` | 插件启动、模块加载、设置页及菜单注册、关闭清理 |
+| `task-sidebar.js` / `task-sidebar.css` | 主窗口任务面板、执行步骤、真实进度、文档选择跟随与侧栏清理 |
 | `docflow.js` | MinerU、任务队列、模型配置读取、保存、翻译和输出渲染 |
 | `workflow.js` | 手动工作流、AI 请求、上下文预算、分段和服务选择 |
 | `prompts.js` | 工作默认提示词、书目字段格式，供运行代码和设置页共同读取 |
@@ -45,7 +46,7 @@ python3 build.py --output-dir ./dist
 
 ## 构建产物
 
-版本从 `manifest.json` 读取：
+基础版本从 `manifest.json` 读取。本地默认构建会在输出目录已有 XPI 的最大构建序号上加 1；例如基础版本 `1.0` 首次生成 `1.0.1`，下一次生成 `1.0.2`。保留输出目录以延续序号。四段基础版本递增最后一段，显式 `--version` 仍使用指定值：
 
 - `dist/ocrflow-<版本>.xpi`：只包含运行需要的模块、资源及许可证，根目录有 `manifest.json` 和 `bootstrap.js`。
 - `dist/ocrflow-<版本>-source.zip`：包含 `ocrflow/` 项目目录，可作为 GitHub 仓库内容；使用明确的文件清单打包。
@@ -85,7 +86,7 @@ git push -u origin main
 
 ## 发布新版本
 
-1. 修改代码并更新相应文档；需要提升基础版本时，更新 `manifest.json` 和 `markitdown.js` 中 MCP `clientInfo.version`，基础版本使用三段数字。
+1. 修改代码并更新相应文档；需要提升基础版本时，更新 `manifest.json` 和 `markitdown.js` 中 MCP `clientInfo.version`，基础版本支持两段（如 1.0）或三段数字。
 2. 运行测试和构建，使用独立 Zotero 文库核对受影响的功能。
 3. 提交并推送到 `main`。工作流将基础版本与 `github.run_number` 组合，例如 `0.2.17.12`；每次新运行使用递增序号，重跑同一次运行沿用原版本。
 4. 工作流创建 `v<发布版本>` 标签和 Release，上传 XPI、源码包、`updates.json` 后再正式发布为最新版本。已发布的同版本在重跑时跳过，未完成的草稿可继续上传并发布。

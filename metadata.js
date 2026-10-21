@@ -43,16 +43,16 @@ Object.assign(DocFlow, {
     return data;
   },
 
-  applyMetadata(parent, metadata) {
+  applyMetadata(parent, metadata, {fillMissing = false} = {}) {
     let allowed = ["journalArticle", "conferencePaper", "book", "report", "thesis", "document"];
-    if (allowed.includes(metadata.itemType)) parent.setType(Zotero.ItemTypes.getID(metadata.itemType));
+    if (!fillMissing && allowed.includes(metadata.itemType)) parent.setType(Zotero.ItemTypes.getID(metadata.itemType));
     for (let field of this.metadataFields) {
       let value = metadata[field];
       if ((typeof value === "string" || typeof value === "number") && String(value).trim()) {
         let target = Zotero.ItemFields.isValidForType(field, parent.itemTypeID) ? field :
           ["publisher", "publicationTitle"].includes(field) ?
             Zotero.ItemFields.getFieldIDFromTypeAndBase(parent.itemTypeID, field) : false;
-        if (target) parent.setField(target, String(value).trim());
+        if (target && (!fillMissing || !String(parent.getField(target) || "").trim())) parent.setField(target, String(value).trim());
       }
     }
     if (Array.isArray(metadata.creators)) {
@@ -65,6 +65,11 @@ Object.assign(DocFlow, {
           ...(!firstName && /[\u3400-\u9fff]/.test(lastName) ? { fieldMode: 1 } : {}) };
       }).filter(creator => Zotero.CreatorTypes.isValidForItemType(
         Zotero.CreatorTypes.getID(creator.creatorType), parent.itemTypeID));
+      if (fillMissing) {
+        const existing = parent.getCreatorsJSON();
+        const roles = new Set(existing.map(creator => creator.creatorType));
+        creators = creators.filter(creator => !roles.has(creator.creatorType));
+      }
       if (creators.length) {
         let roles = new Set(creators.map(creator => creator.creatorType));
         let retained = parent.getCreatorsJSON().filter(creator => !roles.has(creator.creatorType));

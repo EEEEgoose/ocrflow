@@ -4,31 +4,40 @@ Object.assign(DocFlow, {
 
 	getContextMenuDefinitions() {
 		return [
-			{ id: "docflow-create-parent", label: "建立父条目", l10nID: "docflow-menu-create-parent",
-				getTasks: items => this.collectSourceFiles(items).filter(item => !this.parentForDocument(item)),
-				run: options => this.handleDocumentCommand("parent", options), errorPrefix: "建立父条目失败" },
-			{ id: this.CONTEXT_MENU_ID, label: "建立文本 OCR / 转为 Markdown", l10nID: "docflow-menu-parse-pdf",
+			{ id: "docflow-organize", group: "quick", icon: "organize", label: "一键整理", l10nID: "docflow-menu-organize",
+				getTasks: items => this.collectOrganizeTasks(items),
+				run: options => this.handleOrganizeCommand(options), errorPrefix: "整理失败" },
+			{ id: this.CONTEXT_MENU_ID, group: "document", icon: "ocr", label: "提取全文 / OCR", l10nID: "docflow-menu-parse-pdf",
 				getTasks: items => this.collectSourceFiles(items),
 				children: this.getOCRMenuDefinitions(),
 				run: options => this.handleParseCommand(options), errorPrefix: "全文提取失败" },
-			{ id: "docflow-fill-metadata", label: "补充父条目信息", l10nID: "docflow-menu-fill-metadata",
+			{ id: "docflow-create-parent", group: "document", icon: "parent", label: "建立父条目", l10nID: "docflow-menu-create-parent",
+				getTasks: items => this.collectSourceFiles(items).filter(item => !this.parentForDocument(item)),
+				run: options => this.handleDocumentCommand("parent", options), errorPrefix: "建立父条目失败" },
+			{ id: "docflow-fill-metadata", group: "document", icon: "metadata", label: "补充父条目信息", l10nID: "docflow-menu-fill-metadata",
 				getTasks: items => this.collectDocumentTasks(items),
 				run: options => this.handleDocumentCommand("metadata", options), errorPrefix: "补充信息失败" },
-			{ id: this.SUMMARY_MENU_ID, label: "总结文档", l10nID: "docflow-menu-ai-summary",
+			{ id: this.SUMMARY_MENU_ID, group: "reading", icon: "summary", label: "总结文档", l10nID: "docflow-menu-ai-summary",
 				getTasks: items => this.collectDocumentTasks(items),
 				run: options => this.handleDocumentCommand("summary", options), errorPrefix: "总结失败" },
-			{ id: this.TRANSLATE_MENU_ID, label: "翻译文档", l10nID: "docflow-menu-ai-translate",
+			{ id: this.TRANSLATE_MENU_ID, group: "reading", icon: "translate", label: "翻译文档", l10nID: "docflow-menu-ai-translate",
 				getTasks: items => this.collectTranslateTasks(items),
 				run: options => this.handleTranslateCommand(options), errorPrefix: "翻译失败" },
-			{ id: "docflow-generate-outline", label: "生成阅读器大纲", l10nID: "docflow-menu-outline",
+			{ id: "docflow-generate-outline", group: "reading", icon: "outline", label: "生成阅读器大纲", l10nID: "docflow-menu-outline",
 				getTasks: items => this.outline?.collectPDFs(items) || [],
-				run: ({ selectedItems }) => this.outline.enqueueSelected(selectedItems), errorPrefix: "大纲生成失败" }
+				run: ({ selectedItems }) => this.outline.enqueueSelected(selectedItems), errorPrefix: "大纲生成失败" },
+			{ id: "ocrflow-review-collation", group: "review", icon: "review", label: "审阅 OCR 校勘", l10nID: "ocrflow-menu-review-collation",
+				getTasks: items => this.collectDocumentTasks(items).filter(task => task.source),
+				run: options => this.openCollationReview(options), errorPrefix: "校勘打开失败" },
+			{ id: "ocrflow-view-changes", group: "review", icon: "changes", label: "查看整理差异", l10nID: "ocrflow-menu-changes",
+				getTasks: items => this.collectDocumentTasks(items).filter(task => task.source),
+				run: options => this.openChangesReport(options), errorPrefix: "差异报告打开失败" }
 		];
 	},
 
 	getOCRSourceFiles(items, parserService) {
 		let files = this.collectSourceFiles(items);
-		return ["mineru", "ai"].includes(parserService)
+		return ["mineru", "ai", "paddle-cloud", "paddle-local"].includes(parserService)
 			? files.filter(file => ["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(file))) : files;
 	},
 
@@ -38,6 +47,8 @@ Object.assign(DocFlow, {
 			{ id: "mineru-local", label: "MinerU（本地服务）", parserService: "mineru", apiMode: "local-v1" },
 			{ id: "mineru-cloud", label: "MinerU（官方云端）", parserService: "mineru", apiMode: "cloud" },
 			{ id: "markitdown", label: "MarkItDown", parserService: "markitdown" },
+			{ id: "paddle-cloud", label: "PaddleOCR（官方 API）", parserService: "paddle-cloud" },
+			{ id: "paddle-local", label: "PaddleOCR（自部署 API）", parserService: "paddle-local" },
 			{ id: "ai", label: "AI 视觉 OCR", parserService: "ai" }
 		].map(choice => ({
 			id: `docflow-ocr-${choice.id}`, label: choice.label, l10nID: `docflow-menu-ocr-${choice.id}`,
@@ -90,7 +101,10 @@ Object.assign(DocFlow, {
 		let parent = this.parentForDocument(item);
 		if (!parent) return null;
 		let results = parent.getAttachments().map(id => Zotero.Items.get(id)).filter(doc => this.isMarkdownResult(doc));
-		return results.length === 1 && this.collectSourceFiles([parent]).length === 1 ? results[0] : null;
+		let originals = parent.getAttachments().map(id => Zotero.Items.get(id)).filter(doc =>
+			doc?.isAttachment?.() && !doc.deleted && doc.isFileAttachment?.() !== false && !doc.isLinkedURLAttachment?.() &&
+			!doc.getTags().some(tag => tag.tag.startsWith("#DocFlow-")));
+		return results.length === 1 && originals.length === 1 ? results[0] : null;
 	},
 
 	collectDocumentTasks(items) {
@@ -139,6 +153,141 @@ Object.assign(DocFlow, {
 		await this.enqueueDocumentTasks("parse", tasks, settings);
 	},
 
+	collectOrganizeTasks(items) {
+		let tasks = new Map();
+		let original = item => this.isMarkdownResult(item)
+			? this.relatedDocuments(item).find(doc => doc.isAttachment?.() && !this.isMarkdownResult(doc) &&
+				!doc.getTags().some(tag => tag.tag.startsWith("#DocFlow-"))) || item : item;
+		let usable = item => item?.isAttachment?.() && !item.deleted && item.isFileAttachment?.() !== false &&
+			!item.isLinkedURLAttachment?.() &&
+			!item.getTags().some(tag => tag.tag.startsWith("#DocFlow-") && tag.tag !== "#DocFlow-Parse");
+		let explicitParents = new Set(items.filter(usable).map(item => this.parentForDocument(item)?.id));
+		for (let item of items) {
+			if (item?.deleted) continue;
+			if (item.isRegularItem?.()) {
+				if (explicitParents.has(item.id)) continue;
+				let files = item.getAttachments().map(id => Zotero.Items.get(id)).filter(usable);
+				let originals = files.filter(file => !file.hasTag("#DocFlow-Parse"));
+				if (originals.length) files = originals;
+				if (files.length !== 1) {
+					tasks.set(item.id, { attachment: item });
+					continue;
+				}
+				item = files[0];
+			}
+			if (!usable(item)) continue;
+			let attachment = original(item);
+			tasks.set(attachment.id, { attachment,
+				source: this.isMarkdownResult(item) ? item : null, explicitSource: this.isMarkdownResult(item) });
+		}
+		return [...tasks.values()];
+	},
+
+	getOrganizeSettings(apiMode) {
+		return { ...this.getSettings(apiMode), metadataSettings: this.getLLMSettings("metadata") };
+	},
+
+	async handleOrganizeCommand({ window = null, selectedItems = null } = {}) {
+		let items = selectedItems || window?.ZoteroPane?.getSelectedItems?.() || [];
+		let tasks = this.collectOrganizeTasks(items);
+		if (!tasks.length) throw new Error("请选择需要整理的父条目或文件附件。");
+		let settings = this.getOrganizeSettings();
+		let fresh = [];
+		for (let next of tasks) {
+			let previous = this.parseQueue.find(task => task.kind === "organize" &&
+				(task.attachment.id === next.attachment.id ||
+					task.attachment.isRegularItem?.() && task.attachment.id === this.parentForDocument(next.attachment)?.id));
+			if (!previous) fresh.push(next);
+			else if (!previous.active && !previous.cancelFailed && !["queued", "running", "stopping"].includes(previous.state)) {
+				previous.settings = previous.jobID
+					? { ...this.getOrganizeSettings(previous.settings.apiMode), parserService: previous.settings.parserService }
+					: { ...settings };
+				previous.attachment = next.attachment;
+				previous.explicitSource = next.explicitSource;
+				if (next.explicitSource) previous.source = next.source;
+				previous.state = "queued";
+				previous.error = "";
+			}
+		}
+		await this.enqueueDocumentTasks("organize", fresh, settings);
+	},
+
+	async runOrganizeTask(task) {
+		let signal = task.controller.signal;
+		let attachment = Zotero.Items.get(task.attachment.id);
+		if (!attachment || attachment.deleted) throw new Error("待整理的条目已删除。");
+		if (attachment.isRegularItem?.()) {
+			let candidates = this.collectOrganizeTasks([attachment]);
+			if (candidates[0]?.attachment.id === attachment.id) {
+				task.state = "waiting";
+				task.detail = attachment.getAttachments().length
+					? "请直接选择要整理的原文件；需要一份可读取的主文档。"
+					: "等待附件：添加文件后，点击“继续整理”。";
+				return;
+			}
+			attachment = candidates[0].attachment;
+			task.attachment = attachment;
+		}
+		let source = task.explicitSource ? task.source : this.findDocumentMarkdown(attachment);
+		if (source?.deleted) throw new Error("选中的全文附件已删除，请重新选择文档。");
+		if (source?.getTags().some(tag => tag.tag.startsWith("#DocFlow-") && tag.tag !== "#DocFlow-Parse")) source = null;
+		if (!source && task.source && !task.source.deleted) source = task.source;
+		if (!source) {
+			let path = await attachment.getFilePath();
+			if (!path || !await IOUtils.exists(path)) {
+				task.state = "waiting";
+				task.detail = "附件文件尚未在本机就绪；下载或恢复文件后，点击“继续整理”。";
+				return;
+			}
+			task.detail = "提取全文";
+			this.refreshParseQueueDialog();
+			let saved = await this.runParseTask(task);
+			if (!saved) return;
+			source = saved.attachment;
+			task.source = source;
+			task.parseWarning = task.detail === "解析附件已保存" ? "" : task.detail;
+			task.jobID = null;
+			task.phase = "";
+			task.saving = false;
+		}
+		task.source = source;
+		task.resultAttachment ||= source;
+		signal.throwIfAborted();
+		if (task.metadataSourceID !== source.id || !this.parentForDocument(attachment)) {
+			let settings = this.validateAISettings(task.settings.metadataSettings);
+			task.detail = "读取正文中的书目信息";
+			task.displaySettings = settings;
+			this.setTaskStep?.(task, "metadata", "补充书目信息", task.detail);
+			this.refreshParseQueueDialog();
+			let { markdown } = await this.readSourceMarkdown(source);
+			let text = this.removeLocalImageReferences(markdown);
+			if (!text.trim()) throw new Error("Markdown 内容为空，请先重新提取全文。");
+			let parent = this.parentForDocument(attachment);
+			let current = parent ? await this.readDocumentMetadata(parent) : {};
+			let metadata = await this.extractDocumentMetadata(task, text, current, settings);
+			signal.throwIfAborted();
+			task.saving = true;
+			// Zotero or another plugin may have supplied a parent during extraction.
+			parent = this.parentForDocument(attachment);
+			if (parent) {
+				await Zotero.DB.executeTransaction(async () => {
+					this.applyMetadata(parent, metadata, { fillMissing: true });
+					await parent.save({ notifierData: { skipRenameFile: true } });
+					if (source.id !== attachment.id && !this.parentForDocument(source)) {
+						source.parentID = parent.id;
+						await source.save({ notifierData: { skipRenameFile: true } });
+					}
+				});
+			} else {
+				parent = await this.createDocumentParent(attachment, metadata, source) || this.parentForDocument(attachment);
+			}
+			task.metadataSourceID = source.id;
+			task.saving = false;
+		}
+		task.state = "completed";
+		task.detail = ["整理完成：已建立或保留父条目、提取全文并补充缺失书目信息", task.parseWarning].filter(Boolean).join("；");
+	},
+
 	async enqueueDocumentTasks(kind, tasks, settings) {
 		for (let task of tasks) {
 			if (this.parseQueue.some(row => row.kind === kind && row.attachment.id === task.attachment.id && ["queued", "running", "stopping"].includes(row.state))) continue;
@@ -146,7 +295,8 @@ Object.assign(DocFlow, {
 				title: task.title || task.attachment.getField("title") || task.attachment.attachmentFilename,
 				detail: "等待处理", error: "", jobID: null, parsedResult: null });
 		}
-		this.openParseQueueDialog();
+		if (this.sidebar) this.sidebar.showTask(this.parseQueue.at(-1));
+		else this.openParseQueueDialog();
 		this.refreshParseQueueDialog();
 		await this.processParseQueue();
 	},
@@ -197,7 +347,7 @@ Object.assign(DocFlow, {
 			let metadata = await this.identify("", filename, true, {}, settings, signal);
 			signal.throwIfAborted();
 			task.saving = true;
-			await this.createDocumentParent(attachment, metadata);
+			task.resultAttachment = await this.createDocumentParent(attachment, metadata);
 			return;
 		}
 		let parent = this.parentForDocument(attachment);
@@ -211,46 +361,58 @@ Object.assign(DocFlow, {
 		let text = this.removeLocalImageReferences(markdown);
 		if (!text.trim()) throw new Error("Markdown 内容为空。");
 		if (task.kind === "metadata") {
-			await parent.loadAllData();
-			let current = {};
-			for (let field of this.metadataFields) {
-				if (Zotero.ItemFields.isValidForType(field, parent.itemTypeID)) current[field] = parent.getField(field);
-			}
-			current.creators = parent.getCreatorsJSON();
-			let chunks = this.splitAIText(text, settings);
-			let completed = 0;
-			let results = await this.mapAIWork(chunks, settings.concurrency, async chunk => {
-				let identified = await this.identify(chunk, attachment.attachmentFilename || attachment.getField("title"), false, current, settings, signal);
-				task.detail = `识别书目信息 ${++completed}/${chunks.length}`;
-				this.refreshParseQueueDialog();
-				return identified;
-			}, signal);
-			let metadata = current;
-			for (let [i, identified] of results.entries()) {
-				// Earlier publication pages take precedence over citations in later chapters.
-				if (i === 0) metadata = identified;
-				else for (let [key, value] of Object.entries(identified)) {
-					if ((!metadata[key] || (Array.isArray(metadata[key]) && !metadata[key].length)) && value) metadata[key] = value;
-				}
-			}
+			let current = await this.readDocumentMetadata(parent);
+			let metadata = await this.extractDocumentMetadata(task, text, current, settings);
 			signal.throwIfAborted();
 			task.saving = true;
 			await Zotero.DB.executeTransaction(async () => {
 				this.applyMetadata(parent, metadata);
 				await parent.save({ notifierData: { skipRenameFile: true } });
 			});
+			task.resultAttachment = parent;
 		} else {
 			let summary = await this.summarizeDocument(text, settings, signal, detail => {
 				task.detail = detail; this.refreshParseQueueDialog();
 			});
 			signal.throwIfAborted();
 			task.saving = true;
-			await this.saveDocumentSummary(parent, attachment, summary);
+			task.resultAttachment = await this.saveDocumentSummary(parent, attachment, summary);
 		}
 	},
 
-	async createDocumentParent(attachment, metadata) {
+	async readDocumentMetadata(parent) {
+		await parent.loadAllData();
+		let current = {};
+		for (let field of this.metadataFields) {
+			if (Zotero.ItemFields.isValidForType(field, parent.itemTypeID)) current[field] = parent.getField(field);
+		}
+		current.creators = parent.getCreatorsJSON();
+		return current;
+	},
+
+	async extractDocumentMetadata(task, text, current, settings) {
+		let completed = 0;
+		let chunks = this.splitAIText(text, settings);
+		let results = await this.mapAIWork(chunks, settings.concurrency, async chunk => {
+			let identified = await this.identify(chunk, task.attachment.attachmentFilename || task.attachment.getField("title"),
+				false, current, settings, task.controller.signal);
+			task.detail = `识别书目信息 ${++completed}/${chunks.length}`;
+			this.refreshParseQueueDialog();
+			return identified;
+		}, task.controller.signal);
+		let metadata = results[0] || current;
+		// Earlier publication pages take precedence over citations in later chapters.
+		for (let identified of results.slice(1)) {
+			for (let [key, value] of Object.entries(identified)) {
+				if ((!metadata[key] || (Array.isArray(metadata[key]) && !metadata[key].length)) && value) metadata[key] = value;
+			}
+		}
+		return metadata;
+	},
+
+	async createDocumentParent(attachment, metadata, source = null) {
 		let linked = this.relatedDocuments(attachment).filter(item => this.isMarkdownResult(item));
+		if (source && source.id !== attachment.id && !linked.some(item => item.id === source.id)) linked.push(source);
 		let parent;
 		await Zotero.DB.executeTransaction(async () => {
 			if (this.parentForDocument(attachment)) return;
@@ -405,12 +567,15 @@ Object.assign(DocFlow, {
 			return this.parseWithMarkItDown(attachment, settings, options);
 		}
 		if (settings.parserService === "ai") return this.parseWithVision(attachment, settings.llmSettings, options);
+		if (["paddle-cloud", "paddle-local"].includes(settings.parserService)) return this.parseWithPaddle(attachment, settings, options);
 		if (settings.apiMode !== "local-v1" && !settings.apiToken) throw new Error("请先填写 MinerU 官方 API Token，或选择本地 MinerU、MarkItDown、AI OCR。");
 		if (!image) return this.parseWithMineru(attachment, settings, options);
 		let bytes = await IOUtils.read(await attachment.getFilePath());
 		let pdf = await this.getPDFLibrary().PDFDocument.create();
-		let embedded = ext === "png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
-		let page = pdf.addPage([embedded.width, embedded.height]);
+		let imageData = this.bytesToBase64(bytes);
+		let embedded = ext === "png" ? await pdf.embedPng(imageData) : await pdf.embedJpg(imageData);
+		let page = pdf.addPage();
+		page.setSize(embedded.width, embedded.height);
 		page.drawImage(embedded, { x: 0, y: 0, width: embedded.width, height: embedded.height });
 		let context = { ...options, phase: "图片转为 PDF", jobID: options.jobID || null };
 		let pdfBytes = await pdf.save();
@@ -593,6 +758,7 @@ Object.assign(DocFlow, {
 				{ role: "user", content: [{ type: "text", text: `请识别第 ${page} 页。` }, { type: "image_url", image_url: { url } }] }
 			], settings, signal);
 			pages[page - 1] = { page, text: markdown };
+			options.onStatus?.({ phase: "AI 视觉 OCR", displayText: `已识别 ${pages.filter(Boolean).length}/${total} 页`, pageProgress: {completed:pages.filter(Boolean).length, total, unit:"页"} });
 		};
 		if (attachment.isPDFAttachment?.()) {
 			let reader = Zotero.Reader._readers.find(reader => reader.itemID === attachment.id && !reader._isTabClosed)

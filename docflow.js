@@ -6,6 +6,7 @@ DocFlow = {
 	menuRegistered: false,
 	popupListeners: new WeakMap(),
 	parseQueue: [],
+	parseQueueViews: new Set(),
 	parseQueueRunning: false,
 	parseQueueWindow: null,
 	parseQueueNextID: 1,
@@ -30,11 +31,8 @@ DocFlow = {
 		Zotero.debug("Zotero MinerU: " + msg);
 	},
 
-	getMenuIconURL() {
-		if (this.rootURI) {
-			return this.rootURI + "icon16.png";
-		}
-		return "icon16.png";
+	getMenuIconURL(name = "ocr") {
+		return (this.rootURI || "") + `menu-icons/${name}.svg`;
 	},
 
 	supportsMenuManager() {
@@ -45,7 +43,7 @@ DocFlow = {
 		definition.run({ window, selectedItems }).catch((e) => {
 			this.log(`${definition.id} command failed: ${e}`);
 			Zotero.logError(e);
-			this.showAlert(window, "MinerU", `${definition.errorPrefix}: ${e.message || e}`);
+			this.showAlert(window, "OCRFlow", `${definition.errorPrefix}: ${e.message || e}`);
 		});
 	},
 
@@ -57,7 +55,7 @@ DocFlow = {
 			let makeMenu = definition => ({
 				menuType: definition.children ? "submenu" : "menuitem",
 				label: definition.label, l10nID: definition.l10nID,
-				icon: iconURL, iconURL, image: iconURL,
+				icon: this.getMenuIconURL(definition.icon),
 				onShowing: (_event, context) => {
 					if (typeof context?.setEnabled === "function") {
 						let selectedItems = Array.isArray(context?.items) ? context.items : [];
@@ -84,7 +82,9 @@ DocFlow = {
 						icon: iconURL,
 						iconURL,
 						image: iconURL,
-						menus: menuDefinitions.map(makeMenu)
+						menus: menuDefinitions.flatMap((definition, index) => [
+							...(index && definition.group !== menuDefinitions[index - 1].group ? [{menuType:"separator"}] : []), makeMenu(definition)
+						])
 					}
 				]
 			});
@@ -100,6 +100,7 @@ DocFlow = {
 	
 	addToWindow(window) {
 		window.DocFlow = this;
+		this.sidebar?.mount(window);
 		window.MozXULElement?.insertFTLIfNeeded?.("docflow.ftl");
 		if (this.menuRegistered) {
 			return;
@@ -130,8 +131,9 @@ DocFlow = {
 			menuitem.id = definition.id;
 			menuitem.setAttribute("label", definition.label);
 			menuitem.setAttribute("class", definition.children ? "menu-iconic" : "menuitem-iconic");
-			menuitem.setAttribute("image", iconURL);
-			menuitem.style.listStyleImage = `url("${iconURL}")`;
+			let itemIcon = this.getMenuIconURL(definition.icon);
+			menuitem.setAttribute("image", itemIcon);
+			menuitem.style.listStyleImage = `url("${itemIcon}")`;
 			if (definition.children) {
 				let childPopup = doc.createXULElement("menupopup");
 				menuitem.appendChild(childPopup);
@@ -144,7 +146,10 @@ DocFlow = {
 			popup.appendChild(menuitem);
 			menuItems.push({ definition, menuitem });
 		};
-		for (let definition of menuDefinitions) appendMenu(definition, subPopup);
+		for (let [index, definition] of menuDefinitions.entries()) {
+			if (index && definition.group !== menuDefinitions[index - 1].group) subPopup.appendChild(doc.createXULElement("menuseparator"));
+			appendMenu(definition, subPopup);
+		}
 		popup.appendChild(rootMenu);
 
 		let onPopupShowing = () => {
@@ -177,6 +182,7 @@ DocFlow = {
 	},
 	
 	removeFromWindow(window) {
+		this.sidebar?.unmount(window);
 		if (window.DocFlow === this) {
 			try {
 				delete window.DocFlow;
@@ -213,7 +219,7 @@ DocFlow = {
 		}
 	},
 	
-	getSettings(apiMode = Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true) || "cloud") {
+	getSettings(apiMode = Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true) || "cloud", capture = true) {
 		let profile = apiMode === "local-v1" ? "local" : "cloud";
 		let readAPIPref = name => {
 			let value = Zotero.Prefs.get(this.PREF_BRANCH + profile + "." + name, true);
@@ -231,7 +237,7 @@ DocFlow = {
 			10
 		);
 		if (!Number.isFinite(timeoutSec) || timeoutSec <= 0) {
-			timeoutSec = 120;
+			timeoutSec = 1200;
 		}
 		let localJobTimeoutSec = parseInt(
 			Zotero.Prefs.get(this.PREF_BRANCH + "localJobTimeoutSec", true), 10
@@ -262,7 +268,7 @@ DocFlow = {
 		}
 		apiToken = apiToken.replace(/^Bearer\s+/i, "");
 		
-		return {
+		let settings = {
 			apiBaseURL,
 			apiMode,
 			apiToken,
@@ -273,10 +279,19 @@ DocFlow = {
 			localJobTimeoutMS: localJobTimeoutSec * 1000,
 			...this.getOutputSettings("parse"),
 			parseLinkSourcePDF: Zotero.Prefs.get(this.PREF_BRANCH + "parseLinkSourcePDF", true) !== false,
-			parserService: Zotero.Prefs.get(this.PREF_BRANCH + "parserService", true) || "mineru",
+			parserService: (() => {
+				let service = Zotero.Prefs.get(this.PREF_BRANCH + "parserService", true) || "mineru";
+				return service === "paddle" ? "paddle-" + (Zotero.Prefs.get(this.PREF_BRANCH + "paddleMode", true) || "cloud") : service;
+			})(),
 			markitdownBaseURL: (Zotero.Prefs.get(this.PREF_BRANCH + "markitdownBaseURL", true) || "").trim().replace(/\/+$/, ""),
+			collationEnabled: Zotero.Prefs.get(this.PREF_BRANCH + "collationEnabled", true) === true,
+			collationAIEnabled: Zotero.Prefs.get(this.PREF_BRANCH + "collationAIEnabled", true) === true,
+			collationA: Zotero.Prefs.get(this.PREF_BRANCH + "collationA", true) || "mineru-cloud",
+			collationB: Zotero.Prefs.get(this.PREF_BRANCH + "collationB", true) || "",
 			llmSettings: this.getLLMSettings("ocr")
 		};
+		if (capture && this.captureOCRSettings) this.captureOCRSettings(settings);
+		return settings;
 	},
 	
 
@@ -327,18 +342,32 @@ DocFlow = {
 		return false;
 	},
 
-	openParseQueueDialog() {
-		if (this.parseQueueWindow && !this.parseQueueWindow.closed) {
-			this.parseQueueWindow.focus();
-			return;
-		}
-		this.parseQueueWindow = Zotero.getMainWindow().openDialog(
-			"chrome://docflow/content/task-queue.xhtml", "docflow-task-queue",
-			"chrome,centerscreen,resizable,dialog=no,width=960,height=600", { plugin: this }
-		);
+	openParseQueueDialog() { return this.openPreferences("tasks"); },
+
+	openPreferences(section = "services") {
+		this.requestedPreferencesSection = section;
+		let pane = Zotero.PreferencePanes.pluginPanes.find(pane => pane.pluginID === this.id);
+		let win = Zotero.Utilities.Internal.openPreferences(pane.id);
+		let show = async () => {
+			await win.Zotero_Preferences.waitForFirstPaneLoad();
+			await win.Zotero_Preferences.navigateToPane(pane.id);
+			let panel = win.Zotero_Preferences.getScope(pane.id).DocFlowPreferences;
+			panel.showSection(section);
+			this.requestedPreferencesSection = null;
+		};
+		if (win.document.readyState === "complete") show().catch(error => Zotero.logError(error));
+		else win.addEventListener("load", () => show().catch(error => Zotero.logError(error)), { once: true });
 	},
 
 	refreshParseQueueDialog() {
+		this.sidebar?.refresh();
+		for (let view of this.parseQueueViews) {
+			try { view.render(); }
+			catch (error) {
+				this.parseQueueViews.delete(view);
+				Zotero.logError(error);
+			}
+		}
 		if (this.parseQueueWindow && !this.parseQueueWindow.closed) {
 			this.parseQueueWindow.DocFlowTaskQueue?.render();
 		}
@@ -346,11 +375,12 @@ DocFlow = {
 
 	async retryParseQueueTasks(ids) {
 		for (let task of this.parseQueue) {
-			if (!ids.includes(task.id) || !["failed", "wait_expired", "canceled"].includes(task.state)) continue;
+			if (!ids.includes(task.id) || !["failed", "wait_expired", "canceled", "waiting"].includes(task.state)) continue;
 			let parserService = task.settings.parserService;
-			task.settings = task.kind === "translate" ? this.getTranslationSettings()
+			task.settings = task.kind === "organize" ? this.getOrganizeSettings(task.jobID ? task.settings.apiMode : undefined) : task.kind === "translate" ? this.getTranslationSettings()
 				: ["outline", "parent", "metadata", "summary"].includes(task.kind) ? this.getLLMSettings(task.kind) : this.getSettings(task.settings.apiMode);
 			if (task.kind === "parse" && parserService) task.settings.parserService = parserService;
+			if (task.kind === "organize" && task.jobID) task.settings.parserService = parserService;
 			task.state = "queued";
 			task.detail = task.jobID ? "等待继续查询原任务" : "等待重试";
 			task.error = "";
@@ -360,7 +390,7 @@ DocFlow = {
 	},
 
 	canClearParseQueueTask(task) {
-		return ["completed", "failed", "canceled"].includes(task.state) && !task.active && !task.saving && !task.cancelFailed;
+		return ["completed", "failed", "canceled", "waiting"].includes(task.state) && !task.active && !task.saving && !task.cancelFailed;
 	},
 
 	clearParseQueueTasks() {
@@ -386,22 +416,24 @@ DocFlow = {
 	},
 
 	async finishParseQueueCancellation(task, error) {
+		let settings = task.cancelSettings || task.settings;
+		let jobID = task.cancelSettings ? task.cancelJobID : task.jobID;
 		task.cancelFailed = false;
 		task.error = "";
 		let detail = task.kind === "translate" ? "已终止翻译；可重新处理剩余段落，已发送的 AI 请求可能继续在服务端运行"
 			: task.kind === "outline" ? "已终止大纲任务；已发送的 LLM 请求可能继续在服务端运行"
-			: task.settings.apiMode === "cloud" ? "客户端已终止；已提交的云端任务可能继续运行" : "已终止，未提交新的解析任务";
-		if (!task.started && !task.jobID) detail = "已终止，任务尚未开始处理";
-		if (task.settings.apiMode === "local-v1" && !task.jobID && task.phase === "提交解析任务" && error && error.name !== "AbortError") {
+			: settings.apiMode === "cloud" ? "客户端已终止；已提交的云端任务可能继续运行" : "已终止，未提交新的解析任务";
+		if (!task.started && !jobID) detail = "已终止，任务尚未开始处理";
+		if (settings.apiMode === "local-v1" && !jobID && task.phase === "提交解析任务" && error && error.name !== "AbortError") {
 			detail = "客户端已终止；提交请求未返回任务 ID，无法确认服务端任务状态";
 			task.error = error.message || String(error);
 		}
-		if (task.kind !== "outline" && task.settings.apiMode === "local-v1" && task.jobID) {
+		if (task.kind !== "outline" && settings.apiMode === "local-v1" && jobID) {
 			let controller = this.createAbortController();
 			let timeout = setTimeout(() => controller.abort(), 30000);
-			let url = `${task.settings.apiBaseURL}/v1/parse/jobs/${encodeURIComponent(task.jobID)}`;
+			let url = `${settings.apiBaseURL}/v1/parse/jobs/${encodeURIComponent(jobID)}`;
 			try {
-				let result = await this.requestMineruJSON({url, token: task.settings.apiToken, method: "DELETE", signal: controller.signal});
+				let result = await this.requestMineruJSON({url, token: settings.apiToken, method: "DELETE", signal: controller.signal});
 				if (result.status !== "canceled") throw new Error("服务端未确认取消任务");
 				detail = "服务端已接受取消；当前推理与资源清理结束后释放资源";
 			}
@@ -410,7 +442,7 @@ DocFlow = {
 				else {
 					try {
 						if (error.status !== 409) throw error;
-						let job = await this.requestMineruJSON({url, token: task.settings.apiToken, signal: controller.signal});
+						let job = await this.requestMineruJSON({url, token: settings.apiToken, signal: controller.signal});
 						if (!["completed", "partial", "failed", "canceled"].includes(job.status)) throw error;
 						detail = `服务端任务已结束（${job.status}），客户端已终止后续处理`;
 					}
@@ -471,10 +503,15 @@ DocFlow = {
 		task.active = true;
 		task.saving = false;
 		task.state = "running";
-		task.detail = "准备解析";
+		task.detail = "准备处理";
+		this.initializeTaskSteps?.(task);
 		this.refreshParseQueueDialog();
 		try {
 			task.controller = this.createAbortController();
+			if (task.kind === "organize") {
+				await this.runOrganizeTask(task);
+				return;
+			}
 			if (task.kind === "translate") {
 				task.detail = await this.runTranslationTask(task);
 				task.state = "completed";
@@ -497,44 +534,12 @@ DocFlow = {
 				});
 				task.state = "completed";
 				task.detail = "阅读器大纲已生成并保存";
+				task.resultAttachment = task.attachment;
 				task.parsedResult = null;
 				this.refreshParseQueueDialog();
 				return;
 			}
-			if (!task.parsedResult) {
-				task.parsedResult = await this.parseAttachmentWithMineru(task.attachment, task.settings, {
-					jobID: task.jobID,
-					signal: task.controller.signal,
-					onStatus: status => {
-						task.phase = status.phase || task.phase;
-						if (!task.cancelRequested) task.detail = status.displayText || status.phase || "处理中";
-						if ("jobID" in status) task.jobID = status.jobID;
-						this.refreshParseQueueDialog();
-					}
-				});
-			}
-			task.controller.signal.throwIfAborted();
-			if (this.parseQueueStopped) return;
-			task.saving = true;
-			task.detail = "保存解析附件";
-			this.refreshParseQueueDialog();
-			if (this.documentExtension && !["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(task.attachment))) task.settings.outputFormat = "md";
-			let saved = await this.saveResultAsMarkdownAttachment({
-				attachment: task.attachment, parentItem: task.attachment.parentItemID ? Zotero.Items.get(task.attachment.parentItemID) : task.parentItem,
-				parsedResult: task.parsedResult, settings: task.settings
-			});
-			task.state = "completed";
-			task.detail = [task.parsedResult.warning, saved?.warning].filter(Boolean).join("；") || "解析附件已保存";
-			if (this.outline && task.attachment.isPDFAttachment?.()) {
-				try {
-					await this.outline.storeSource(task.attachment, task.parsedResult);
-					if (Zotero.Prefs.get(this.PREF_BRANCH + "autoOutline", true) !== false) this.outline.enqueue(task.attachment);
-				}
-				catch (error) {
-					task.detail += `；大纲资料保存失败：${error.message || error}`;
-				}
-			}
-			task.parsedResult = null;
+			if (await this.runParseTask(task)) task.state = "completed";
 		}
 		catch (error) {
 			if (task.cancelRequested) await this.finishParseQueueCancellation(task, error);
@@ -545,8 +550,68 @@ DocFlow = {
 				if (error.name !== "MineruJobWaitTimeout") Zotero.logError(error);
 			}
 		}
-		finally { task.active = false; task.saving = false; task.controller = null; }
+		finally {
+			task.active = false; task.saving = false; task.controller = null;
+			this.finishTaskSteps?.(task);
+			this.refreshParseQueueDialog();
+		}
 		this.refreshParseQueueDialog();
+	},
+
+	async runParseTask(task) {
+		if (!task.parsedResult) {
+			task.displaySettings = task.settings.collationEnabled && ["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(task.attachment)) ? task.settings.readerA || task.settings : task.settings;
+			task.cancelSettings = task.displaySettings;
+			task.cancelJobID = task.jobID;
+			this.setTaskStep?.(task, "extract", "识别全文");
+			task.progress = null;
+			task.parsedResult = await this.parseAttachmentWithMineru(task.attachment, task.settings, {
+				jobID: task.jobID,
+				signal: task.controller.signal,
+				onStatus: status => {
+					task.phase = status.phase || task.phase;
+					if (status.pageProgress) task.progress = status.pageProgress;
+					this.setTaskStep?.(task, "extract", "识别全文", status.displayText || status.phase);
+					if (!task.cancelRequested) task.detail = status.displayText || status.phase || "处理中";
+					if ("jobID" in status) task.cancelJobID = task.jobID = status.jobID;
+					this.refreshParseQueueDialog();
+				}
+			});
+		}
+		this.setTaskStep?.(task, "structure", "整理文档结构", "恢复脚注、图注与来源，保留原始数据");
+		if (this.finalizeDocument) this.finalizeDocument(task.parsedResult, task.settings.parserService);
+		this.setTaskStep?.(task, "structure", "整理文档结构", "结构与来源已整理", "completed");
+		if (task.settings.collationEnabled && this.prepareCollation) await this.prepareCollation(task);
+		task.controller.signal.throwIfAborted();
+		if (this.parseQueueStopped) return;
+		task.saving = true;
+		task.detail = "保存解析附件";
+		this.setTaskStep?.(task, "save", "保存结果", task.detail);
+		this.refreshParseQueueDialog();
+		if (this.documentExtension && !["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(task.attachment))) task.settings.outputFormat = "md";
+		let saved = await this.saveResultAsMarkdownAttachment({
+			attachment: task.attachment, parentItem: task.attachment.parentItemID ? Zotero.Items.get(task.attachment.parentItemID) : task.parentItem,
+			parsedResult: task.parsedResult, settings: task.settings
+		});
+		task.resultAttachment = saved?.attachment;
+		task.hasChangesReport = !!task.parsedResult.document;
+		task.collationStatus = task.parsedResult.collation?.status;
+		task.collationAIStatus = task.parsedResult.collation?.ai?.status;
+		task.collationFindings = task.parsedResult.collation?.findings?.length || 0;
+		task.collationMissing = task.parsedResult.collation?.missingPages?.length || 0;
+		this.setTaskStep?.(task, "save", "保存结果", "全文与来源资料已保存", "completed");
+		task.detail = [task.parsedResult.warning, saved?.warning].filter(Boolean).join("；") || "解析附件已保存";
+		if (this.outline && task.attachment.isPDFAttachment?.()) {
+			try {
+				await this.outline.storeSource(task.attachment, task.parsedResult);
+				if (Zotero.Prefs.get(this.PREF_BRANCH + "autoOutline", true) !== false) this.outline.enqueue(task.attachment);
+			}
+			catch (error) {
+				task.detail += `；大纲资料保存失败：${error.message || error}`;
+			}
+		}
+		task.parsedResult = null;
+		return saved;
 	},
 
 	reportParseStatus(statusContext, updates = {}) {
@@ -556,6 +621,7 @@ DocFlow = {
 			phase: statusContext.phase || "",
 			mineruState: statusContext.mineruState || "",
 			progress: statusContext.progress ?? null,
+			pageProgress: statusContext.pageProgress || (statusContext.cloudProgress?.total_pages > 0 ? {completed:statusContext.cloudProgress.extracted_pages || 0, total:statusContext.cloudProgress.total_pages, unit:"页"} : null),
 			jobID: statusContext.jobID || null,
 			displayText: this.describeParseStatus(statusContext)
 		});
@@ -701,7 +767,7 @@ DocFlow = {
 			return result;
 		}
 		let totalParts = Math.ceil(pageCount / 199);
-		let markdownParts = [], embeddedImages = [];
+		let markdownParts = [], embeddedImages = [], documents = [], rawFiles = [];
 		let outlinePages = Array(pageCount).fill(""), outlineHeadings = [];
 		for (let start = 0; start < pageCount; start += 199) {
 			let end = Math.min(start + 199, pageCount);
@@ -716,6 +782,12 @@ DocFlow = {
 			let partBytes = await part.save();
 			let partName = `${fileName.replace(/\.pdf$/i, "")}-pages-${start + 1}-${end}.pdf`;
 			let result = await this.parseCloudPDFPart(partBytes, partName, attachmentID, settings, statusContext);
+			if (result.document) {
+				for (let page of result.document.pages) page.page += start;
+				for (let block of result.document.blocks) for (let fragment of block.fragments) fragment.page += start;
+				documents.push(result.document);
+			}
+			rawFiles.push(...(result.rawFiles || []).map(file => ({ ...file, name: `part-${partNumber}-${this.fileNameFromPath(file.name)}` })));
 			for (let i = 0; i < (result.outlinePages || []).length; i++) outlinePages[start + i] = result.outlinePages[i];
 			for (let heading of result.outlineHeadings || []) outlineHeadings.push({ ...heading, page: heading.page + start });
 			let markers = new Map();
@@ -725,15 +797,32 @@ DocFlow = {
 				markers.set(image.marker, marker);
 				embeddedImages.push({ ...image, id, marker });
 			}
+			if (result.document) for (let block of result.document.blocks) {
+				block.text = block.text.replace(/docflow-image:\/\/img-\d+/g, marker => markers.get(marker) || marker);
+				block.rawText = block.rawText.replace(/docflow-image:\/\/img-\d+/g, marker => markers.get(marker) || marker);
+			}
 			markdownParts.push(result.markdownText.replace(/docflow-image:\/\/img-\d+/g, marker => markers.get(marker) || marker));
 		}
 		let markdownText = markdownParts.join("\n\n");
+		let document = null;
+		if (documents.length && typeof OCRFlowDocument !== "undefined") {
+			document = OCRFlowDocument.create("mineru");
+			for (let part of documents) {
+				document.pages.push(...part.pages);
+				for (let block of part.blocks) {
+					// Rebuild note numbering and cross-part joins from the retained raw blocks.
+					OCRFlowDocument.add(document, block.type, block.rawText, block.fragments[0].page, block.fragments[0].rect, { level: block.level });
+				}
+			}
+			OCRFlowDocument.prepare(document);
+			markdownText = OCRFlowDocument.render(document);
+		}
 		this.reportParseStatus(statusContext, { cloudPartLabel: "", phase: "合并分段结果", mineruState: "", progress: 95 });
 		let rendered = await this.markdownToHTML(markdownText);
 		return {
 			sourceKind: "markdown", markdownText, rawMarkdownText: markdownText,
 			contentHTML: rendered.html, embeddedImages, embeddedImageCount: embeddedImages.length,
-			outlinePages, outlineHeadings
+			outlinePages, outlineHeadings, document, rawFiles
 		};
 	},
 
@@ -894,7 +983,7 @@ DocFlow = {
 		let pollIntervalMS = Math.min(10000, Math.max(5000, settings.pollIntervalMS));
 		let started = Date.now();
 		this.reportParseStatus(statusContext, {
-			phase: `任务 ID: ${jobID}，${this.describeLocalJobProgress(job, 0)}`, mineruState: job.status
+			phase: `任务 ID: ${jobID}，${this.describeLocalJobProgress(job, 0)}`, mineruState: job.status, pageProgress: job.files?.[0]?.page_progress || (job.progress ? {...job.progress, unit:"个文件"} : null)
 		});
 		while (!["completed", "partial", "failed", "canceled"].includes(job.status)) {
 			if (this.parseQueueStopped) {
@@ -913,7 +1002,7 @@ DocFlow = {
 			});
 			this.reportParseStatus(statusContext, {
 				phase: `任务 ID: ${jobID}，${this.describeLocalJobProgress(job, Date.now() - started)}`,
-				mineruState: job.status
+				mineruState: job.status, pageProgress: job.files?.[0]?.page_progress || (job.progress ? {...job.progress, unit:"个文件"} : null)
 			});
 		}
 		let result = job.files?.[0];
@@ -1122,6 +1211,21 @@ DocFlow = {
 
 			let markdownBytes = await this.readZipEntryBytes(zipReader, tempDir, markdownEntryName);
 			let markdownText = new TextDecoder("utf-8").decode(markdownBytes);
+			let rawFiles = [{ name: markdownEntryName, text: markdownText }], document = null;
+			if (typeof OCRFlowDocument !== "undefined") {
+				let entries = Array.from(this.buildArchiveEntryMap(zipReader).values()), layout = null, blockList = {};
+				for (let entry of entries.filter(name => /\.json$/i.test(name))) {
+					let text = new TextDecoder("utf-8").decode(await this.readZipEntryBytes(zipReader, tempDir, entry));
+					rawFiles.push({ name: entry, text });
+					if (/block_list\.json$/i.test(entry)) blockList = JSON.parse(text);
+					if (!layout && /(?:layout\.json|_middle\.json|middle_json\.json)$/i.test(entry)) {
+						let payload = JSON.parse(text);
+						if (payload.pdf_info?.length) layout = payload;
+					}
+				}
+				if (layout) document = OCRFlowDocument.fromMineru(layout, 0, blockList);
+				if (document) markdownText = OCRFlowDocument.render(document);
+			}
 			let outlineData = { pages: [], headings: [] };
 			if (this.outline) {
 				let entries = Array.from(this.buildArchiveEntryMap(zipReader).values());
@@ -1137,6 +1241,10 @@ DocFlow = {
 				markdownText,
 				embeddedImages: []
 			};
+			if (document) outlineData = {
+				pages: document.pages.map(page => document.blocks.filter(block => block.fragments[0].page === page.page).map(block => block.rawText).join("\n\n")),
+				headings: document.blocks.filter(block => block.type === "heading").map(block => ({ title: block.text, level: block.level, page: block.fragments[0].page, summary: "" }))
+			};
 			if (includeImages) {
 				let entryMap = this.buildArchiveEntryMap(zipReader);
 				inlinedResult = await this.inlineArchiveImagesInMarkdown({
@@ -1148,10 +1256,12 @@ DocFlow = {
 				});
 			}
 			let rendered = await this.markdownToHTML(inlinedResult.markdownText);
+			if (document) this.normalizeResultImages({ document, markdownText:inlinedResult.markdownText, embeddedImages:inlinedResult.embeddedImages });
 			return {
 				sourceKind: "markdown",
 				rawMarkdownText: markdownText,
 				rawMarkdownEntryName: markdownEntryName || "",
+				document, rawFiles,
 				markdownText: inlinedResult.markdownText,
 				contentHTML: rendered.html,
 				outlinePages: outlineData.pages,
@@ -1378,6 +1488,11 @@ DocFlow = {
 		let normalizedPath = this.resolveArchiveReference(markdownEntryName, resourceURL);
 		if (!normalizedPath) return null;
 		let entryName = entryMap.get(normalizedPath.toLowerCase());
+		if (!entryName) {
+			let basename = this.fileNameFromPath(normalizedPath).toLowerCase();
+			let matches = [...entryMap.values()].filter(name => this.fileNameFromPath(name).toLowerCase() === basename);
+			if (matches.length === 1) entryName = matches[0];
+		}
 		if (!entryName) return null;
 		let mimeType = this.guessMimeType(entryName);
 		if (!mimeType.startsWith("image/")) return null;
@@ -2349,6 +2464,7 @@ DocFlow = {
 
 	async saveResultAsMarkdownAttachment({ attachment, parentItem, parsedResult, settings }) {
 		let sourceTitle = attachment.getField("title");
+		this.normalizeResultImages?.(parsedResult);
 		try {
 			await parentItem?.loadDataType?.("creators");
 			let authors = (parentItem?.getCreatorsJSON?.() || []).filter(creator => creator.creatorType === "author").map(creator => {
@@ -2370,6 +2486,11 @@ DocFlow = {
 				images: parsedResult.embeddedImages || [],
 				format: settings.outputFormat, imageMode: settings.imageMode, tag: "#DocFlow-Parse", keepMarkdown: true
 			});
+			if (parsedResult.document && this.saveDocumentData) {
+				parsedResult.document.source = { libraryID: attachment.libraryID, key: attachment.key };
+				try { await this.saveDocumentData(imported, parsedResult); }
+				catch (error) { await imported.eraseTx(); throw error; }
+			}
 			if (parentItem) {
 				parentItem.addTag("#DocFlow-Parsed", 0);
 				await parentItem.saveTx({notifierData: {skipRenameFile: true}});
@@ -2640,16 +2761,17 @@ DocFlow = {
 
 	async readSourceMarkdown(attachment) {
 		let filePath = await attachment.getFilePath();
-		if (!filePath) throw new Error("MinerU 解析附件文件不存在");
+		if (!filePath) throw new Error("全文附件文件不存在，请先在 Zotero 中下载或重新定位附件。");
 		if (/\.html?$/i.test(filePath)) {
 			filePath = filePath.replace(/\.html?$/i, ".md");
 			if (!await IOUtils.exists(filePath)) {
 				let candidates = (await IOUtils.getChildren(PathUtils.parent(filePath))).filter(path => /\.(md|markdown)$/i.test(path));
 				if (candidates.length > 1) throw new Error("附件目录中有多个 Markdown，无法确定原文。请直接选择对应的 Markdown 附件。");
 				if (candidates.length === 1) filePath = candidates[0];
+				else throw new Error("OCR HTML 缺少配套的原始 Markdown，无法继续处理。请恢复附件目录中的配套 MD 文件，或选择原始文档重新执行“提取全文 / OCR”。");
 			}
 		}
-		if (!/\.(md|markdown)$/i.test(filePath)) throw new Error("请选择 MinerU 解析 Markdown 或 HTML 附件");
+		if (!/\.(md|markdown)$/i.test(filePath)) throw new Error("请选择 Markdown 或 OCR 生成的 HTML 全文附件。");
 		let bytes;
 		try { bytes = await IOUtils.read(filePath); }
 		catch (e) { throw new Error(`无法读取原始 Markdown：${filePath}。请确认附件已下载完整且 Markdown 文件仍在附件目录中。`); }
@@ -2761,11 +2883,13 @@ DocFlow = {
 		let source = replaceImages(markdown);
 		let content = notice ? `> ${notice}\n\n${source}` : source;
 		if (format === "html") {
+			let counts = { source: new Map(), target: new Map(), document: new Map() };
+			let render = (text, namespace) => this.renderFootnotes ? this.renderFootnotes(text, namespace, counts[namespace]) : this.renderDocumentBody(text);
 			let body = pairs
 				? '<div class="bilingual"><div class="column-label">原文</div><div class="column-label">译文</div>' + pairs.map(pair =>
-					'<section data-block="' + this.escapeHTML(pair.id) + '" class="pair"><div>' + this.renderDocumentBody(replaceImages(pair.source)) +
-					'</div><div>' + this.renderDocumentBody(replaceImages(pair.translated)) + '</div></section>').join("") + '</div>'
-				: this.renderDocumentBody(source);
+					'<section data-block="' + this.escapeHTML(pair.id) + '" class="pair"><div>' + (pair.page ? '<small>PDF 第 ' + pair.page + ' 页</small>' : '') + render(replaceImages(pair.source), "source") +
+					'</div><div>' + render(replaceImages(pair.translated), "target") + '</div></section>').join("") + '</div>'
+				: render(source, "document");
 			let metadata = JSON.stringify({ markdown: source }).replace(/</g, "\\u003c");
 			content = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
 				'<title>' + this.escapeHTML(title) + '</title><style>body{font:16px/1.7 system-ui,sans-serif;max-width:1200px;margin:32px auto;padding:0 24px;color:#222}img{max-width:100%;height:auto}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid #bbb;padding:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f5f5;padding:12px}.bilingual,.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.pair{grid-column:1/-1;border-top:1px solid #ddd;padding:12px 0}.pair>div{min-width:0;overflow-wrap:anywhere}.column-label{font-weight:bold}</style></head><body>' +
@@ -2808,7 +2932,7 @@ DocFlow = {
 		return new Error(`AI 输出被截断（${details.join("，")}）。请提高所选模型的“最大输出长度”；若“工作模型配置”中该工作的请求参数 JSON 已指定 max_tokens 或 max_completion_tokens，则需提高该参数，或缩短提示词要求的输出；确认模型支持该上限、上下文足够，保存后在队列中重试。`);
 	},
 
-	getLLMSettings(kind) {
+	getLLMSettings(kind, selectedModel) {
 		let apiBaseURL = (Zotero.Prefs.get(this.PREF_BRANCH + "llmApiBaseURL", true) || "").trim();
 		apiBaseURL = apiBaseURL.replace(/\/+$/, "");
 		let apiKey = (Zotero.Prefs.get(this.PREF_BRANCH + "llmApiKey", true) || "").trim();
@@ -2849,6 +2973,7 @@ DocFlow = {
 		let config = kind ? work[kind] || {} : {};
 		let modelConcurrency = 1, modelContext = 32768, modelOutput = 0;
 		if (config.model && config.model !== "default") selected = config.model;
+		if (selectedModel) selected = selectedModel;
 		settings.modelID = selected;
 		if (providers.length) {
 			let split = selected.lastIndexOf(":"), id = selected.slice(0, split), slot = selected.slice(split + 1);
@@ -2917,8 +3042,7 @@ DocFlow = {
 		// An explicitly selected parse attachment takes priority over its parent selection.
 		let selectedSources = new Map()
 		for (let item of selectedItems) {
-			if (item.isAttachment?.() && item.parentItemID &&
-				item.getTags?.().some(t => t.tag === "#DocFlow-Parse")) {
+			if (this.isMarkdownResult(item) && item.parentItemID) {
 				if (!selectedSources.has(item.parentItemID)) selectedSources.set(item.parentItemID, item)
 			}
 		}
@@ -2939,14 +3063,13 @@ DocFlow = {
 
 			let mineruSource = selectedSources.get(parentItem.id) || null
 
-			// Find #DocFlow-Parse attachment (Markdown file)
+			// Use the same full-text types as the document sidebar.
 			let attachmentIDs = parentItem.getAttachments()
 			for (let attachmentID of attachmentIDs) {
 				if (mineruSource) break
 				let attachmentItem = Zotero.Items.get(attachmentID)
 				if (!attachmentItem) continue
-				let tags = attachmentItem.getTags()
-				if (tags.some((t) => t.tag === "#DocFlow-Parse")) {
+				if (this.isMarkdownResult(attachmentItem)) {
 					mineruSource = attachmentItem
 					break
 				}
@@ -2979,6 +3102,7 @@ DocFlow = {
 	},
 
 	async runTranslationTask(task) {
+		if (this.runAlignedTranslationTask) return this.runAlignedTranslationTask(task);
 		let settings = task.settings, signal = task.controller.signal;
 		let language = settings.translateLanguage || "中文", chunkSize = settings.translateChunkSize || 20000;
 		let chunkBudget = settings.workKind ? this.getAIChunkBudget(settings) : undefined;
@@ -3226,13 +3350,22 @@ DocFlow = {
 		finally { signal?.removeEventListener("abort", abort); }
 	},
 
-	async saveTranslationAsMarkdownAttachment({ parentItem, sourceAttachment, translatedText, language, images, settings, pairs, partial = null }) {
-		await this.saveDocumentAttachment({
+	async saveTranslationAsMarkdownAttachment({ parentItem, sourceAttachment, translatedText, language, images, settings, pairs, translationData, partial = null }) {
+		let imported = await this.saveDocumentAttachment({
 			libraryID: parentItem.libraryID, parentItem,
 			title: `${partial ? `[未完成 ${partial.completed}/${partial.total}] ` : ""}Translation (${language}) - ${this.getItemFileStem(sourceAttachment, "document")}`,
 			markdown: translatedText, images, pairs,
 			format: settings.outputFormat, imageMode: settings.outputFormat === "html" ? "inline" : "folder", tag: partial ? "#DocFlow-Translation-Partial" : "#DocFlow-Translation",
 			notice: partial ? `未完成：已翻译 ${partial.completed}/${partial.total} 段；标注“未翻译”的位置保留原文。` : ""
 		});
+		if (translationData) {
+			let root = PathUtils.join(PathUtils.parent(await imported.getFilePath()), "_ocrflow");
+			try {
+				await IOUtils.makeDirectory(root, { createAncestors: true });
+				await IOUtils.writeUTF8(PathUtils.join(root, "translation.json"), JSON.stringify({ sourceKey: sourceAttachment.key, language,
+					resources: (images || []).map(image => ({ marker: image.marker, sourceFileName: image.fileName })), pairs: translationData }));
+			} catch (error) { await imported.eraseTx(); throw error; }
+		}
+		return imported;
 	}
 };
