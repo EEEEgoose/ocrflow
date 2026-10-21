@@ -155,6 +155,7 @@ var OCRFlowTaskSidebar = {
 	},
 
 	stepState(task, step) {
+		if (task.decision && step.state === "running") return "waiting";
 		if (step.state === "running" && ["failed", "canceled", "wait_expired", "waiting", "stopping"].includes(task.state)) return task.state;
 		if (step.state === "pending" && ["failed", "canceled", "completed"].includes(task.state)) return "not_run";
 		return step.state;
@@ -251,7 +252,7 @@ var OCRFlowTaskSidebar = {
 			content.appendChild(operations);
 			if (!(context.item.isNote?.() && !context.parent)) {
 				if (!context.file && !context.source) content.appendChild(make("p", this.actionUnavailableReason(context, "organize"), "of-muted"));
-				else if (busy) content.appendChild(make("p", "当前任务执行中，完成后可继续操作。", "of-muted"));
+				else if (busy) content.appendChild(make("p", relatedTasks.some(task => task.decision) ? "翻译已暂停，请在下方查看失败原因并选择重试或终止。" : "当前任务执行中，完成后可继续操作。", "of-muted"));
 				else {
 					if (!context.source || !context.parent) content.appendChild(make("p", this.actionUnavailableReason(context, "summary"), "of-muted"));
 					if (context.source) content.appendChild(make("p", context.file ? "已使用现有全文；点击“提取全文 / OCR”将重新识别原文件，保留已有全文。" : this.actionUnavailableReason(context, "ocr"), "of-muted"));
@@ -303,7 +304,15 @@ var OCRFlowTaskSidebar = {
 			content.appendChild(timeline);
 			if (!current) content.appendChild(tool());
 			let actions = make("div", undefined, "of-actions");
-			if (task.decision) for (let [label, value] of [["重试失败段落", "retry"], ["保存部分译文", "save"], ["放弃剩余翻译", "discard"]]) actions.appendChild(action(label, () => plugin.resolveTaskDecision(task, value)));
+			if (task.decision) {
+				let options = task.decision.options;
+				let error = make("p", plugin.buildFailedChunkSummary(options.failures || [], 5), "of-error"); error.setAttribute("role", "alert"); content.appendChild(error);
+				content.appendChild(make("p", "可修改服务、模型或请求参数并保存，再重试失败段落；已完成译段会保留。", "of-muted"));
+				let canSave = (options.savable ?? options.completed ?? 0) > 0;
+				if (!canSave) content.appendChild(make("p", "尚无完整译段，暂不能保存部分译文。", "of-muted"));
+				for (let [label, value] of [["重试失败段落", "retry"], ["保存部分译文", "save"], ["放弃剩余翻译", "discard"]]) actions.appendChild(action(label, () => plugin.resolveTaskDecision(task, value), value === "save" && !canSave));
+				actions.appendChild(action("服务与模型设置", () => plugin.openPreferences("work")));
+			}
 			else if (["failed", "canceled", "wait_expired", "waiting"].includes(task.state)) actions.appendChild(action(task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : "重新处理", () => plugin.retryParseQueueTasks([task.id])));
 			if (["queued", "running", "wait_expired"].includes(task.state) || task.cancelFailed) actions.appendChild(action(task.cancelFailed ? "重试终止" : "终止任务", () => plugin.cancelParseQueueTask(task.id), !!task.saving));
 			if (task.resultAttachment) {
@@ -391,6 +400,7 @@ Object.assign(DocFlow, {
 
 	requestTaskDecision(task, options) {
 		if (!this.sidebar?.views.size) return Promise.resolve(this.confirmRetryFailedChunks(this.parseQueueWindow || Zotero.getMainWindow(), options));
+		task.detail = `翻译已暂停：已完成 ${options.completed || 0}/${options.total || 0} 段，${options.failures?.length || 0} 段失败，等待处理。`;
 		return new Promise((resolve, reject) => {
 			let signal = task.controller.signal;
 			let abort = () => { task.decision = null; signal.removeEventListener("abort", abort); reject(signal.reason || new Error("已终止")); this.refreshParseQueueDialog(); };
@@ -401,5 +411,14 @@ Object.assign(DocFlow, {
 		});
 	},
 
-	resolveTaskDecision(task, value) { task.decision?.resolve(value); }
+	resolveTaskDecision(task, value) {
+		if (!task.decision) return;
+		if (value === "save" && !(task.decision.options.savable ?? task.decision.options.completed)) throw new Error("尚无完整译段，无法保存部分译文。请重试失败段落或终止任务。");
+		if (value === "retry" && task.kind === "translate") {
+			let settings = this.getTranslationSettings();
+			if (settings.translateLanguage !== task.settings.translateLanguage) throw new Error("翻译语言已改变，请先终止当前任务，再重新翻译，避免混合不同语言的译文。");
+			task.settings = settings;
+		}
+		task.decision.resolve(value);
+	}
 });

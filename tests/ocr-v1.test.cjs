@@ -6,7 +6,7 @@ const path=require('node:path').posix;
 
 function setup() {
  const files=new Map(),prefs=new Map(),requests=[];let serial=0;
- const context={TextDecoder,TextEncoder,Uint8Array,ArrayBuffer,AbortController,FormData,Blob,atob,btoa,setTimeout,clearTimeout,
+ const context={TextDecoder,TextEncoder,Uint8Array,ArrayBuffer,AbortController,FormData,Blob,URL,atob,btoa,setTimeout,clearTimeout,
   PathUtils:{join:(...parts)=>{if(parts.slice(1).some(p=>p.includes('/')))throw Error('PathUtils requires separate path components');return path.join(...parts);},parent:path.dirname,tempDir:'/tmp'},
   IOUtils:{read:async p=>{if(!files.has(p))throw Error('missing '+p);return files.get(p)},writeUTF8:async(p,t)=>files.set(p,new TextEncoder().encode(t)),
    write:async(p,b)=>files.set(p,b),makeDirectory:async()=>{},remove:async()=>{},exists:async p=>files.has(p),copy:async()=>{}},
@@ -358,4 +358,71 @@ test('image timeout is visible, retry keeps edits, and same-page findings reuse 
  await dialog.loadImage(finding);assert.equal(dialog.loadedPage,1);assert.equal(nodes.get('edits').value,'人工草稿');assert.equal(nodes.get('checked').checked,false);
  review.collation.findings[0]={page:1};await dialog.loadImage(dialog.current());
  assert.equal(calls,2);assert.equal(nodes.get('retry-image').hidden,true);
+});
+
+test('paused aligned translation exposes the API error and retries missing paragraphs with saved model settings',async()=>{
+ const s=setup();vm.runInContext(fs.readFileSync('task-sidebar.js','utf8'),s.context);const sidebar=s.context.OCRFlowTaskSidebar;sidebar.init(s.m);s.m.sidebar=sidebar;sidebar.views.set({},{});
+ s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown:'First.\n\nSecond.'});s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});
+ const settings={workKind:'translate',model:'old',apiBaseURL:'https://controlled.invalid/v1',contextWindow:32768,translateLanguage:'中文',translateChunkSize:30,translateConcurrency:1,translateRetryCount:0};
+ const task={kind:'translate',settings,controller:new AbortController(),mineruSource:{},parentItem:{}};
+ let paused;const waiting=new Promise(resolve=>paused=resolve),calls=[];let saved;
+ s.m.refreshParseQueueDialog=()=>{if(task.decision)paused();};
+ s.context.fetch=async(_url,options)=>{const payload=JSON.parse(options.body),items=JSON.parse(payload.messages[1].content);calls.push({model:payload.model,ids:items.map(i=>i.id)});
+  if(payload.model==='old'&&items.some(i=>i.id==='p2.0'))return {ok:false,status:429,text:async()=> 'controlled rate limit'};
+  return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify(items.map(i=>({id:i.id,text:'译 '+i.text})))}}]})};};
+ s.m.saveTranslationAsMarkdownAttachment=async value=>saved=value;
+ const running=s.m.runAlignedTranslationTask(task);await waiting;
+ assert.match(task.decision.options.failures[0].error,/429.*controlled rate limit/);assert.equal(task.decision.options.savable,1);assert.match(task.detail,/翻译已暂停/);
+ assert.equal(sidebar.stepState(task,{state:'running'}),'waiting');
+ s.m.getTranslationSettings=()=>({...settings,model:'new'});s.m.resolveTaskDecision(task,'retry');await running;
+ assert.equal(calls.filter(c=>c.ids.includes('p1.0')).length,1);assert.equal(calls.at(-1).model,'new');assert.equal(saved.translationData.length,2);assert(saved.translationData.every(p=>p.complete));
+});
+
+test('zero completed translation cannot save and invalid retry settings leave the decision available',async()=>{
+ const s=setup();vm.runInContext(fs.readFileSync('task-sidebar.js','utf8'),s.context);const sidebar=s.context.OCRFlowTaskSidebar;sidebar.init(s.m);s.m.sidebar=sidebar;sidebar.views.set({},{});
+ const task={kind:'translate',settings:{translateLanguage:'中文'},controller:new AbortController()};
+ const waiting=s.m.requestTaskDecision(task,{completed:1,savable:0,total:2,failures:[{error:'401 invalid key'}]});
+ assert.throws(()=>s.m.resolveTaskDecision(task,'save'),/尚无完整译段/);assert(task.decision);
+ s.m.getTranslationSettings=()=>{throw Error('invalid model settings');};assert.throws(()=>s.m.resolveTaskDecision(task,'retry'),/invalid model settings/);assert(task.decision);
+ s.m.getTranslationSettings=()=>({translateLanguage:'English'});assert.throws(()=>s.m.resolveTaskDecision(task,'retry'),/语言已改变/);assert(task.decision);
+ task.controller.abort();await assert.rejects(waiting);assert.equal(task.decision,null);
+});
+
+test('HTTP 429 respects Retry-After and retries without showing the stale source-reading phase',async()=>{
+ const s=setup();s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown:'First.\n\nSecond.'});s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});
+ const task={settings:{workKind:'translate',model:'controlled',apiBaseURL:'https://controlled.invalid/v1',contextWindow:32768,translateLanguage:'中文',translateRetryCount:1},controller:new AbortController(),mineruSource:{},parentItem:{}};
+ const phases=[],waits=[];let calls=0,saved;
+ s.m.refreshParseQueueDialog=()=>phases.push(task.detail);s.m.delayParsePoll=async(ms,{signal})=>{signal.throwIfAborted();waits.push(ms);};
+ s.context.fetch=async(_url,options)=>{calls++;if(calls===1)return {ok:false,status:429,headers:{get:()=> '7'},text:async()=> 'inference exceeds tpm/rpm limit'};
+ const items=JSON.parse(JSON.parse(options.body).messages[1].content);return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify(items)}}]})};};
+ s.m.saveTranslationAsMarkdownAttachment=async value=>saved=value;
+ await s.m.runAlignedTranslationTask(task);assert.equal(calls,2);assert.equal(waits.length,1);assert(waits[0]>6900&&waits[0]<=7000);
+ assert(phases.some(text=>text.includes('正在请求模型翻译')));assert(phases.some(text=>text.includes('服务限流（HTTP 429）')));assert(saved.translationData.every(pair=>pair.complete));
+});
+
+test('translation can be canceled during rate-limit cooldown without another request or save',async()=>{
+ const s=setup();s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown:'First.'});s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});
+ const task={settings:{workKind:'translate',model:'controlled',apiBaseURL:'https://controlled.invalid/v1',contextWindow:32768,translateLanguage:'中文',translateRetryCount:1},controller:new AbortController(),mineruSource:{},parentItem:{}};
+ let waiting,calls=0;const paused=new Promise(resolve=>waiting=resolve);
+ s.m.refreshParseQueueDialog=()=>{if(task.detail?.includes('服务限流'))waiting();};
+ s.context.fetch=async()=>{calls++;return {ok:false,status:429,text:async()=> 'rate limit'};};
+ s.m.saveTranslationAsMarkdownAttachment=async()=>{throw Error('must not save');};
+ const running=s.m.runAlignedTranslationTask(task);await paused;task.controller.abort();await assert.rejects(running);assert.equal(calls,1);
+});
+
+test('paragraph batch sizes respect the configured model output budget',async()=>{
+ const s=setup(),text=Array.from({length:40},(_,i)=>`Paragraph ${i}: historical text with details.`).join('\n\n');
+ s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown:text});s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});
+ let batches=0;s.m.requestDocumentAI=async messages=>{const items=JSON.parse(messages[1].content);assert(items.reduce((sum,item)=>sum+s.m.estimateAITokens(JSON.stringify(item)),0)<=512);batches++;return JSON.stringify(items);};
+ s.m.saveTranslationAsMarkdownAttachment=async value=>assert.equal(value.translationData.length,40);
+ await s.m.runAlignedTranslationTask({settings:{workKind:'translate',outputTokens:512,contextWindow:32768,translateLanguage:'中文'},controller:new AbortController(),mineruSource:{},parentItem:{}});
+ assert(batches>1);
+});
+
+test('exhausted rate-limit retries pause later batches instead of sending the entire document',async()=>{
+ const s=setup();s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown:'First.\n\nSecond.\n\nThird.'});s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});let calls=0;
+ s.m.requestDocumentAI=async()=>{calls++;const error=Error('429 rate limit');error.status=429;throw error;};
+ s.m.requestTaskDecision=async(_task,options)=>{assert.equal(options.failures.length,3);assert.match(options.failures[1].error,/暂未请求/);return 'discard';};
+ await assert.rejects(()=>s.m.runAlignedTranslationTask({settings:{workKind:'translate',translateChunkSize:30,translateRetryCount:0,contextWindow:32768,translateLanguage:'中文',translateConcurrency:1},controller:new AbortController(),mineruSource:{},parentItem:{}}),/429/);
+ assert.equal(calls,1);
 });

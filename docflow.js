@@ -2545,7 +2545,7 @@ DocFlow = {
 		return normalizedMarkdownPath.startsWith("/") ? "/" + normalizedPath : normalizedPath
 	},
 
-	async inlineStoredImagesInMarkdownAttachment({ markdownText, markdownPath }) {
+	async inlineStoredImagesInMarkdownAttachment({ markdownText, markdownPath, signal, onImage }) {
 		let embeddedByPath = new Map()
 		let embeddedImages = []
 		let addEmbedded = (imagePath, mimeType, bytes) => {
@@ -2566,10 +2566,12 @@ DocFlow = {
 				dataURI
 			}
 			embeddedImages.push(imageData)
+			onImage?.(embeddedImages.length);
 			embeddedByPath.set(cacheKey, imageData)
 			return imageData
 		}
 		let resolveImage = async (resourceURL) => {
+			signal?.throwIfAborted();
 			if (/^data:image\//i.test(resourceURL)) {
 				let match = resourceURL.match(/^data:(image\/[\w.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i);
 				if (!match) throw new Error("不支持的内嵌图片格式");
@@ -2586,6 +2588,7 @@ DocFlow = {
 			if (!mimeType.startsWith("image/")) return null
 			try {
 				let bytes = await IOUtils.read(imagePath)
+				signal?.throwIfAborted();
 				return addEmbedded(imagePath, mimeType, bytes)
 			}
 			catch (e) {
