@@ -317,7 +317,13 @@ Object.assign(DocFlow, {
 		try {
 			let response = await fetch(endpoint, { method: "POST", signal: controller.signal,
 				headers: { "Content-Type": "application/json", ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) }, body: JSON.stringify(payload) });
-			if (!response.ok) throw new Error(`AI 接口请求失败 ${response.status}: ${(await response.text()).slice(0, 500)}`);
+			if (!response.ok) {
+				let error = new Error(`AI 接口请求失败 ${response.status}: ${(await response.text()).slice(0, 500)}`);
+				error.status = response.status;
+				let retryAfter = response.headers?.get("Retry-After");
+				if (retryAfter) error.retryAfterMS = /^\d+(?:\.\d+)?$/.test(retryAfter) ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now());
+				throw error;
+			}
 			let data = await response.json();
 			let choice = data.choices?.[0];
 			if (choice?.finish_reason === "length") throw this.aiOutputLimitError(payload, data);

@@ -1,4 +1,8 @@
 Object.assign(DocFlow, {
+	translationBatchBudget(settings) {
+		return Math.min(settings.translateChunkSize || 20000, Math.max(256, Math.min(this.getAIChunkBudget(settings) - 1024, this.getAIOutputBudget(settings))));
+	},
+
 	translationUnits(markdown, settings) {
 		let units = [], page = null;
 		for (let block of this.splitTranslationBlocks(markdown)) {
@@ -15,7 +19,7 @@ Object.assign(DocFlow, {
 			text = text.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`|\$\$[\s\S]*?\$\$|\$(?:\\.|[^$\n])+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\[\^[^\]]+\]|\]\([^)]+\)|<\/?(?:table|thead|tbody|tr|th|td)\b[^>]*>|^\s*(?:[-*+]|\d+\.)\s+|\|/gm, value => {
 				let token = `⟦K${protectedParts.length}⟧`; protectedParts.push(value); return token;
 			});
-			let chunks = this.splitAIText(text, settings, Math.max(256, this.getAIChunkBudget(settings) - 1024));
+			let chunks = this.splitAIText(text, settings, this.translationBatchBudget(settings));
 			// Do not split protected tokens, even when a very long paragraph exceeds its budget.
 			let fragments = [], rest = text;
 			for (let chunk of chunks) {
@@ -39,7 +43,7 @@ Object.assign(DocFlow, {
 		let content = await this.requestDocumentAI([{ role: "system", content: prompt }, { role: "user", content: JSON.stringify(input) }],
 			{ ...settings, summaryRequestParams: settings.translateRequestParams }, signal);
 		let output;
-		try { output = JSON.parse(content.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/, "$1")); }
+		try { output = JSON.parse(content.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, "$1")); }
 		catch (_) { throw new Error("逐段翻译返回的 JSON 无效"); }
 		if (!Array.isArray(output)) throw new Error("逐段翻译必须返回带段落 ID 的数组");
 		let found = new Map();
@@ -57,11 +61,14 @@ Object.assign(DocFlow, {
 	async runAlignedTranslationTask(task) {
 		let settings = task.settings, signal = task.controller.signal;
 		let status = text => { signal.throwIfAborted(); task.detail = text; this.setTaskStep?.(task, task.saving ? "save" : "work", task.saving ? "保存译文" : "逐段翻译", text); this.refreshParseQueueDialog(); };
-		let budget = Math.min(settings.translateChunkSize || 20000, this.getAIChunkBudget(settings) - 1024);
+		let budget = this.translationBatchBudget(settings), retryAt = 0;
 		if (!task.translation?.units || task.translation.language !== settings.translateLanguage || task.translation.budget !== budget) {
 			status("读取自然段与来源");
 			let { filePath, markdown } = await this.readSourceMarkdown(task.mineruSource);
-			let source = await this.inlineStoredImagesInMarkdownAttachment({ markdownText: markdown, markdownPath: filePath });
+			signal.throwIfAborted(); status("读取全文插图与附件资源");
+			let source = await this.inlineStoredImagesInMarkdownAttachment({ markdownText: markdown, markdownPath: filePath, signal,
+				onImage: count => { if (count === 1 || count % 10 === 0) status(`已读取 ${count} 张插图，正在整理全文资源`); } });
+			signal.throwIfAborted(); status("整理自然段与受保护引用");
 			let units = this.translationUnits(source.markdownText, settings);
 			if (!units.length) throw new Error("Markdown 内容为空");
 			task.translation = { language: settings.translateLanguage, budget, units, images: source.embeddedImages };
@@ -77,16 +84,32 @@ Object.assign(DocFlow, {
 				batch.push(item); size += length;
 			}
 			if (batch.length) batches.push(batch);
+			status(`正在请求模型翻译；已完成 ${units.filter(unit => unit.translated.every(Boolean)).length}/${units.length} 个自然段，本轮 ${batches.length} 批`);
+			let rateLimited = false;
 			await this.mapAIWork(batches, settings.translateConcurrency || settings.concurrency || 1, async items => {
+				if (rateLimited) { for (let item of items) item.error = "服务限流，暂未请求此段：" + data.lastError; return; }
 				let remaining = items, error;
 				for (let attempt = 0; remaining.length && attempt <= (settings.translateRetryCount ?? 2); attempt++) {
 					try {
+						let wait = retryAt - Date.now();
+						if (wait > 0) {
+							status(`服务限流（HTTP 429），等待 ${Math.ceil(wait / 1000)} 秒后继续翻译；可终止任务。`);
+							await this.delayParsePoll(wait, {signal});
+						}
 						let output = await this.translateAlignedBatch(remaining, settings, signal);
+						error = null;
 						remaining.forEach((item, index) => { if (output[index]) item.unit.translated[item.index] = output[index]; });
 						remaining = remaining.filter(item => !item.unit.translated[item.index]);
-					} catch (e) { signal.throwIfAborted(); error = e; }
+					} catch (e) {
+						signal.throwIfAborted(); error = e;
+						if (e.status === 429) retryAt = Math.max(retryAt, Date.now() + (e.retryAfterMS > 0 ? e.retryAfterMS : 30000 * 2 ** attempt));
+					}
 				}
-				if (remaining.length) data.lastError = error?.message || "译文漏段或受保护结构发生变化";
+				if (remaining.length) {
+					data.lastError = error?.message || "译文漏段或受保护结构发生变化";
+					for (let item of remaining) item.error = data.lastError;
+					if (error?.status === 429) rateLimited = true;
+				}
 				task.progress = {completed:units.filter(unit => unit.translated.filter(Boolean).length === unit.fragments.length).length, total:units.length, unit:"段"};
 				status(`翻译 ${task.progress.completed}/${units.length} 个自然段`);
 			}, signal);
@@ -94,11 +117,16 @@ Object.assign(DocFlow, {
 			if (!pending.length) break;
 			let completed = fragments.length - pending.length;
 			let decisionOptions = {
-				title: task.title, failures: pending.map(item => ({ chunkIndex: fragments.indexOf(item), totalChunks: fragments.length, error: data.lastError })),
+				title: task.title, failures: pending.map(item => ({ chunkIndex: fragments.indexOf(item), totalChunks: fragments.length, error: item.error })),
+				savable: units.filter(unit => unit.translated.every(Boolean)).length,
 				retryRound: ++round, completed, total: fragments.length, autoRetryCount: settings.translateRetryCount ?? 2 };
 			let action = this.requestTaskDecision ? await this.requestTaskDecision(task, decisionOptions) : this.confirmRetryFailedChunks(this.parseQueueWindow || Zotero.getMainWindow(), decisionOptions);
 			if (action === "save") data.partial = true;
 			else if (action !== "retry") throw new Error(data.lastError);
+			else {
+				settings = task.settings;
+				budget = this.translationBatchBudget(settings); retryAt = 0;
+			}
 		}
 		signal.throwIfAborted();
 		let pairs = units.map(unit => {
