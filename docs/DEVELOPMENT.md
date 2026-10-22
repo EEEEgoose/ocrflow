@@ -41,6 +41,7 @@ python3 build.py --output-dir ./dist
 | `prefs.js` | 默认首选项，密钥默认留空 |
 | `locale/` | 菜单本地化资源 |
 | `vendor/` | 已随包分发的库和对应许可证 |
+| `release_notes.py` | 按前一正式标签的更新记录差异生成新增功能与修复说明 |
 | `tests/` | 内存文库、文件系统和受控服务响应测试 |
 | `docs/` | 开发与 GitHub 发布说明 |
 
@@ -68,6 +69,17 @@ XPI 使用逐文件清单，不递归收录 `vendor/` 或 `locale/`；排除测�
 
 GitHub Actions 配置在 [ci.yml](../.github/workflows/ci.yml)。推送到 `main` 时，测试通过后自动构建并发布 Release；Pull Request 只测试和构建，不发布。也可在 Actions 页面选择 `main` 手动运行。发布使用内置 `GITHUB_TOKEN`，工作流已声明 `contents: write`，无需另设个人 Token。
 
+发布前，在 `CHANGELOG.md` 本次版本下用 `### 新增功能`、`### 修复问题` 分别记录变化。发布工具读取前一正式标签的更新记录，只提取本次新增条目，因此不会因历史安装包号和开发记录号不一致而漏掉功能；没有新增记录或分类时停止发布，要求补齐说明。
+
+可在本地预览：
+
+```sh
+git fetch origin --tags
+python3 release_notes.py --version 1.3.5 --previous-ref v1.3.4 --output /tmp/ocrflow-release-notes.md
+```
+
+CI 完整获取 Git 标签，按前一正式 Release 生成说明，用 `--notes-file` 同时创建或更新发布页，不再只使用提交列表。历史发布说明保存在 `docs/releases/`；它们按对应标签之间的真实代码变化整理，不更改已有版本号、标签或安装资产。
+
 工作流配置参考官方 [checkout](https://github.com/actions/checkout)、[setup-node](https://github.com/actions/setup-node) 和 [setup-python](https://github.com/actions/setup-python)。
 
 ## 上传到 GitHub
@@ -88,7 +100,7 @@ git push -u origin main
 
 ## 发布新版本
 
-1. 修改代码并更新相应文档；需要提升基础版本时，更新 `manifest.json` 和 `markitdown.js` 中 MCP `clientInfo.version`，基础版本支持两段（如 1.0）或三段数字。
+1. 修改代码并在更新记录的“新增功能”“修复问题”下记录本次变化，再更新相应文档；需要提升基础版本时，更新 `manifest.json` 和 `markitdown.js` 中 MCP `clientInfo.version`，基础版本支持两段（如 1.0）或三段数字。
 2. 运行测试和构建，使用独立 Zotero 文库核对受影响的功能。
 3. 提交并推送到 `main`。工作流将基础版本与 `github.run_number` 组合，例如 `0.2.17.12`；每次新运行使用递增序号，重跑同一次运行沿用原版本。
 4. 工作流创建 `v<发布版本>` 标签和 Release，上传 XPI、源码包、`updates.json` 后再正式发布为最新版本。已发布的同版本在重跑时跳过，未完成的草稿可继续上传并发布。

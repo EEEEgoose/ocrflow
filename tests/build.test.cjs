@@ -35,7 +35,7 @@ test('a standalone checkout builds installable and clean source archives in defa
    assert(data.runtime.includes('sidebar-icon.svg'));
    assert(data.runtime.includes('menu-icons/ocr.svg'));
    assert(data.runtime.filter(file=>file.endsWith('.svg')).every(file=>file==='sidebar-icon.svg'||file.startsWith('menu-icons/')),'only runtime vectors belong in the installation');
-   for(const file of ['README.md','README.zh-CN.md','CHANGELOG.md','VALIDATION.md','docs/DEVELOPMENT.md','.github/workflows/ci.yml','.gitignore','tests/build.test.cjs','build.py'])assert(data.source.includes('ocrflow/'+file),file);
+   for(const file of ['README.md','README.zh-CN.md','CHANGELOG.md','VALIDATION.md','docs/DEVELOPMENT.md','docs/OCR-PROGRESS-DEPLOYMENT.zh-CN.md','release_notes.py','.github/workflows/ci.yml','.gitignore','tests/build.test.cjs','build.py'])assert(data.source.includes('ocrflow/'+file),file);
    assert.equal(new Set(data.source).size,data.source.length);
    assert(data.source.every(file=>file.startsWith('ocrflow/')));
    assert(!data.source.some(file=>/\/(?:dist|\.git)\/|\/\.env$|\/scratch\.log$|\.(?:xpi|zip)$/.test(file)));
