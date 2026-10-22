@@ -506,6 +506,43 @@ test('long document summaries include the tail and reruns update only the matchi
   assert(s.items.get(parent.getNotes()[1]).relatedItems.includes(b.key));
 });
 
+function virtualClock(s) {
+ let now=0,next=0;const timers=new Map();
+ s.context.setTimeout=(fn,ms)=>{const id=++next;timers.set(id,{fn,at:now+ms});return id};
+ s.context.clearTimeout=id=>timers.delete(id);
+ return {timers,advance(ms){now+=ms;for(const [id,timer]of [...timers])if(timer.at<=now){timers.delete(id);timer.fn()}}};
+}
+test('a slow AI summary can finish after the former three-minute deadline',async()=>{
+ const s=setup(),clock=virtualClock(s),settings={...s.plugin.getLLMSettings('summary'),providerName:'ECNU',model:'ecnu-max'};let release,signal;
+ s.context.fetch=async(_url,options)=>{signal=options.signal;await new Promise(resolve=>release=resolve);return {ok:true,json:async()=>({choices:[{message:{content:'完整总结'}}]})}};
+ const request=s.plugin.requestDocumentAI([{role:'user',content:'文献正文'}],settings,new AbortController().signal);
+ await Promise.resolve();clock.advance(240000);assert.equal(signal.aborted,false);release();assert.equal(await request,'完整总结');assert.equal(clock.timers.size,0);
+});
+test('AI request deadlines cover waiting for headers and reading the response body, with an explicit timeout message',async()=>{
+ for(const body of [false,true]) {
+  const s=setup(),clock=virtualClock(s),settings={...s.plugin.getLLMSettings('summary'),providerName:'ECNU',model:'ecnu-max'};let began;
+  const started=new Promise(resolve=>began=resolve);
+  s.context.fetch=async(_url,options)=>{const wait=()=>new Promise((_resolve,reject)=>{options.signal.addEventListener('abort',()=>reject(options.signal.reason));began()});return body ? {ok:true,json:wait} : wait()};
+  const pending=s.plugin.requestDocumentAI([{role:'user',content:'正文'}],settings,new AbortController().signal);await started;clock.advance(1200000);
+  await assert.rejects(pending,error=>error.name==='TimeoutError'&&error.timeoutMS===1200000&&/1200 秒.*ECNU \/ ecnu-max/.test(error.message));assert.equal(clock.timers.size,0);
+ }
+});
+test('manual cancellation stays cancellation and an unexpected abort gets a readable connection error',async()=>{
+ const s=setup(),clock=virtualClock(s),controller=new AbortController(),settings=s.plugin.getLLMSettings('summary');
+ s.context.fetch=(_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason)));
+ const pending=s.plugin.requestDocumentAI([{role:'user',content:'正文'}],settings,controller.signal);controller.abort();await assert.rejects(pending,{name:'AbortError'});assert.equal(clock.timers.size,0);
+ s.context.fetch=async()=>{const error=new Error('The operation was aborted.');error.name='AbortError';throw error};
+ await assert.rejects(s.plugin.requestDocumentAI([{role:'user',content:'正文'}],settings),/AI 请求中断.*未收到完整回复/);assert.equal(clock.timers.size,0);
+});
+test('a timed-out summary saves no incomplete note and can retry from existing full text',async()=>{
+ const s=setup(),clock=virtualClock(s),parent=new s.Item('book'),original=s.file('summary.pdf',parent);s.parsed(original,'Full text remains available.');
+ let began;const started=new Promise(resolve=>began=resolve),fetch=s.context.fetch;
+ s.context.fetch=(_url,options)=>new Promise((_resolve,reject)=>{options.signal.addEventListener('abort',()=>reject(options.signal.reason));began()});
+ const running=s.plugin.handleDocumentCommand('summary',{selectedItems:[original]});await started;clock.advance(1200000);await running;
+ const task=s.plugin.parseQueue.at(-1);assert.equal(task.state,'failed');assert.match(task.error,/AI 请求超时/);assert.equal(parent.getNotes().length,0);assert.equal(s.uploads.length,0);
+ s.context.fetch=fetch;await s.plugin.retryParseQueueTasks([task.id]);assert.equal(task.state,'completed');assert.equal(parent.getNotes().length,1);assert.equal(s.uploads.length,0);
+});
+
 test('AI OCR sends image content', async () => {
   const s=setup(); const image=s.file('scan.png'); s.prefs.set('extensions.docflow.parserService','ai');
   s.setReply(payload => {const input=payload.messages[1].content; assert.equal(input[1].type,'image_url'); return 'recognized page';});

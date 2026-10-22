@@ -146,11 +146,14 @@ var OCRFlowTaskSidebar = {
 		try {
 			let target = ["summary", "metadata", "translate"].includes(kind) || (kind === "organize" && plugin.isMarkdownResult(context.item)) ? context.source : context.file || context.source;
 			let options = {window:view.window, selectedItems:[target]};
-			if (kind === "organize") await plugin.handleOrganizeCommand(options);
-			else if (kind === "ocr") await plugin.handleParseCommand(options);
-			else if (kind === "translate") await plugin.handleTranslateCommand(options);
-			else if (kind === "outline") await plugin.outline.enqueueSelected([target]);
-			else await plugin.handleDocumentCommand(kind, options);
+			let running;
+			if (kind === "organize") running=plugin.handleOrganizeCommand(options);
+			else if (kind === "ocr") running=plugin.handleParseCommand(options);
+			else if (kind === "translate") running=plugin.handleTranslateCommand(options);
+			else if (kind === "outline") running=plugin.outline.enqueueSelected([target]);
+			else running=plugin.handleDocumentCommand(kind, options);
+			if(this.documentTasks(context).some(task=>["queued","running","stopping"].includes(task.state))) { view.launching.delete(context.key);this.render(view); }
+			await running;
 		} finally { view.launching.delete(context.key); this.render(view); }
 	},
 

@@ -29,6 +29,7 @@ Organize document reuses existing full text and parent items, filling missing me
 - Optional dual-engine recognition uses engine A as the base text and engine B for comparison. The same engine cannot occupy both slots. Optional AI proofreading uses the source images and automatically saves clear suggestions as a new edition, retaining the base text, evidence, and change history. Uncertain readings remain unchanged.
 - Stores up to five AI provider configurations, each with two models. Assign models, prompts, and request parameters independently to each task; configure context windows, output limits, and concurrency per model.
 - Shows execution steps and actual progress in the sidebar, with the complete queue in Settings. Supports cancellation, retries, translation recovery, and opening results. Marker reconnects to the existing job after a brief network interruption without uploading the document again.
+- Schedules independent documents concurrently across operations, services, and models. AI requests share each configured model’s concurrency limit; conflicting operations on the same bibliographic item wait. Server-side queues and resource limits still apply.
 
 ## Installation and quick start
 

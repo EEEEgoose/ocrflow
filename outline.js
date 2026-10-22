@@ -263,12 +263,14 @@ var DocFlowOutline = {
 				let payload = this.owner.mergeRequestPayload({model: settings.model, messages: [{role: "system", content: prompt}, {role: "user", content: chunk}]},
 					this.owner.parseOptionalJSONObject(settings.summaryRequestJSON, "大纲额外 JSON 参数"), ["model", "messages"]);
 				this.owner.applyAIContextBudget(payload, settings);
-				let response = await fetch(`${settings.apiBaseURL}/chat/completions`, {
-					method: "POST", headers: {"Content-Type": "application/json", ...(settings.apiKey ? {Authorization: `Bearer ${settings.apiKey}`} : {})},
-					body: JSON.stringify(payload), signal
+				let result=await this.owner.withAIRequestSlot(settings,signal,async()=>{
+					let response = await fetch(`${settings.apiBaseURL}/chat/completions`, {
+						method: "POST", headers: {"Content-Type": "application/json", ...(settings.apiKey ? {Authorization: `Bearer ${settings.apiKey}`} : {})},
+						body: JSON.stringify(payload), signal
+					});
+					if (!response.ok) throw new Error(`大纲 LLM 请求失败 ${response.status}: ${(await response.text()).slice(0, 300)}`);
+					return response.json();
 				});
-				if (!response.ok) throw new Error(`大纲 LLM 请求失败 ${response.status}: ${(await response.text()).slice(0, 300)}`);
-				let result = await response.json();
 				if (result.choices?.[0]?.finish_reason === "length") throw this.owner.aiOutputLimitError(payload, result);
 				outline.push(...this.parseAIOutline(result.choices?.[0]?.message?.content || ""));
 			}

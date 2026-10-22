@@ -8,7 +8,7 @@ function setup({reply}={}) {
   const files=new Map(),prompts=[];
   const attachment={id:1,key:'ARABIC',libraryID:1};
   const titles=['الإدارة الاستعمارية','المجتمع الجزائري'];
-  const owner={PREF_BRANCH:'extensions.docflow.',getLLMSettings:()=>({apiBaseURL:'https://ai.example/v1',model:'test'}),applyAIContextBudget(){},parseOptionalJSONObject:()=>({}),mergeRequestPayload:payload=>payload};
+  const owner={withAIRequestSlot:(_settings,_signal,run)=>run(),PREF_BRANCH:'extensions.docflow.',getLLMSettings:()=>({apiBaseURL:'https://ai.example/v1',model:'test'}),applyAIContextBudget(){},parseOptionalJSONObject:()=>({}),mergeRequestPayload:payload=>payload};
   const context={PathUtils:{join:path.join,parent:path.dirname},IOUtils:{exists:async key=>files.has(key),readUTF8:async key=>files.get(key),makeDirectory:async()=>{},writeUTF8:async(key,value)=>files.set(key,value)},
     Zotero:{DataDirectory:{dir:'/data'},Prefs:{get:()=>true},Reader:{_readers:[]},PDFWorker:{getFullText:async()=>{throw new Error('Cached OCR text must be reused');}}},
     fetch:async(_url,options)=>{prompts.push(JSON.parse(options.body).messages[1].content);return {ok:true,json:async()=>({choices:[{message:{content:reply ?? JSON.stringify({outline:titles.map((title,index)=>({title,page:index===0?1:3}))})}}]})};}
