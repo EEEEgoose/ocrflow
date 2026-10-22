@@ -487,25 +487,47 @@ DocFlow = {
 	},
 
 	async processParseQueue() {
-		if (this.parseQueueRunning || this.parseQueueStopped) return;
+		if (this.parseQueueStopped) return;
+		this.parseQueueWork ||= new Set();
+		this.dispatchParseQueue();
+		if (this.parseQueueRunning) return;
 		this.parseQueueRunning = true;
 		try {
-			let task;
-			while (!this.parseQueueStopped && (task = this.parseQueue.find(row => row.state === "queued"))) {
-				let batch = [task];
-				if (task.kind === "parent") {
-					for (let row of this.parseQueue.slice(this.parseQueue.indexOf(task) + 1)) {
-						if (row.state !== "queued") continue;
-						if (row.kind !== "parent" || row.settings.modelID !== task.settings.modelID || row.settings.concurrency !== task.settings.concurrency || batch.length >= (task.settings.concurrency || 1)) break;
-						batch.push(row);
-					}
-				}
-				await Promise.all(batch.map(row => this.processParseQueueTask(row)));
-			}
+			while(this.parseQueueWork.size)await Promise.race(this.parseQueueWork);
 		}
 		finally {
 			this.parseQueueRunning = false;
 			this.refreshParseQueueDialog();
+		}
+	},
+
+	parseQueueLane(task) {
+		let s=task.settings||{}, reader=s.collationEnabled ? s.readerA||s : s;
+		let ext=this.documentExtension?.(task.attachment);
+		if(["parse","organize"].includes(task.kind)&&reader.parserService!=="marker"&&ext&&!["pdf","png","jpg","jpeg","txt","md","markdown","csv"].includes(ext))reader={...reader,parserService:"markitdown"};
+		let ai=reader.parserService==="ai" ? reader.llmSettings||{} : s;
+		let endpoint=reader.parserService==="marker" ? reader.markerSettings?.baseURL : reader.parserService?.startsWith("paddle-") ? reader.paddleSettings?.baseURL : reader.parserService==="markitdown" ? reader.markitdownBaseURL : ai.apiBaseURL;
+		let models=task.kind==="organize" ? [s.metadataSettings,s.outlineSettings,s.summarySettings,s.translationSettings].map(row=>[row?.apiBaseURL,row?.modelID,row?.model]) : [];
+		return JSON.stringify([task.kind,reader.parserService||"ai",endpoint?.replace(/\/+$/,""),ai.modelID,ai.model,reader.apiMode,reader.modelVersion||reader.markerSettings?.mode,models]);
+	},
+
+	parseQueueDocument(task) {
+		let item=task.attachment;
+		return item ? this.parentForDocument?.(item)?.id || task.parentItem?.id || item.id : null;
+	},
+
+	dispatchParseQueue() {
+		if(this.parseQueueStopped)return;
+		for(let task of this.parseQueue) {
+			if(task.state!=="queued"||task.active)continue;
+			let active=this.parseQueue.filter(row=>row.active), document=this.parseQueueDocument(task), lane=this.parseQueueLane(task);
+			if(document!=null&&active.some(row=>this.parseQueueDocument(row)===document))continue;
+			let limit=["parent","metadata","summary","translate","outline"].includes(task.kind) ? task.settings.concurrency||1 : 1;
+			if(active.filter(row=>this.parseQueueLane(row)===lane).length>=limit)continue;
+			let work=this.processParseQueueTask(task).finally(()=>{
+				this.parseQueueWork.delete(work);this.dispatchParseQueue();
+			});
+			this.parseQueueWork.add(work);
 		}
 	},
 
@@ -518,10 +540,10 @@ DocFlow = {
 		task.saving = false;
 		task.state = "running";
 		task.detail = "准备处理";
-		this.initializeTaskSteps?.(task);
-		this.refreshParseQueueDialog();
 		try {
 			task.controller = this.createAbortController();
+			this.initializeTaskSteps?.(task);
+			this.refreshParseQueueDialog();
 			if (task.kind === "organize") {
 				await this.runOrganizeTask(task);
 				return;

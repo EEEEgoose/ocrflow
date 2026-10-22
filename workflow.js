@@ -349,6 +349,30 @@ Object.assign(DocFlow, {
 	},
 
 	async requestDocumentAI(messages, settings, signal, json = false) {
+		return this.withAIRequestSlot(settings,signal,()=>this.sendDocumentAI(messages,settings,signal,json));
+	},
+
+	withAIRequestSlot(settings, signal, run) {
+		signal?.throwIfAborted();
+		this.aiRequestPools ||= new Map();
+		let key=JSON.stringify([settings.apiBaseURL?.replace(/\/+$/,""),settings.modelID,settings.model]);
+		let pool=this.aiRequestPools.get(key);
+		if(!pool) { pool={active:0,limit:settings.concurrency||1,waiting:[]};this.aiRequestPools.set(key,pool); }
+		let pump=()=>{
+			while(pool.active<pool.limit&&pool.waiting.length) {
+				let next=pool.waiting.shift();next.signal?.removeEventListener("abort",next.abort);pool.active++;
+				Promise.resolve().then(()=>{next.signal?.throwIfAborted();return next.run();}).then(next.resolve,next.reject).finally(()=>{pool.active--;pump();});
+			}
+			if(!pool.active&&!pool.waiting.length)this.aiRequestPools.delete(key);
+		};
+		return new Promise((resolve,reject)=>{
+			let next={run,resolve,reject,signal};
+			next.abort=()=>{pool.waiting.splice(pool.waiting.indexOf(next),1);signal.removeEventListener("abort",next.abort);reject(signal.reason);pump();};
+			signal?.addEventListener("abort",next.abort,{once:true});pool.waiting.push(next);pump();
+		});
+	},
+
+	async sendDocumentAI(messages, settings, signal, json = false) {
 		this.validateAISettings(settings);
 		let payload = this.mergeRequestPayload({ model: settings.model, stream: false, temperature: 0,
 			messages, ...(json ? { response_format: { type: "json_object" } } : {}) }, settings.summaryRequestParams, ["model", "messages", "stream", "response_format"]);
@@ -360,7 +384,8 @@ Object.assign(DocFlow, {
 		let abort = () => controller.abort();
 		if (signal?.aborted) signal.throwIfAborted();
 		signal?.addEventListener("abort", abort, { once: true });
-		let timer = setTimeout(abort, 180000);
+		let timedOut=false, timeoutMS=1200000;
+		let timer = setTimeout(()=>{timedOut=true;controller.abort();},timeoutMS);
 		try {
 			let response = await fetch(endpoint, { method: "POST", signal: controller.signal,
 				headers: { "Content-Type": "application/json", ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}) }, body: JSON.stringify(payload) });
@@ -377,6 +402,15 @@ Object.assign(DocFlow, {
 			let text = choice?.message?.content;
 			if (typeof text !== "string" || !text.trim()) throw new Error(data.error?.message || "AI 未返回文本。");
 			return text.trim();
+		} catch(error) {
+			signal?.throwIfAborted();
+			let model=[settings.providerName,settings.model].filter(Boolean).join(" / ");
+			if(timedOut) {
+				let timeout=new Error(`AI 请求超时（${timeoutMS/1000} 秒）：${model}。可在任务队列重试，或缩短输入、降低最大输出长度后重试。`);
+				timeout.name="TimeoutError";timeout.timeoutMS=timeoutMS;throw timeout;
+			}
+			if(error.name==="AbortError")throw new Error(`AI 请求中断：${model}。未收到完整回复，请检查服务连接后在任务队列重试。`);
+			throw error;
 		} finally {
 			clearTimeout(timer);
 			signal?.removeEventListener("abort", abort);
