@@ -2,214 +2,70 @@
 
 <img src="icon96.png" width="64" alt="OCRFlow 图标" />
 
-Zotero 10 文档工作流插件：按需建立父条目、提取全文、补充书目信息、生成学术总结和翻译文档。导入文件后，插件默认不自动识别；所有操作从右键 **OCRFlow** 菜单启动。
+面向 **Zotero 10.0.*** 的文献工作流插件。在主界面右侧栏处理当前文献，也可通过右键菜单启动；导入或选中文献不会自动发送识别请求。
 
-支持 Zotero **10.0.***，已在 macOS / Zotero 10.0.6 中进行原生验证。
+[下载安装](https://github.com/EEEEgoose/ocrflow/releases/latest) · [使用手册](README.zh-CN.md) · [部署页进度接口](docs/OCR-PROGRESS-DEPLOYMENT.zh-CN.md) · [更新记录](CHANGELOG.md)
 
-**注意**：本插件借助LLM开发，可能存在错误。
+## 可以做什么
 
-## 1.0：结构恢复与校勘
-
-- MinerU 优先从布局 / middle JSON 恢复正文、脚注和图注，保留原始响应、物理页、印刷页码及已有区域坐标；跨页合并保留来源片段。
-- 新增 PaddleOCR 官方 API 和自部署文档解析 API，分别保存地址与令牌。官方模型可填写，自部署模型由服务端决定。
-- 双引擎校勘默认关闭。启用后由 A 生成底稿、B 独立识别；MinerU 本地 / 云端互斥，PaddleOCR 官方 / 自部署互斥，AI 须选择不同模型。
-- 右键全文选择 **审阅 OCR 校勘**，看原图后确认、采用对照文字或手动修改，再保存校勘新版本；先前附件保留。B 失败时保留 A，可在校勘窗口单独重试 B。
-- **查看整理差异** 打开包含文字、标点和结构操作的报告。原始结果、结构、校勘与翻译对应记录保存在附件目录的 `_ocrflow/` 下。
-- 双栏 HTML 每个自然段占一行；请求可以批量发送，返回乱序按 ID 恢复，漏译仅补对应段落。代码、公式、图片及脚注锚点受到保护。
-
-## 功能
-
-| 操作 | 用途 |
+| 操作 | 结果 |
 | --- | --- |
-| 一键整理 | 依次识别文档、建立条目、补全条目、生成大纲、总结文献、翻译文献 |
-| 建立父条目 | 仅根据文件名创建初步条目，并挂载原文件 |
-| 建立文本 OCR / 转为 Markdown | 从右键菜单选择 MinerU 本地 / 云端、PaddleOCR 官方 / 自部署、MarkItDown 或 AI 视觉 OCR |
-| 补全条目 | 从 Markdown 提取书目字段；非中文题名译为中文并写入 `shortTitle` |
-| 总结文档 | 根据全文生成学术总结，保存为条目笔记 |
-| 翻译文档 | 按自然段翻译 Markdown，支持批量请求、逐段回填及原文译文双栏 HTML |
-| 生成大纲 | 根据 PDF / 已解析全文生成可导航的大纲 |
+| 一键整理 | 识别文档 → 建立条目 → 补全条目 → 生成大纲 → 总结文献 → 翻译文献 |
+| 识别文档 | PDF / 图片 OCR 或文档转 Markdown，按需同时生成 HTML |
+| 建立父条目 | 仅根据文件名创建初步书目条目 |
+| 补全条目 | 从全文提取书目信息，非中文题名的中文译名写入短标题 |
+| 总结文献 | 生成学术总结，保存为文献下的笔记 |
+| 翻译文献 | 按自然段翻译；双栏 HTML 每段对应，跨页未完正文先接回同一段 |
+| 生成大纲 | 为关联 PDF 生成可导航的阅读器大纲 |
 
-- 最多保存 5 个服务商配置，每个配置最多两个模型。
-- 六项 AI 工作分别选择模型，单独设置提示词和请求参数；内置提示词可查看、编辑和恢复。
-- 每个模型独立设置并发、上下文和最大输出长度；直接填写 `128K`、`1M`、`1.5M`，默认 `32K`。
-- 每个模型单独测试连接；测试读取当前填写内容，不自动保存。
-- OCR、书目、总结、翻译和大纲进入任务队列；主界面右侧 OCRFlow 面板展示执行步骤与实际进度，完整列表在设置中，支持重试、终止与文字复制。
+一键整理复用已有全文与父条目，补全缺失信息；非 PDF 跳过大纲。大纲或总结失败后继续后续工作，重试只补跑未完成步骤。各功能也可单独执行。
 
-## 安装
+## 识别与校勘
 
-1. 在 [最新 Release](https://github.com/EEEEgoose/ocrflow/releases/latest) 下载 `.xpi` 安装包；也可从源码构建。
-2. 在 Zotero 的“工具 → 插件”中选择“从文件安装插件”。
-3. 完整退出并重启 Zotero，在设置中打开 **OCRFlow**，填写所需服务。
-4. 选中文件或父条目，通过右键 **OCRFlow** 菜单执行操作。
+- 支持 **MinerU 本地 / 云端、PaddleOCR 官方 / 自部署、Marker、MarkItDown、AI 视觉 OCR**。Marker 当前接收 PDF；EPUB、Office 等由 MarkItDown 转换。
+- 保留原始响应、正文结构、脚注图注、物理页来源及已有坐标；跨页合并保留来源片段，并生成整理差异报告。
+- 可选双引擎独立识别，A 生成底稿、B 提供对照；相同引擎不能重复选择。可选 AI 结合原图校勘，明确建议自动另存新版本，底稿、依据与差异保留；不确定项保持原文。
+- 最多保存 5 个 AI 服务商，每家两个模型；各项工作独立选择模型、提示词和请求参数，模型独立配置上下文、输出长度和并发。
+- 侧栏展示执行步骤与真实进度，完整任务列表在设置中。支持终止、重试、翻译补段及查看结果；Marker 短暂断网后重连原任务，不重复上传。
 
-从旧版 DocFlow / OCRFlow 可覆盖安装。旧的 Auto parent item、MinerU for Zotero 如仍在使用，应停用其自动处理功能，避免重复处理。
+## 安装与开始使用
 
-安装新版后，Zotero 通过最新 Release 中的 `updates.json` 检查更新并下载对应 XPI。使用旧占位更新地址的版本需要先手动覆盖安装一次。
+1. 从 [最新 Release](https://github.com/EEEEgoose/ocrflow/releases/latest) 下载 `.xpi`。
+2. Zotero → 工具 → 插件 → 从文件安装插件。首次安装后完整重启 Zotero。
+3. 设置 → OCRFlow，配置需要的识别服务及 AI 模型，测试连接并保存。
+4. 选中一个文件或文献，在右侧 OCRFlow 面板执行操作；多份原文件时先选本次处理的附件。
 
-推送到 `main` 后，GitHub Actions 自动测试、构建并发布 Release。发布版本为基础版本加工作流运行序号（例如 `0.2.17.12`），无需为每次推送手动修改版本号。
+已有任务运行时，先等待任务结束再更新插件，以保留当前会话的队列与任务 ID。当前任务队列和未完成译段缓存不会跨 Zotero 重启保留；服务端任务及已保存附件与客户端会话不同步清除。
 
-## 快速开始
+旧 DocFlow / OCRFlow 可覆盖安装。仍使用其他自动识别插件时，请检查其自动处理设置，避免同一文档重复提交。Zotero 通过最新 Release 的 `updates.json` 检查更新；使用旧占位更新地址的版本需先手动覆盖安装一次。
 
-选中文件或父条目，右键 **OCRFlow → 一键整理**。插件复用已有全文，用“补充信息”工作模型识别书目；没有父条目时从正文建立，有父条目时保留已有类型和非空字段。随后生成大纲、总结和译文。非 PDF 跳过大纲；独立步骤失败后继续后续工作，重试只补跑未完成步骤。总结与翻译也可单独启动。
+## 服务端页进度部署
 
-一键整理接受 Zotero 文件附件，不按固定扩展名列表隐藏文件。TXT / Markdown / CSV 直接读取，PDF / PNG / JPEG 按设置解析，其他格式交给已配置的 MarkItDown；能否转换取决于服务实际支持的格式。父条目有多份原文件时，请直接选择需要整理的文件。缺少附件或本机文件时显示“待补充”，补齐后在队列点击“继续整理”。本阶段只由手动操作触发，不获取全文附件。
+Marker 的任务接口与 MinerU 4.0.10 的页进度补丁，已整理到一份独立教程：
 
-也可以分别执行已有操作：
+**[Marker 与 MinerU 本地页进度部署指南](docs/OCR-PROGRESS-DEPLOYMENT.zh-CN.md)**
 
-```text
-导入文件 → 建立父条目 → 建立文本 OCR / 转为 Markdown
-                              ↓
-                    补充信息 / 总结 / 翻译
-```
+教程包含前提、文件、部署命令、插件配置、进度字段、取消、恢复与排错。只升级插件不会自动修改服务端。
 
-可以先提取全文再建立父条目。PDF、扫描件和图片可按需生成 HTML；Markdown 始终保留。EPUB 等文档转为 Markdown。
+## 文档与发布
 
-完整说明见 [中文使用手册](README.zh-CN.md)。
+- [使用手册](README.zh-CN.md)：配置、日常操作、双引擎校勘、翻译和排错。
+- [更新记录](CHANGELOG.md)：各版本新增功能与修复问题。
+- [开发指南](docs/DEVELOPMENT.md)：构建、测试与 Release 发布。
+- [验证范围](VALIDATION.md)：自动化与独立 Zotero 测试，及真实服务验证范围。
+- [来源与第三方组件](THIRD_PARTY.md)：继承代码、随包依赖、外部服务及许可证。
 
-## 本地 MinerU 页进度补丁部署
-
-OCRFlow 已支持本地 MinerU 的异步任务、页数进度查询和取消任务。要显示“已处理 / 总页数 / 剩余页数”，服务端也需要安装页进度补丁；只升级插件不会为服务端增加这些字段。
-
-以下补丁**仅对应 MinerU 4.0.10**，来源为本项目此前使用的页进度实现，不是要求始终使用的最新 MinerU 版本。其他版本需先适配，不能直接套用。Docker 示例沿用 NVIDIA GPU / vLLM 配置，要求宿主机已具备相应驱动及 Docker GPU 支持，不适用于直接在 macOS 上运行此 GPU 镜像。
-
-### 1. 准备部署文件
-
-从本仓库下载源码或源码压缩包，取出 [docs/mineru](docs/mineru/) 中的以下文件，放进服务器上的同一个部署目录：
-
-- [Dockerfile](docs/mineru/Dockerfile)：安装固定版本并在构建时应用补丁。
-- [docker-compose.yml](docs/mineru/docker-compose.yml)：GPU 0、并发 1、宿主机端口 `41835`、处理窗口 8 页的示例。
-- [mineru-4.0.10-page-progress.patch](docs/mineru/mineru-4.0.10-page-progress.patch)：页进度补丁。
-
-已有部署应先保存原来的 Dockerfile、Compose 文件及镜像标签，并保留自己的模型目录挂载、GPU、端口等配置。示例使用 CUDA 13.0 基础镜像；若原部署使用其他 CUDA 变体，请继续使用与原驱动匹配的配置。
-
-### 2. 构建并启动
-
-进入上述部署目录。以下命令中的 Compose 服务名为 `mineru-api`，修改过服务名时需相应替换：
-
-```sh
-docker compose -f docker-compose.yml config --quiet
-docker compose -f docker-compose.yml build mineru-api
-```
-
-构建成功且当前解析任务已结束后，再启动或更新服务：
-
-```sh
-docker compose -f docker-compose.yml up -d --no-deps mineru-api
-docker compose -f docker-compose.yml ps mineru-api
-docker compose -f docker-compose.yml logs --tail=100 mineru-api
-```
-
-镜像会下载模型、应用补丁并检查相关 Python 文件的语法。示例镜像名为 `mineru-gpu:4.0.10-progress`。更新运行中的容器会中断当前任务，内存中的任务记录也会丢失；无需先删除容器。参见 [Docker Compose up 文档](https://docs.docker.com/reference/cli/docker/compose/up/)。
-
-### 3. 验证补丁已加载
-
-在服务器上执行：
-
-```sh
-curl -fsS http://127.0.0.1:41835/v1/health
-
-docker compose -f docker-compose.yml exec -T mineru-api python3 - <<'PYTHON'
-import json
-import os
-import urllib.request
-from importlib.metadata import version
-
-assert version("mineru") == "4.0.10"
-with urllib.request.urlopen("http://127.0.0.1:8000/openapi.json", timeout=10) as response:
-    schema = json.load(response)
-assert "page_progress" in schema["components"]["schemas"]["JobFileResult"]["properties"]
-print("MinerU 版本:", version("mineru"))
-print("处理窗口:", os.environ.get("MINERU_PROCESSING_WINDOW_SIZE"))
-print("page_progress 已加入 API")
-PYTHON
-```
-
-这一步确认服务版本与接口字段；真实进度还需提交文档验证。
-
-### 4. 配置 OCRFlow 并查看进度
-
-在 Zotero 设置 → OCRFlow → MinerU 中选择：
-
-| 设置 | 填写方式 |
-| --- | --- |
-| 接口类型 | 本地 MinerU 4（V1） |
-| API 地址 | `http://服务器地址:41835`，只填根地址，不追加 `/v1`；同机部署可用 `http://127.0.0.1:41835` |
-| Token | 按实际服务要求填写；本示例未配置鉴权，可留空 |
-| 本地解析档位 | 按服务支持选择，例如 Standard |
-| 轮询间隔 | 5–10 秒 |
-| 本地任务总等待上限 | 长文档可设为 `0`，持续等待到完成或服务端报错 |
-
-保存设置，提交一份超过 8 页的 PDF。队列应显示页数和阶段；也可在设置的“任务队列”中查询最近任务或指定任务 ID。手动查询服务端时，将下面的 `job_实际任务ID` 替换为队列中的值：
-
-```sh
-curl -fsS 'http://127.0.0.1:41835/v1/parse/jobs/job_实际任务ID'
-```
-
-返回值的 `files` 数组中，每个 PDF 文件会包含：
-
-```json
-"page_progress": {
-  "completed": 8,
-  "total": 24,
-  "remaining": 16,
-  "stage": "processing"
-}
-```
-
-阶段依次为准备输入 `preparing`、页面处理 `processing`、结构整理 `postprocessing`、结果导出 `exporting`、完成 `completed`；失败时为 `failed`。页数达到 100% 后仍可能整理、导出结果，OCRFlow 会等待整个任务完成后下载结果。
-
-页数在**整个处理窗口完成后**更新。例如窗口为 8 时，完成页数可能是 `0 → 8 → 16 → 24`；模型初始化或窗口尚未完成时暂时不变属于正常现象。可修改 Compose 中的 `MINERU_PROCESSING_WINDOW_SIZE`，再运行上面的 `up -d --no-deps` 更新容器；只修改此运行时变量不需要重新构建镜像。
-
-### 已有 Git 源码的部署方式
-
-先保存本地改动；若已应用其他版本补丁，先按原补丁说明撤回，再切换到 [MinerU 4.0.10 标签](https://github.com/opendatalab/MinerU/tree/mineru-4.0.10-released)。将本仓库的补丁文件放到 MinerU 源码根目录，再执行：
-
-```sh
-git fetch origin --tags
-git switch --detach mineru-4.0.10-released
-git apply --check mineru-4.0.10-page-progress.patch
-git apply mineru-4.0.10-page-progress.patch
-```
-
-Docker 构建上下文应为这份 MinerU 源码目录。使用 [Dockerfile.source](docs/mineru/Dockerfile.source) 替换部署 Dockerfile，按原配置构建、重启并验证；它直接安装已打补丁的源码，不会再次应用补丁。若原 Dockerfile 仍从 PyPI 安装未修改的包，源码中的补丁不会生效。
-
-### 回退与验证范围
-
-更新前保留原配置和原镜像标签，回退时恢复原配置所引用的镜像并重新运行 Compose。不要清理原模型或数据卷。
-
-本仓库的补丁及 GPU 示例来自此前的 4.0.10 适配；本次已核对客户端字段、部署文件和打包范围，未在 GPU 服务器上重新构建或执行真实推理。补丁相关的 MinerU 上游许可保留在 [docs/mineru/LICENSE.md](docs/mineru/LICENSE.md)。这些部署文件只进入源码包，不进入 Zotero 的 XPI 安装包。
-
-## 从源码构建
-
-需要 Node.js 24 或更新版本及 Python 3.12 或更新版本；不需要安装 npm 或 Python 第三方依赖。
-
-在仓库根目录运行：
+本地构建使用 Node.js 24+、Python 3.12+：
 
 ```sh
 node --test tests/*.test.cjs
 python3 build.py
 ```
 
-生成文件位于 `dist/`：
+产物位于 `dist/ocrflow-<版本>.xpi`、对应源码压缩包与 `updates.json`。发布补丁号按已有版本自动递增，GitHub Release 按版本范围列出新增功能和修复问题；详细规则见开发指南。
 
-```text
-dist/ocrflow-0.2.17.xpi
-dist/ocrflow-0.2.17-source.zip
-dist/updates.json
-```
+## 数据与许可
 
-`dist/` 不提交到 Git。开发结构、发布步骤及 GitHub 上传说明见 [开发指南](docs/DEVELOPMENT.md)。
+执行操作时，文件名、全文、原文件或页面图片按功能发送给用户选择的服务；仅查看和选中文献不触发任务。API Key 保存在本机 Zotero 首选项中，不随源码分发。
 
-## 文档
-
-- [中文使用手册](README.zh-CN.md)：服务配置、工作流程、输出与排错。
-- [更新记录](CHANGELOG.md)：版本变化。
-- [开发指南](docs/DEVELOPMENT.md)：模块职责、构建、测试与发布。
-- [验证说明](VALIDATION.md)：自动化测试与原生验证范围。
-- [来源和第三方组件](THIRD_PARTY.md)：继承代码、依赖版本与许可证。本插件借鉴了多个现有插件的思路，再次向其表示感谢。
-
-## 数据与许可证
-
-按操作将文件名、文档文本、原始文件或页面图片发送给用户选定的服务。API Key 保存在本机 Zotero 首选项中，不随源码分发。提交问题时请移除 Key、个人文档和本机路径。
-
-保留现有 [MIT 许可证](LICENSE)及第三方组件的署名与许可。来源记录见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+本项目沿用 [MIT 许可证](LICENSE)，第三方声明与各组件许可继续保留。本插件借助 LLM 开发，模型输出与 OCR 结果需结合原文核对；已知能力和验证范围见使用手册及验证说明。
