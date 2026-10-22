@@ -7,23 +7,23 @@ Object.assign(DocFlow, {
 			{ id: "docflow-organize", group: "quick", icon: "organize", label: "一键整理", l10nID: "docflow-menu-organize",
 				getTasks: items => this.collectOrganizeTasks(items),
 				run: options => this.handleOrganizeCommand(options), errorPrefix: "整理失败" },
-			{ id: this.CONTEXT_MENU_ID, group: "document", icon: "ocr", label: "提取全文 / OCR", l10nID: "docflow-menu-parse-pdf",
+			{ id: this.CONTEXT_MENU_ID, group: "document", icon: "ocr", label: "识别文档", l10nID: "docflow-menu-parse-pdf",
 				getTasks: items => this.collectSourceFiles(items),
 				children: this.getOCRMenuDefinitions(),
 				run: options => this.handleParseCommand(options), errorPrefix: "全文提取失败" },
 			{ id: "docflow-create-parent", group: "document", icon: "parent", label: "建立父条目", l10nID: "docflow-menu-create-parent",
 				getTasks: items => this.collectSourceFiles(items).filter(item => !this.parentForDocument(item)),
 				run: options => this.handleDocumentCommand("parent", options), errorPrefix: "建立父条目失败" },
-			{ id: "docflow-fill-metadata", group: "document", icon: "metadata", label: "补充父条目信息", l10nID: "docflow-menu-fill-metadata",
+			{ id: "docflow-fill-metadata", group: "document", icon: "metadata", label: "补全条目", l10nID: "docflow-menu-fill-metadata",
 				getTasks: items => this.collectDocumentTasks(items),
 				run: options => this.handleDocumentCommand("metadata", options), errorPrefix: "补充信息失败" },
-			{ id: this.SUMMARY_MENU_ID, group: "reading", icon: "summary", label: "总结文档", l10nID: "docflow-menu-ai-summary",
+			{ id: this.SUMMARY_MENU_ID, group: "reading", icon: "summary", label: "总结文献", l10nID: "docflow-menu-ai-summary",
 				getTasks: items => this.collectDocumentTasks(items),
 				run: options => this.handleDocumentCommand("summary", options), errorPrefix: "总结失败" },
-			{ id: this.TRANSLATE_MENU_ID, group: "reading", icon: "translate", label: "翻译文档", l10nID: "docflow-menu-ai-translate",
+			{ id: this.TRANSLATE_MENU_ID, group: "reading", icon: "translate", label: "翻译文献", l10nID: "docflow-menu-ai-translate",
 				getTasks: items => this.collectTranslateTasks(items),
 				run: options => this.handleTranslateCommand(options), errorPrefix: "翻译失败" },
-			{ id: "docflow-generate-outline", group: "reading", icon: "outline", label: "生成阅读器大纲", l10nID: "docflow-menu-outline",
+			{ id: "docflow-generate-outline", group: "reading", icon: "outline", label: "生成大纲", l10nID: "docflow-menu-outline",
 				getTasks: items => this.outline?.collectPDFs(items) || [],
 				run: ({ selectedItems }) => this.outline.enqueueSelected(selectedItems), errorPrefix: "大纲生成失败" },
 			{ id: "ocrflow-review-collation", group: "review", icon: "review", label: "审阅 OCR 校勘", l10nID: "ocrflow-menu-review-collation",
@@ -37,6 +37,7 @@ Object.assign(DocFlow, {
 
 	getOCRSourceFiles(items, parserService) {
 		let files = this.collectSourceFiles(items);
+		if (parserService === "marker") return files.filter(file => this.documentExtension(file) === "pdf");
 		return ["mineru", "ai", "paddle-cloud", "paddle-local"].includes(parserService)
 			? files.filter(file => ["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(file))) : files;
 	},
@@ -49,6 +50,7 @@ Object.assign(DocFlow, {
 			{ id: "markitdown", label: "MarkItDown", parserService: "markitdown" },
 			{ id: "paddle-cloud", label: "PaddleOCR（官方 API）", parserService: "paddle-cloud" },
 			{ id: "paddle-local", label: "PaddleOCR（自部署 API）", parserService: "paddle-local" },
+			{ id: "marker", label: "Marker（自部署 API）", parserService: "marker" },
 			{ id: "ai", label: "AI 视觉 OCR", parserService: "ai" }
 		].map(choice => ({
 			id: `docflow-ocr-${choice.id}`, label: choice.label, l10nID: `docflow-menu-ocr-${choice.id}`,
@@ -149,7 +151,7 @@ Object.assign(DocFlow, {
 		if (parserService) settings.parserService = parserService;
 		let items = selectedItems || window?.ZoteroPane?.getSelectedItems?.() || [];
 		let tasks = this.getOCRSourceFiles(items, parserService).map(attachment => ({ attachment, parentItem: this.parentForDocument(attachment) }));
-		if (!tasks.length) throw new Error("请选择需要提取全文的原始文件。");
+		if (!tasks.length) throw new Error("请选择需要识别文档的原始文件。");
 		await this.enqueueDocumentTasks("parse", tasks, settings);
 	},
 
@@ -184,7 +186,8 @@ Object.assign(DocFlow, {
 	},
 
 	getOrganizeSettings(apiMode) {
-		return { ...this.getSettings(apiMode), metadataSettings: this.getLLMSettings("metadata") };
+		return { ...this.getSettings(apiMode), metadataSettings: this.getLLMSettings("metadata"),
+			outlineSettings:this.getLLMSettings("outline"), summarySettings:this.getLLMSettings("summary"), translationSettings:this.getLLMSettings("translate") };
 	},
 
 	async handleOrganizeCommand({ window = null, selectedItems = null } = {}) {
@@ -232,14 +235,14 @@ Object.assign(DocFlow, {
 		if (source?.deleted) throw new Error("选中的全文附件已删除，请重新选择文档。");
 		if (source?.getTags().some(tag => tag.tag.startsWith("#DocFlow-") && tag.tag !== "#DocFlow-Parse")) source = null;
 		if (!source && task.source && !task.source.deleted) source = task.source;
-		if (!source) {
+		if (!source || task.parsedResult) {
 			let path = await attachment.getFilePath();
 			if (!path || !await IOUtils.exists(path)) {
 				task.state = "waiting";
 				task.detail = "附件文件尚未在本机就绪；下载或恢复文件后，点击“继续整理”。";
 				return;
 			}
-			task.detail = "提取全文";
+			task.detail = "识别文档";
 			this.refreshParseQueueDialog();
 			let saved = await this.runParseTask(task);
 			if (!saved) return;
@@ -251,17 +254,22 @@ Object.assign(DocFlow, {
 			task.saving = false;
 		}
 		task.source = source;
+		this.setTaskStep?.(task,"extract","识别文档","全文已就绪，复用已保存结果","completed");
 		task.resultAttachment ||= source;
 		signal.throwIfAborted();
+		if (task.organizeSourceID !== source.id) { task.organizeStages = {}; task.organizeSourceID = source.id; }
+		let hadParent = !!this.parentForDocument(attachment);
+		this.setTaskStep?.(task,"parent","建立条目",hadParent ? "已有父条目" : "从全文识别条目信息",hadParent ? "skipped" : "running");
 		if (task.metadataSourceID !== source.id || !this.parentForDocument(attachment)) {
 			let settings = this.validateAISettings(task.settings.metadataSettings);
+			task.cancelSettings=settings;task.cancelJobID=null;
 			task.detail = "读取正文中的书目信息";
 			task.displaySettings = settings;
-			this.setTaskStep?.(task, "metadata", "补充书目信息", task.detail);
+			this.setTaskStep?.(task, hadParent ? "metadata" : "parent", hadParent ? "补全条目" : "建立条目", task.detail);
 			this.refreshParseQueueDialog();
 			let { markdown } = await this.readSourceMarkdown(source);
 			let text = this.removeLocalImageReferences(markdown);
-			if (!text.trim()) throw new Error("Markdown 内容为空，请先重新提取全文。");
+			if (!text.trim()) throw new Error("Markdown 内容为空，请先重新识别文档。");
 			let parent = this.parentForDocument(attachment);
 			let current = parent ? await this.readDocumentMetadata(parent) : {};
 			let metadata = await this.extractDocumentMetadata(task, text, current, settings);
@@ -284,8 +292,47 @@ Object.assign(DocFlow, {
 			task.metadataSourceID = source.id;
 			task.saving = false;
 		}
-		task.state = "completed";
-		task.detail = ["整理完成：已建立或保留父条目、提取全文并补充缺失书目信息", task.parseWarning].filter(Boolean).join("；");
+		if (!hadParent) this.setTaskStep?.(task,"parent","建立条目","父条目已建立","completed");
+		this.setTaskStep?.(task,"metadata","补全条目","缺失条目信息已补全","completed");
+		await this.runOrganizeReadingStages(task);
+	},
+
+	async runOrganizeReadingStages(task) {
+		let source = task.source, stages = task.organizeStages ||= {}, signal = task.controller.signal;
+		let parent = this.parentForDocument(source) || this.parentForDocument(task.attachment);
+		if (!parent) throw new Error("建立条目未完成，无法继续全流程。");
+		for (let [kind,label,settings] of [["outline","生成大纲",task.settings.outlineSettings],["summary","总结文献",task.settings.summarySettings],["translate","翻译文献",task.settings.translationSettings]]) {
+			signal.throwIfAborted(); task.saving = false; task.progress = null;
+			if (["completed","skipped"].includes(stages[kind]?.state)) { this.setTaskStep?.(task,kind,label,stages[kind].detail,stages[kind].state); continue; }
+			this.setTaskStep?.(task,kind,label,"准备执行");
+			task.displaySettings=settings;task.cancelSettings=settings;task.cancelJobID=null;task.jobID=null;
+			try {
+				if (kind === "outline") {
+					let candidates = task.attachment.isPDFAttachment?.() ? [task.attachment] : this.relatedDocuments(source).filter(item=>item.isPDFAttachment?.());
+					if (!candidates.length) candidates = this.collectSourceFiles([parent]).filter(item=>item.isPDFAttachment?.());
+					if (candidates.length !== 1) { stages[kind]={state:"skipped",detail:"未关联唯一 PDF，此文件不生成大纲"};this.setTaskStep?.(task,kind,label,stages[kind].detail,"skipped");continue; }
+					await this.outline.generate(candidates[0],{settings,signal,onReady:()=>{task.saving=true;},onStatus:detail=>{task.detail=detail;this.setTaskStep?.(task,kind,label,detail);}});
+				} else {
+					let child = stages[kind]?.task || {kind,attachment:task.attachment,source,explicitSource:true,mineruSource:source,parentItem:parent,parentTask:task,organizeStage:kind};
+					stages[kind] = {state:"running",task:child}; child.settings={...settings};child.controller=task.controller;
+					for (let name of ["detail","progress","saving"]) Object.defineProperty(child,name,{configurable:true,get:()=>task[name],set:value=>{task[name]=value;}});
+					if (kind === "summary") await this.runDocumentTask(child);
+					else {
+						child.partial=false;if(child.translation)child.translation.partial=false;
+						child.settings.translateRequestParams=this.parseOptionalJSONObject(child.settings.translateRequestJSON,"翻译请求参数");await this.runTranslationTask(child);
+					}
+					if (child.resultAttachment) (task.organizeResults ||= {})[kind]=child.resultAttachment;
+					if (child.partial) { stages[kind]={state:"failed",task:child,detail:"已保存部分译文，仍有未完成段落"};this.setTaskStep?.(task,kind,label,stages[kind].detail,"failed");continue; }
+				}
+				signal.throwIfAborted(); stages[kind]={state:"completed",detail:"已完成"};this.setTaskStep?.(task,kind,label,"已完成","completed");
+			} catch (error) {
+				signal.throwIfAborted(); stages[kind]={...stages[kind],state:"failed",detail:error.message};this.setTaskStep?.(task,kind,label,error.message,"failed");
+			} finally { task.saving=false; }
+		}
+		let failed=Object.entries(stages).filter(([,stage])=>stage.state==="failed");
+		task.state=failed.length ? "failed" : "completed";
+		task.error=failed.map(([kind,stage])=>`${({outline:"生成大纲",summary:"总结文献",translate:"翻译文献"})[kind]}：${stage.detail}`).join("；");
+		task.detail=failed.length ? "全流程已执行，部分步骤失败；重试只处理未完成步骤" : ["全流程整理完成",task.parseWarning].filter(Boolean).join("；");
 	},
 
 	async enqueueDocumentTasks(kind, tasks, settings) {
@@ -360,7 +407,7 @@ Object.assign(DocFlow, {
 		if (!parent) throw new Error("请先执行“建立父条目”。");
 		let source = task.explicitSource ? task.source : this.findDocumentMarkdown(attachment);
 		if (source?.deleted) throw new Error("选中的 Markdown 已删除，请重新选择文档。");
-		if (!source) throw new Error("没有找到与此文档关联的 Markdown，请先执行“建立文本 OCR / 转为 Markdown”。");
+		if (!source) throw new Error("没有找到与此文档关联的 Markdown，请先执行“识别文档”。");
 		task.detail = "读取 Markdown";
 		this.refreshParseQueueDialog();
 		let { markdown } = await this.readSourceMarkdown(source);
@@ -561,9 +608,90 @@ Object.assign(DocFlow, {
 		return note;
 	},
 
+	getMarkerSettings() {
+		let read = name => Zotero.Prefs.get(this.PREF_BRANCH + "marker." + name, true);
+		return {baseURL:String(read("url") || "").trim(), token:String(read("token") || "").trim().replace(/^Bearer\s+/i, ""),
+			mode:read("mode") || "balanced", forceOCR:read("forceOCR") === true};
+	},
+
+	async parseWithMarker(attachment, settings, options = {}) {
+		if (this.documentExtension(attachment) !== "pdf") throw new Error("Marker 当前仅接收 PDF，请选择 PDF 附件。");
+		let config = settings.markerSettings || this.getMarkerSettings(), base = OCRFlowMarker.baseURL(config.baseURL);
+		let signal = options.signal, controller = this.createAbortController(), abort = () => controller.abort();
+		signal?.throwIfAborted(); signal?.addEventListener("abort", abort, {once:true});
+		let headers = config.token ? {Authorization:`Bearer ${config.token}`} : {};
+		let request = (path, extra = {}, ownController = controller) => this.withTimeout(() => OCRFlowMarker.request(base + path,
+			{headers, signal:ownController.signal, ...extra}), settings.timeoutMS || 1200000, "Marker 请求").catch(error => { if (error.name === "TimeoutError") ownController.abort(); throw error; });
+		try {
+			let jobID = options.jobID, job, total = 0;
+			let readJob = async path => {
+				for(let attempt=0;;attempt++) {
+					try { return await request(path); }
+					catch(error) {
+						signal?.throwIfAborted();
+						if(!["TypeError","NetworkError"].includes(error.name)&&![502,503,504].includes(error.status))throw error;
+						if(attempt===3) { let lost=new Error(`Marker 连接中断，原任务 ${jobID} 已保留；可继续等待以重新连接，无需重新上传。`);lost.name="MarkerConnectionError";throw lost; }
+						options.onStatus?.({phase:"Marker · reconnecting",jobID,displayText:`Marker 连接暂时中断，正在重连（${attempt+1}/3）；保留原任务，不重复上传`});
+						await this.delayParsePoll(2000*2**attempt,{signal:controller.signal});
+					}
+				}
+			};
+			if (jobID) {
+				try { job = await readJob(`/v1/parse/jobs/${encodeURIComponent(jobID)}`); }
+				catch (error) { if (error.status !== 404) throw error; }
+				if (!job || ["failed", "canceled"].includes(job.status)) jobID = null;
+			}
+			if (!jobID) {
+				options.onStatus?.({phase:"读取 Marker PDF", displayText:"读取整份 PDF，准备一次上传"});
+				let bytes = await IOUtils.read(await attachment.getFilePath()); signal?.throwIfAborted();
+				let {PDFDocument} = this.getPDFLibrary(), source = await PDFDocument.load(this.bytesToBase64(bytes)); total = source.getPageCount(); signal?.throwIfAborted();
+				let win = Zotero.getMainWindow(), form = new win.FormData();
+				form.append("file", new win.Blob([bytes], {type:"application/pdf"}), attachment.attachmentFilename || "document.pdf");
+				for (let [name, value] of Object.entries({output_format:"markdown", paginate_output:"true", force_ocr:String(config.forceOCR), mode:config.mode})) form.append(name, value);
+				options.onStatus?.({phase:"提交 Marker 任务",jobID:null,displayText:`正在上传整份 PDF（${total} 页）`,pageProgress:{completed:0,total,unit:"页"}});
+				// Collect the task ID even if cancellation is requested during submission, then cancel that exact server job.
+				job = await request("/v1/parse/jobs", {method:"POST",body:form}, this.createAbortController());
+				jobID = job.job_id;
+				if (!jobID) throw new Error("Marker 未返回任务 ID，请检查任务服务是否已更新。");
+			}
+			let path = `/v1/parse/jobs/${encodeURIComponent(jobID)}`, started = Date.now();
+			for (;;) {
+				let progress = job.progress?.total > 0 ? job.progress : {completed:0,total,unit:"页"};
+				let detail = `${job.detail || job.stage || job.status}；任务 ${jobID}`;
+				if (job.status === "queued") detail = `服务端排队中，等待前面的文档处理完成；本文件尚未开始识别${progress.total ? `（${progress.total} 页）` : ""}；任务 ${jobID}`;
+				else if (progress.total) detail += `；${progress.completed}/${progress.total} 页`;
+				options.onStatus?.({phase:"Marker · " + (job.status === "queued" ? "queued" : job.stage || job.status),displayText:detail,jobID,pageProgress:job.status !== "queued" && progress.total ? progress : null});
+				signal?.throwIfAborted();
+				if (job.status === "completed") break;
+				if (["failed", "canceled"].includes(job.status)) throw new Error(job.error || job.detail || "Marker 任务未完成");
+				if (settings.localJobTimeoutMS > 0 && Date.now() - started >= settings.localJobTimeoutMS) {
+					let error = new Error(`Marker 等待达到上限；任务 ${jobID} 仍保留在服务端，可继续等待。`);error.name="MarkerJobWaitTimeout";throw error;
+				}
+				await this.delayParsePoll(settings.pollIntervalMS || 1000, {signal:controller.signal});
+				job = await readJob(path);
+			}
+			let response = await readJob(path + "/result"); signal?.throwIfAborted();
+			if (typeof response.output !== "string") throw new Error("Marker 未返回完整 Markdown。");
+			let result = {rawMarkdownText:response.output, markdownText:response.output.replace(/^\{(\d+)\}-{48}[ \t]*$/gm, (_m, page) => `<!-- 第 ${Number(page) + 1} 页 -->`),
+				embeddedImages:[], rawFiles:[{name:"response.json",text:JSON.stringify(response)}], recognition:{source:"marker"}};
+			for (let [name, encoded] of Object.entries(response.images || {})) {
+				let binary = atob(encoded);result.embeddedImages.push({marker:`docflow-image://img-${result.embeddedImages.length + 1}`,entryName:name,fileName:this.fileNameFromPath(name),mimeType:this.guessMimeType(name),bytes:Uint8Array.from(binary,ch=>ch.charCodeAt(0))});
+			}
+			this.normalizeResultImages(result);
+			result.document = OCRFlowDocument.fromMarkdown(result.markdownText,"marker",text=>this.splitTranslationBlocks(text));
+			let pages = job.progress?.total || total;
+			for (let page=1;page<=pages;page++) if (!result.document.pages.some(row=>row.page===page)) result.document.pages.push({page,printed:null});
+			result.document.pages.sort((a,b)=>a.page-b.page);result.markdownText=OCRFlowDocument.render(result.document);
+			if (!result.markdownText.trim()) throw new Error("Marker 未识别到可保存的正文或图片。");
+			return result;
+		} catch (error) { controller.abort(); throw error; }
+		finally { signal?.removeEventListener("abort",abort); }
+	},
+
 	async parseAttachmentWithMineru(attachment, settings, options = {}) {
 		let ext = this.documentExtension(attachment);
 		let image = ["png", "jpg", "jpeg"].includes(ext);
+		if (settings.parserService === "marker") return this.parseWithMarker(attachment, settings, options);
 		if (ext !== "pdf" && !image) settings.outputFormat = "md";
 		if (["txt", "md", "markdown", "csv"].includes(ext)) {
 			let bytes = await IOUtils.read(await attachment.getFilePath());

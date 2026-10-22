@@ -8,7 +8,8 @@ module.exports = function completePreferenceDOM(context, panel, inputs) {
     if (field) input.value=String(context.Zotero.Prefs.get(panel.PREF_BRANCH+field.pref) ?? field.defaultValue ?? (field.type==='int'?1:''));
     inputs.set(match[1],input);
   }
-  for(const input of inputs.values()) {
+  for(const [id,input] of inputs) {
+    input.id=id;
     input.replaceChildren ||= function(){this.children=[];};
     input.appendChild ||= function(child){(this.children ||= []).push(child);};
   }

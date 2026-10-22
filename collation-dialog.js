@@ -25,7 +25,15 @@ var OCRFlowCollationDialog = {
 			if (this.controller) return;
 			this.controller = this.plugin.createAbortController(); this.$("ai-retry").disabled = true;
 			this.$("ai-status").textContent = "AI 正在复核分歧与原图…";
-			try { await this.plugin.retryCollationAIReview(this.review, this.controller.signal); this.showAI(); }
+			let drafts=[...this.$("edits").querySelectorAll("textarea")].filter(input=>input.value!==input.dataset.before).map(input=>({id:input.dataset.id,text:input.value}));
+			try {
+				let result=await this.plugin.retryCollationAIReview(this.review,this.controller.signal);
+				if(result?.applied) {
+					await this.show();
+					for(let draft of drafts){let input=[...this.$("edits").querySelectorAll("textarea")].find(row=>row.dataset.id===draft.id);if(input)input.value=draft.text;}
+					this.$("checked").checked=false;
+				} else this.showAI();
+			}
 			catch (error) { this.$("ai-status").textContent = "AI 复核失败：" + error.message; }
 			finally { this.$("ai-retry").disabled = false; this.controller = null; }
 		};
@@ -55,11 +63,12 @@ var OCRFlowCollationDialog = {
 		this.$("image").removeAttribute("src");
 		this.$("image-status").textContent = "没有待查看的原图";
 		this.$("retry-image").hidden = true;
-		this.$("confirm").disabled = !finding || finding.status !== "pending";
+		let editable=finding&&(finding.status==="pending"||finding.confirmedBy==="ai");
+		this.$("confirm").disabled = !editable;
 		this.$("use-b").disabled = !finding || finding.status !== "pending" || finding.blockIDs.length !== 1 || /!\[|<img\b/i.test(finding.a + finding.b) || this.plugin.collationSuggestion(finding) === null;
 		this.$("use-b").title = "采用文字时保留底稿脚注。图片或脚注数量不同的文本块请手动核对修改。";
 		this.$("status").textContent = collation.status === "failed" ? "对照识别未完成：" + collation.error :
-			`已比较 ${collation.comparedPages} 页；缺失 ${collation.missingPages.length} 页。${finding ? `第 ${this.index + 1}/${collation.findings.length} 项 · PDF 第 ${finding.page} 页 · ${finding.status === "pending" ? "待确认" : "已确认"}` : "没有识别分歧"}`;
+			`已比较 ${collation.comparedPages} 页；缺失 ${collation.missingPages.length} 页。${finding ? `第 ${this.index + 1}/${collation.findings.length} 项 · PDF 第 ${finding.page} 页 · ${finding.status === "pending" ? "待核对" : finding.confirmedBy==="ai" ? "AI 已采用，可人工修正" : "已确认"}` : "没有识别分歧"}`;
 		this.$("reader-b").textContent = finding?.b || "";
 		this.showAI();
 		if (!finding) return;
@@ -67,7 +76,7 @@ var OCRFlowCollationDialog = {
 		for (let id of finding.blockIDs) {
 			let block = this.review.document.blocks.find(block => block.id === id), label = document.createElement("label"), input = document.createElement("textarea");
 			label.textContent = `${id} · ${block.type}`; input.value = block.text; input.dir = "auto"; input.dataset.id = id; input.dataset.before = block.text;
-			input.disabled = finding.status !== "pending"; label.appendChild(input); this.$("edits").appendChild(label);
+			input.disabled = !editable; label.appendChild(input); this.$("edits").appendChild(label);
 		}
 		await this.loadImage(finding);
 	},

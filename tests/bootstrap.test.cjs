@@ -35,7 +35,7 @@ test('installation entrypoint loads all modules and registers DocFlow menus with
   };
   vm.createContext(context);vm.runInContext(fs.readFileSync('bootstrap.js','utf8'),context);
   await context.startup({id:manifest.applications.zotero.id,version:manifest.version,rootURI:''});
-  assert.deepEqual(loaded,['prompts.js','docflow.js','markitdown.js','metadata.js','workflow.js','document.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','task-sidebar.js','outline.js']);
+  assert.deepEqual(loaded,['prompts.js','docflow.js','markitdown.js','marker.js','metadata.js','workflow.js','document.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','task-sidebar.js','outline.js']);
   assert.equal(panes[0].label,'OCRFlow');assert.equal(registered[0].menus[0].label,'OCRFlow');
   assert.equal(panes[0].id,'ocrflow-preferences');
   for(const uri of [panes[0].src,panes[0].image,...panes[0].scripts,...(panes[0].stylesheets || [])]) {

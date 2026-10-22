@@ -113,7 +113,7 @@ var DocFlowOutline = {
 		task = {
 			kind: "outline", id: this.owner.parseQueueNextID++, attachment, force,
 			settings: this.owner.getLLMSettings("outline"), state: "queued", error: "", jobID: null,
-			title: attachment.getField("title") || "PDF", detail: "等待生成阅读器大纲"
+			title: attachment.getField("title") || "PDF", detail: "等待生成大纲"
 		};
 		this.owner.parseQueue.push(task);
 		this.owner.refreshParseQueueDialog();

@@ -6,6 +6,8 @@
 
 使用 Node.js 24 或更新版本、Python 3.12 或更新版本。测试和构建使用标准库以及仓库内的 vendor 文件，无需安装 npm / pip 依赖。实际插件运行于 Zotero，不在 Node.js 中运行。
 
+Marker 任务服务位于 `server/`，运行在已安装 Marker 的服务端。服务端独立测试可在 Python 3.12 环境先安装 `server/requirements-test.txt`，然后在 `server/` 目录运行 `python3 -m unittest -v test_marker_jobs`；测试不加载模型或调用 GPU。CI 同时执行插件与服务端测试。
+
 在仓库根目录执行：
 
 ```sh
@@ -46,7 +48,7 @@ python3 build.py --output-dir ./dist
 
 ## 构建产物
 
-基础版本从 `manifest.json` 读取。本地默认构建会在输出目录已有 XPI 的最大构建序号上加 1；例如基础版本 `1.0` 首次生成 `1.0.1`，下一次生成 `1.0.2`。保留输出目录以延续序号。四段基础版本递增最后一段，显式 `--version` 仍使用指定值：
+基础版本从 `manifest.json` 读取。三段版本首次按基础版本构建，例如 `1.3.1`；同一输出目录后续构建递增为 `1.3.2`、`1.3.3`。GitHub 发布按同一主次版本已发布 Release 的最大补丁号递增，并以基础版本为下限。保留本地输出目录以延续序号。两段基础版本追加构建序号，四段基础版本递增最后一段，显式 `--version` 使用指定值：
 
 - `dist/ocrflow-<版本>.xpi`：只包含运行需要的模块、资源及许可证，根目录有 `manifest.json` 和 `bootstrap.js`。
 - `dist/ocrflow-<版本>-source.zip`：包含 `ocrflow/` 项目目录，可作为 GitHub 仓库内容；使用明确的文件清单打包。

@@ -29,13 +29,19 @@ jobs:
           python-version: '3.12'
       - name: Run tests
         run: node --test tests/*.test.cjs
+      - name: Test Marker task API
+        run: |
+          python3 -m pip install -r server/requirements-test.txt
+          cd server
+          python3 -m unittest -v test_marker_jobs
       - name: Build XPI and source archive
         env:
           RELEASE_BUILD: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$RELEASE_BUILD" = "true" ]; then
-            base_version=$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')
-            version="$base_version.$GITHUB_RUN_NUMBER"
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == false) | .tag_name' > "$RUNNER_TEMP/ocrflow-release-tags"
+            version=$(python3 -c 'import json,re,sys; from pathlib import Path; base=json.load(open("manifest.json"))["version"]; prefix,patch=base.rsplit(".",1); tags=Path(sys.argv[1]).read_text().splitlines(); numbers=[int(patch)-1]+[int(m.group(1)) for tag in tags if (m:=re.fullmatch("v?"+re.escape(prefix)+r"\.(\d+)",tag))]; print(prefix+"."+str(max(numbers)+1))' "$RUNNER_TEMP/ocrflow-release-tags")
             python3 build.py --version "$version"
             echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
           else
