@@ -38,7 +38,7 @@ context.DocFlowTaskQueue.render();
 events.DOMContentLoaded();
 const view = context.DocFlowTaskQueue;
 plugin.parseQueue[0].kind='translate';plugin.parseQueue[0].settings.translateLanguage='中文';view.render();
-assert.equal(view.rows.get(1).mode.textContent,'翻译文档 → 中文');
+assert.equal(view.rows.get(1).mode.textContent,'翻译文献 → 中文');
 const titleWrites=view.rows.get(1).title.textWrites,errorWrites=view.rows.get(2).error.textWrites;
 plugin.parseQueue[0].detail='进度更新';view.render();
 assert.equal(view.rows.get(1).title.textWrites,titleWrites,'progress refresh must keep unchanged text nodes so selection survives');

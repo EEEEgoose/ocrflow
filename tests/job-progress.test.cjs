@@ -10,7 +10,7 @@ const calls = [], prefs = new Map([
 const inputs = new Map([
   ['mineru-job-id', {value: ''}],
   ['mineru-job-progress-output', {textContent: ''}],
-  ['mineru-job-progress-button', {disabled: false}]
+  ['mineru-job-progress-button', {id:'mineru-job-progress-button',textContent:'查询任务进度',disabled:false,setAttribute(){}}]
 ]);
 let reply = {
   job_id: 'job-existing', status: 'running', tier: 'advanced',

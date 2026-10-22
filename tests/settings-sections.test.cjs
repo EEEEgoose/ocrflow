@@ -21,12 +21,12 @@ function setup() {
     Zotero:{Prefs:{get:key=>prefs.get(key),set:(key,value)=>prefs.set(key,value)},logError:error=>{throw error;}},
     fetch:async(url,options={})=>{
       requests.push({url,options});
-      const reply=url.endsWith('/chat/completions') ? {choices:[{message:{content:'OK'}}]} : url.endsWith('/file-urls/batch') ? {code:0,data:{batch_id:'test',file_urls:[]}} : {status:'ok'};
+      const reply=url.endsWith('/openapi.json') ? {info:{title:'Marker API'},paths:{'/v1/parse/jobs':{post:{}}}} : url.endsWith('/chat/completions') ? {choices:[{message:{content:'OK'}}]} : url.endsWith('/file-urls/batch') ? {code:0,data:{batch_id:'test',file_urls:[]}} : {status:'ok'};
       return {ok:true,status:200,json:async()=>reply,text:async()=>JSON.stringify(reply)};
     }
   };
   vm.createContext(context);
-  for(const file of ['prompts.js','prefs.js','docflow.js','markitdown.js','preferences.js']) vm.runInContext(fs.readFileSync(file,'utf8'),context);
+  for(const file of ['prompts.js','prefs.js','docflow.js','markitdown.js','marker.js','preferences.js']) vm.runInContext(fs.readFileSync(file,'utf8'),context);
   for(const [key,value]of Object.entries({apiMode:'local-v1',apiBaseURL:'http://mineru.saved',modelVersion:'standard',markitdownBaseURL:'http://mark.saved',llmApiBaseURL:'https://ai.saved/v1',llmModel:'saved-model'})) prefs.set(prefix+key,value);
   const panel=context.DocFlowPreferences;
   require("./preferences-dom.cjs")(context, panel, elements);
@@ -34,6 +34,15 @@ function setup() {
   const value=(id,text)=>{elements.get(id).value=text;};
   return {prefs,elements,requests,panel,plugin:context.DocFlow,source,value,prompts:context.OCRFlowPrompts};
 }
+
+test('settings buttons show busy state, restore labels and acknowledge saved or invalid settings',()=>{
+ const s=setup(),button=s.elements.get('ocrflow-marker-test');button.textContent='测试连接';let animations=0;button.animate=()=>animations++;
+ s.panel.setButtonBusy(button,true);assert.equal(button.textContent,'测试中…');assert.equal(button.disabled,true);assert.equal(button.attributes['aria-busy'],'true');
+ s.panel.setButtonBusy(button,false);assert.equal(button.textContent,'测试连接');assert.equal(button.disabled,false);
+ s.panel.buttonFeedback(button,'success');assert.equal(button.attributes['data-result'],'success');assert.equal(animations,1);
+ assert.equal(s.panel.saveSettings({section:'marker'}),true);assert.equal(s.elements.get('ocrflow-marker-save').attributes['data-result'],'saved');
+ s.value('mineru-poll-interval-sec','invalid');assert.equal(s.panel.saveSettings(),false);assert.equal(s.elements.get('mineru-save-button').attributes['data-result'],'error');
+});
 
 test('settings keep service tests, independent model tests, one footer save and optional output checkboxes',()=>{
   const s=setup();
@@ -256,4 +265,13 @@ test('AI collation requires an independently selected model and restores it afte
  s.value('ocrflow-collation-ai-model','provider-0:2');assert(s.panel.saveSettings({section:'work'}));
  assert.equal(s.prefs.get(prefix+'collationAIModel'),'provider-0:2');assert(s.panel.isModelInUse('provider-0:2'));
  s.panel.loadSettings();assert.equal(s.elements.get('ocrflow-collation-ai-model').value,'provider-0:2');assert(s.elements.get('ocrflow-collation-ai-enabled').checked);
+});
+
+
+test('Marker settings save independently and test the upload API without uploading files',async()=>{
+ const s=setup();s.value('ocrflow-marker-url','http://marker.saved/');s.value('ocrflow-marker-token','');s.value('ocrflow-marker-mode','fast');s.elements.get('ocrflow-marker-force-ocr').checked=true;
+ s.value('docflow-markitdown-url','http://unsaved.other');assert(s.panel.saveSettings({section:'marker'}));
+ assert.equal(s.prefs.get(prefix+'marker.url'),'http://marker.saved/');assert.equal(s.prefs.get(prefix+'marker.mode'),'fast');assert.equal(s.prefs.get(prefix+'marker.forceOCR'),true);assert.equal(s.prefs.get(prefix+'markitdownBaseURL'),'http://mark.saved');
+ await s.panel.testMarkerConnection();assert.equal(s.requests.at(-1).url,'http://marker.saved/openapi.json');assert.equal(s.requests.at(-1).options.body,undefined);assert(s.elements.get('ocrflow-marker-status').textContent.includes('成功'));
+ s.panel.showService('marker');assert.equal(s.elements.get('ocrflow-service-panel-marker').hidden,false);assert.equal(s.elements.get('ocrflow-service-panel-paddle').hidden,true);
 });

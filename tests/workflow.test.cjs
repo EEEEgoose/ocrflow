@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const path = require('node:path').posix;
 const {test} = require('node:test');
 
-function setup({mcp=false}={}) {
+function setup({mcp=false,reading=false}={}) {
   const items = new Map(), files = new Map(), prefs = new Map(), requests = [], uploads = [], mcpCalls = [];
   let nextID = 1;
   class Item {
@@ -82,6 +82,7 @@ function setup({mcp=false}={}) {
   vm.createContext(context);
   for (const filename of ['prompts.js','docflow.js','markitdown.js','metadata.js','workflow.js']) vm.runInContext(fs.readFileSync(filename,'utf8'),context);
   const plugin = context.DocFlow;
+  if(!reading)plugin.runOrganizeReadingStages=async task=>{task.state='completed';task.detail='core metadata fixture completed';};
   plugin.openParseQueueDialog = () => {}; plugin.refreshParseQueueDialog = () => {};
   plugin.mathRenderer = require('../vendor/katex/katex.min.js');
   const put = (name, text) => files.set(name, new TextEncoder().encode(text));
@@ -96,6 +97,60 @@ function setup({mcp=false}={}) {
   for (const [key,value] of Object.entries({llmApiBaseURL:'https://ai.example/v1',llmModel:'test',parserService:'markitdown',markitdownBaseURL:'http://converter.example',parseGenerateHTML:true})) prefs.set('extensions.docflow.' + key,value);
   return {plugin, context, items, files, prefs, requests, uploads, mcpCalls, file, parsed, put, Item, setReply: fn => reply = fn};
 }
+
+function fullFlow() {
+ const s=setup({reading:true});
+ for(const file of ['document.js','translation.js','task-sidebar.js'])vm.runInContext(fs.readFileSync(file,'utf8'),s.context);
+ s.prefs.set('extensions.docflow.translateLanguage','中文');
+ s.plugin.outline={generate:async()=>{},storeSource:async()=>{}};
+ s.setReply(payload=>payload.response_format ? JSON.stringify({itemType:'book',title:'Full flow book',creators:[{lastName:'Author',creatorType:'author'}]}) : payload.messages[1].content.startsWith('[') ? JSON.stringify(JSON.parse(payload.messages[1].content).map(row=>({...row,text:'译文 '+row.text}))) : '学术总结');
+ return s;
+}
+test('one-click completes all six stages and saves summary and paragraph-aligned translation',async()=>{
+ const s=fullFlow(),pdf=s.file('full.pdf');let outlines=0;s.plugin.outline.generate=async()=>{outlines++};
+ await s.plugin.handleOrganizeCommand({selectedItems:[pdf]});const task=s.plugin.parseQueue[0];
+ assert.equal(task.state,'completed',task.error);assert.equal(outlines,1);assert.equal(s.uploads.length,1);
+ assert.deepEqual(Array.from(task.steps,row=>row.id),['extract','parent','metadata','outline','summary','translate']);
+ assert(task.steps.every(row=>row.state==='completed'));assert(task.organizeResults.summary.isNote());assert(task.organizeResults.translate.hasTag('#DocFlow-Translation'));
+ assert.equal(task.resultAttachment,task.source);assert.equal(task.cancelJobID,null);assert.equal(task.cancelSettings.workKind,'translate');
+});
+test('one-click continues independent work after outline failure and retries only the failed stage',async()=>{
+ const s=fullFlow(),pdf=s.file('retry.pdf');let outlines=0;s.plugin.outline.generate=async()=>{if(++outlines===1)throw Error('controlled outline failure')};
+ await s.plugin.handleOrganizeCommand({selectedItems:[pdf]});let task=s.plugin.parseQueue[0];
+ assert.equal(task.state,'failed');assert(task.organizeResults.summary);assert(task.organizeResults.translate);
+ const calls=s.requests.length,summary=task.organizeResults.summary,translation=task.organizeResults.translate;
+ await s.plugin.retryParseQueueTasks([task.id]);assert.equal(task.state,'completed',task.error);
+ assert.equal(outlines,2);assert.equal(s.uploads.length,1);assert.equal(s.requests.length,calls);assert.equal(task.organizeResults.summary,summary);assert.equal(task.organizeResults.translate,translation);
+});
+test('one-click skips a non-PDF outline but still saves summary and translation',async()=>{
+ const s=fullFlow(),epub=s.file('full.epub');s.plugin.outline.generate=async()=>{throw Error('not a PDF')};
+ await s.plugin.handleOrganizeCommand({selectedItems:[epub]});const task=s.plugin.parseQueue[0];
+ assert.equal(task.state,'completed',task.error);assert.equal(task.organizeStages.outline.state,'skipped');assert(task.organizeResults.summary);assert(task.organizeResults.translate);
+});
+test('canceling one-click summary prevents translation and retry preserves completed OCR and outline',async()=>{
+ const s=fullFlow(),pdf=s.file('cancel.pdf');let start,release,outlines=0,translations=0;
+ const started=new Promise(resolve=>start=resolve),gate=new Promise(resolve=>release=resolve);
+ const summary=s.plugin.runDocumentTask.bind(s.plugin);s.plugin.outline.generate=async()=>{outlines++};
+ s.plugin.runDocumentTask=async task=>{start();await gate;task.controller.signal.throwIfAborted();await summary(task)};
+ const translate=s.plugin.runTranslationTask.bind(s.plugin);s.plugin.runTranslationTask=async task=>{translations++;return translate(task)};
+ const running=s.plugin.handleOrganizeCommand({selectedItems:[pdf]});await started;let task=s.plugin.parseQueue[0];
+ assert.equal(task.cancelJobID,null);assert.equal(task.cancelSettings.workKind,'summary');await s.plugin.cancelParseQueueTask(task.id);release();await running;
+ assert.equal(task.state,'canceled');assert.equal(translations,0);assert.equal(task.organizeStages.outline.state,'completed');
+ await s.plugin.retryParseQueueTasks([task.id]);assert.equal(task.state,'completed',task.error);assert.equal(outlines,1);assert.equal(s.uploads.length,1);assert.equal(translations,1);
+});
+test('translation decisions in one-click remain visible and retry updates the child model',async()=>{
+ const s=fullFlow();s.plugin.sidebar={views:new Map([[1,{}]])};
+ const parent={kind:'organize'},child={kind:'translate',parentTask:parent,controller:new AbortController(),settings:{translateLanguage:'中文'}};
+ const waiting=s.plugin.requestTaskDecision(child,{completed:1,total:2,failures:[]});assert.equal(parent.decision,child.decision);
+ s.plugin.getTranslationSettings=()=>({translateLanguage:'中文',model:'replacement'});s.plugin.resolveTaskDecision(parent,'retry');assert.equal(await waiting,'retry');assert.equal(child.settings.model,'replacement');assert.equal(parent.displaySettings.model,'replacement');assert.equal(parent.decision,null);assert.equal(child.decision,null);
+});
+test('retrying an automatic correction save keeps the base attachment and does not reconvert',async()=>{
+ const s=setup(),pdf=s.file('ai-save.pdf');s.prefs.set('extensions.docflow.collationAIEnabled',true);let attempts=0,baseID;
+ s.plugin.saveAutomaticCollation=async(_task,base)=>{if(!baseID)baseID=base.attachment.id;assert.equal(base.attachment.id,baseID);if(++attempts===1)throw Error('controlled correction save failure');return base;};
+ s.setReply(()=>JSON.stringify({itemType:'book',title:'Resume AI edition'}));
+ await s.plugin.handleOrganizeCommand({selectedItems:[pdf]});let task=s.plugin.parseQueue[0];assert.equal(task.state,'failed');assert(task.ocrBaseSaved);assert(task.parsedResult);
+ const attachments=s.items.size;await s.plugin.retryParseQueueTasks([task.id]);assert.equal(task.state,'completed',task.error);assert.equal(s.uploads.length,1);assert.equal(attempts,2);assert.equal(task.resultAttachment.id,baseID);assert.equal(s.items.size,attachments+1,'only the missing parent is added');
+});
 
 test('translation accepts ordinary Markdown and keeps an explicitly selected full text ahead of other results',()=>{
  const s=setup(),parent=new s.Item('book'),original=s.file('book.pdf',parent),generated=s.parsed(original,'OCR TEXT'),plain=s.file('notes.markdown',parent);
@@ -121,7 +176,7 @@ test('manual defaults and menu dispatch; file-name action creates only the paren
   assert.equal(defaults.get('extensions.docflow.autoOutline'),false);
   assert.equal(defaults.get('extensions.docflow.parseGenerateHTML'),true);
   assert.equal(defaults.has('extensions.docflow.autoImport'),false);
-  assert.deepEqual(Array.from(s.plugin.getContextMenuDefinitions().slice(0,4), item => item.label),['一键整理','提取全文 / OCR','建立父条目','补充父条目信息']);
+  assert.deepEqual(Array.from(s.plugin.getContextMenuDefinitions().slice(0,4), item => item.label),['一键整理','识别文档','建立父条目','补全条目']);
   const original = s.file('Smith 2024 History.epub');
   const markdown = s.parsed(original,'SECRET FULL TEXT MUST NOT BE SENT');
   s.setReply(() => JSON.stringify({itemType:'book',title:'History',date:'2024',creators:[{lastName:'Smith',creatorType:'author'}]}));
@@ -154,7 +209,7 @@ test('organize creates a parent from extracted content and keeps the source and 
     assert.equal(result.parentID,parent.id);assert.equal(task.source,result);
     assert.equal(original.relatedItems.includes(result.key),related);
     assert.equal(result.relatedItems.includes(original.key),related);
-    assert.equal(s.requests.length,1);assert.equal(parent.getNotes().length,0,'organize must not automatically summarize');
+    assert.equal(s.requests.length,1);assert.equal(parent.getNotes().length,0,'downstream stages are isolated by this fixture');
     await s.plugin.handleOrganizeCommand({selectedItems:[parent,original]});
     assert.equal(s.plugin.parseQueue.length,1);assert.equal(s.uploads.length,1);assert.equal(s.requests.length,1);
   }

@@ -46,7 +46,7 @@ var OCRFlowMarkItDown = {
 		}
 		let connection = { mode: "mcp", endpoint: base.endsWith("/mcp") ? base + "/" : base + "/mcp/", signal };
 		let initialized = await this.rpc(connection, "initialize", {
-			protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "OCRFlow", version: "1.2" }
+			protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "OCRFlow", version: "1.3.4" }
 		}, 1);
 		connection.protocolVersion = initialized.protocolVersion;
 		connection.serverInfo = initialized.serverInfo;

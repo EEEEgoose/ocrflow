@@ -19,7 +19,11 @@ out = args.output_dir.resolve()
 version = args.version
 if not version:
     base = manifest["version"]
-    prefix, initial = (base.rsplit(".", 1)[0], int(base.rsplit(".", 1)[1])) if base.count(".") == 3 else (base, 0)
+    if base.count(".") == 2:
+        prefix, patch = base.rsplit(".", 1)
+        initial = int(patch) - 1
+    else:
+        prefix, initial = (base.rsplit(".", 1)[0], int(base.rsplit(".", 1)[1])) if base.count(".") == 3 else (base, 0)
     builds = [initial]
     for package in out.glob("ocrflow-*.xpi"):
         match = re.fullmatch(re.escape("ocrflow-" + prefix + ".") + r"(\d+)\.xpi", package.name)
@@ -32,7 +36,7 @@ manifest["version"] = version
 manifest_bytes = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 out.mkdir(parents=True, exist_ok=True)
 assets = [
-    "manifest.json", "bootstrap.js", "prompts.js", "docflow.js", "markitdown.js", "metadata.js", "workflow.js",
+    "manifest.json", "bootstrap.js", "prompts.js", "docflow.js", "markitdown.js", "marker.js", "metadata.js", "workflow.js",
     "outline.js", "preferences.js", "preferences.xhtml", "document.js", "paddleocr.js", "translation.js",
     "collation.js", "collation-dialog.js", "collation.xhtml", "ocr-sources.js",
     "task-queue.xhtml", "task-queue.js", "task-queue.css", "task-sidebar.js", "task-sidebar.css", "sidebar-icon.svg", "prefs.js",
@@ -55,7 +59,7 @@ source = out / f"ocrflow-{version}-source.zip"
 source_assets = assets + [
     "icon.svg", "icon16.svg", "vendor/katex/README.md", "vendor/pdf-lib/README.md", "vendor/paper-outline/README.md",
     "build.py", "build-xpi.sh", "README.md", "README.zh-CN.md", "CHANGELOG.md",
-    "VALIDATION.md", "docs", "tests", ".gitignore", ".github",
+    "VALIDATION.md", "docs", "tests", "server", ".gitignore", ".github",
 ]
 with ZipFile(source, "w", ZIP_DEFLATED) as archive:
     for name in source_assets:

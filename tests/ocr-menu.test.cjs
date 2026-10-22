@@ -15,20 +15,20 @@ function setup() {
 
 test('OCR submenu choices use saved service profiles without changing defaults',async()=>{
   const s=setup(),choices=s.plugin.getContextMenuDefinitions()[1].children,before=Array.from(s.prefs);
-  assert.deepEqual(Array.from(choices,choice=>choice.id),['docflow-ocr-default','docflow-ocr-mineru-local','docflow-ocr-mineru-cloud','docflow-ocr-markitdown','docflow-ocr-paddle-cloud','docflow-ocr-paddle-local','docflow-ocr-ai']);
+  assert.deepEqual(Array.from(choices,choice=>choice.id),['docflow-ocr-default','docflow-ocr-mineru-local','docflow-ocr-mineru-cloud','docflow-ocr-markitdown','docflow-ocr-paddle-cloud','docflow-ocr-paddle-local','docflow-ocr-marker','docflow-ocr-ai']);
   for(const choice of choices)await choice.run({selectedItems:[s.pdf,s.image,s.epub]});
-  assert.deepEqual(s.calls.map(call=>call.settings.parserService),['ai','mineru','mineru','markitdown','paddle-cloud','paddle-local','ai']);
+  assert.deepEqual(s.calls.map(call=>call.settings.parserService),['ai','mineru','mineru','markitdown','paddle-cloud','paddle-local','marker','ai']);
   assert.equal(s.calls[1].settings.apiBaseURL,'http://local.example');assert.equal(s.calls[1].settings.modelVersion,'advanced');
   assert.equal(s.calls[2].settings.apiMode,'cloud');assert.equal(s.calls[2].settings.apiBaseURL,'https://cloud.example/v4');assert.equal(s.calls[2].settings.apiToken,'cloud-token');
-  assert.deepEqual(s.calls.map(call=>Array.from(call.tasks,task=>task.attachment.id)),[[1,2,3],[1,2],[1,2],[1,2,3],[1,2],[1,2],[1,2]]);
+  assert.deepEqual(s.calls.map(call=>Array.from(call.tasks,task=>task.attachment.id)),[[1,2,3],[1,2],[1,2],[1,2,3],[1,2],[1,2],[1],[1,2]]);
   assert.deepEqual(Array.from(s.prefs),before);
 });
 
 test('MenuManager receives a nested OCR menu and enables only supported input formats',()=>{
   const s=setup();assert(s.plugin.registerMenuForZotero8());
-  const menu=s.registered[0].menus[0].menus.find(menu=>menu.l10nID==="docflow-menu-parse-pdf");assert.equal(menu.menuType,'submenu');assert.equal(menu.menus.length,7);assert.equal(menu.onCommand,undefined);
+  const menu=s.registered[0].menus[0].menus.find(menu=>menu.l10nID==="docflow-menu-parse-pdf");assert.equal(menu.menuType,'submenu');assert.equal(menu.menus.length,8);assert.equal(menu.onCommand,undefined);
   const enabled=[];for(const leaf of menu.menus)leaf.onShowing(null,{items:[s.epub],setEnabled:value=>enabled.push(value)});
-  assert.deepEqual(enabled,[true,false,false,true,false,false,false]);
+  assert.deepEqual(enabled,[true,false,false,true,false,false,false,false]);
   menu.menus[2].onCommand(null,{items:[s.pdf],menuElem:{ownerGlobal:{}}});
   assert.equal(s.calls[0].settings.parserService,'mineru');assert.equal(s.calls[0].settings.apiMode,'cloud');
 });

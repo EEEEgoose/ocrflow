@@ -424,11 +424,25 @@ DocFlow = {
 			: task.kind === "outline" ? "已终止大纲任务；已发送的 LLM 请求可能继续在服务端运行"
 			: settings.apiMode === "cloud" ? "客户端已终止；已提交的云端任务可能继续运行" : "已终止，未提交新的解析任务";
 		if (!task.started && !jobID) detail = "已终止，任务尚未开始处理";
+		if (settings.parserService === "marker" && jobID) {
+			let config = settings.markerSettings || this.getMarkerSettings(), controller = this.createAbortController();
+			let timer = setTimeout(() => controller.abort(), 30000);
+			try {
+				let job = await OCRFlowMarker.request(OCRFlowMarker.baseURL(config.baseURL) + `/v1/parse/jobs/${encodeURIComponent(jobID)}`, {method:"DELETE",signal:controller.signal,headers:config.token ? {Authorization:`Bearer ${config.token}`} : {}});
+				if (!["canceled","completed","failed"].includes(job.status)) throw new Error("Marker 未确认任务终止");
+				detail = job.status === "canceled" ? "Marker 服务端任务已终止" : `Marker 任务已结束（${job.status}），已停止后续处理`;
+			} catch (error) { task.cancelFailed=true;task.error=error.message;detail="Marker 取消未确认，可重试终止"; }
+			finally { clearTimeout(timer); }
+		}
+		if (settings.parserService === "marker" && !jobID && task.phase === "提交 Marker 任务") {
+			task.cancelFailed=true;task.error="提交请求未返回任务 ID，无法确认服务端是否已接收文件";
+			detail="Marker 取消未确认：未收到任务 ID，请检查服务端任务";
+		}
 		if (settings.apiMode === "local-v1" && !jobID && task.phase === "提交解析任务" && error && error.name !== "AbortError") {
 			detail = "客户端已终止；提交请求未返回任务 ID，无法确认服务端任务状态";
 			task.error = error.message || String(error);
 		}
-		if (task.kind !== "outline" && settings.apiMode === "local-v1" && jobID) {
+		if (task.kind !== "outline" && settings.parserService !== "marker" && settings.apiMode === "local-v1" && jobID) {
 			let controller = this.createAbortController();
 			let timeout = setTimeout(() => controller.abort(), 30000);
 			let url = `${settings.apiBaseURL}/v1/parse/jobs/${encodeURIComponent(jobID)}`;
@@ -544,10 +558,10 @@ DocFlow = {
 		catch (error) {
 			if (task.cancelRequested) await this.finishParseQueueCancellation(task, error);
 			else {
-				task.state = error.name === "MineruJobWaitTimeout" ? "wait_expired" : "failed";
-				task.detail = task.state === "wait_expired" ? "服务端任务仍可能运行，可继续等待" : "处理失败，可重试";
+				task.state = ["MineruJobWaitTimeout","MarkerJobWaitTimeout","MarkerConnectionError"].includes(error.name) ? "wait_expired" : "failed";
+				task.detail = error.name === "MarkerConnectionError" ? "连接中断，原任务保留；可继续等待以重新连接" : task.state === "wait_expired" ? "服务端任务仍可能运行，可继续等待" : "处理失败，可重试";
 				task.error = error.message || String(error);
-				if (error.name !== "MineruJobWaitTimeout") Zotero.logError(error);
+				if (task.state !== "wait_expired") Zotero.logError(error);
 			}
 		}
 		finally {
@@ -570,10 +584,10 @@ DocFlow = {
 				signal: task.controller.signal,
 				onStatus: status => {
 					task.phase = status.phase || task.phase;
-					if (status.pageProgress) task.progress = status.pageProgress;
-					this.setTaskStep?.(task, "extract", "识别全文", status.displayText || status.phase);
-					if (!task.cancelRequested) task.detail = status.displayText || status.phase || "处理中";
 					if ("jobID" in status) task.cancelJobID = task.jobID = status.jobID;
+					if ("pageProgress" in status) task.progress = status.pageProgress;
+					this.setTaskStep?.(task, "extract", "识别文档", status.displayText || status.phase);
+					if (!task.cancelRequested) task.detail = status.displayText || status.phase || "处理中";
 					this.refreshParseQueueDialog();
 				}
 			});
@@ -589,28 +603,34 @@ DocFlow = {
 		this.setTaskStep?.(task, "save", "保存结果", task.detail);
 		this.refreshParseQueueDialog();
 		if (this.documentExtension && !["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(task.attachment))) task.settings.outputFormat = "md";
-		let saved = await this.saveResultAsMarkdownAttachment({
+		let saved = task.ocrBaseSaved || await this.saveResultAsMarkdownAttachment({
 			attachment: task.attachment, parentItem: task.attachment.parentItemID ? Zotero.Items.get(task.attachment.parentItemID) : task.parentItem,
 			parsedResult: task.parsedResult, settings: task.settings
 		});
+		if(task.settings.collationAIEnabled&&this.saveAutomaticCollation) {
+			task.ocrBaseSaved=saved;
+			saved=await this.saveAutomaticCollation(task,saved);
+		}
 		task.resultAttachment = saved?.attachment;
 		task.hasChangesReport = !!task.parsedResult.document;
 		task.collationStatus = task.parsedResult.collation?.status;
 		task.collationAIStatus = task.parsedResult.collation?.ai?.status;
-		task.collationFindings = task.parsedResult.collation?.findings?.length || 0;
+		task.collationFindings = task.parsedResult.collation?.findings?.filter(finding=>finding.status==="pending").length || 0;
+		task.collationAutoApplied = task.parsedResult.collation?.ai?.applied || 0;
 		task.collationMissing = task.parsedResult.collation?.missingPages?.length || 0;
 		this.setTaskStep?.(task, "save", "保存结果", "全文与来源资料已保存", "completed");
 		task.detail = [task.parsedResult.warning, saved?.warning].filter(Boolean).join("；") || "解析附件已保存";
 		if (this.outline && task.attachment.isPDFAttachment?.()) {
 			try {
 				await this.outline.storeSource(task.attachment, task.parsedResult);
-				if (Zotero.Prefs.get(this.PREF_BRANCH + "autoOutline", true) !== false) this.outline.enqueue(task.attachment);
+				if (task.kind!=="organize" && Zotero.Prefs.get(this.PREF_BRANCH + "autoOutline", true) !== false) this.outline.enqueue(task.attachment);
 			}
 			catch (error) {
 				task.detail += `；大纲资料保存失败：${error.message || error}`;
 			}
 		}
 		task.parsedResult = null;
+		task.ocrBaseSaved = null;
 		return saved;
 	},
 
@@ -2462,7 +2482,7 @@ DocFlow = {
 		return result
 	},
 
-	async saveResultAsMarkdownAttachment({ attachment, parentItem, parsedResult, settings }) {
+	async saveResultAsMarkdownAttachment({ attachment, parentItem, parsedResult, settings, titleSuffix="" }) {
 		let sourceTitle = attachment.getField("title");
 		this.normalizeResultImages?.(parsedResult);
 		try {
@@ -2478,7 +2498,7 @@ DocFlow = {
 				let filePath = await attachment.getFilePath();
 				bookTitle = filePath ? this.fileStemFromPath(filePath) : String(attachment.getField("title") || "PDF").replace(/\.pdf$/i, "").trim();
 			}
-			let title = this.sanitizeFileName(`OCRFlow_${authors}_${bookTitle || "文档"}`);
+			let title = this.sanitizeFileName(`OCRFlow_${authors}_${bookTitle || "文档"}${titleSuffix}`);
 			let imported = await this.saveDocumentAttachment({
 				libraryID: attachment.libraryID, parentItem,
 				title,
@@ -2771,7 +2791,7 @@ DocFlow = {
 				let candidates = (await IOUtils.getChildren(PathUtils.parent(filePath))).filter(path => /\.(md|markdown)$/i.test(path));
 				if (candidates.length > 1) throw new Error("附件目录中有多个 Markdown，无法确定原文。请直接选择对应的 Markdown 附件。");
 				if (candidates.length === 1) filePath = candidates[0];
-				else throw new Error("OCR HTML 缺少配套的原始 Markdown，无法继续处理。请恢复附件目录中的配套 MD 文件，或选择原始文档重新执行“提取全文 / OCR”。");
+				else throw new Error("OCR HTML 缺少配套的原始 Markdown，无法继续处理。请恢复附件目录中的配套 MD 文件，或选择原始文档重新执行“识别文档”。");
 			}
 		}
 		if (!/\.(md|markdown)$/i.test(filePath)) throw new Error("请选择 Markdown 或 OCR 生成的 HTML 全文附件。");
@@ -2890,7 +2910,7 @@ DocFlow = {
 			let render = (text, namespace) => this.renderFootnotes ? this.renderFootnotes(text, namespace, counts[namespace]) : this.renderDocumentBody(text);
 			let body = pairs
 				? '<div class="bilingual"><div class="column-label">原文</div><div class="column-label">译文</div>' + pairs.map(pair =>
-					'<section data-block="' + this.escapeHTML(pair.id) + '" class="pair"><div>' + (pair.page ? '<small>PDF 第 ' + pair.page + ' 页</small>' : '') + render(replaceImages(pair.source), "source") +
+					'<section data-block="' + this.escapeHTML(pair.id) + '" class="pair"><div>' + (pair.pages?.length ? '<small>PDF 第 ' + this.escapeHTML(pair.pages.join("、")) + ' 页</small>' : pair.page ? '<small>PDF 第 ' + pair.page + ' 页</small>' : '') + render(replaceImages(pair.source), "source") +
 					'</div><div>' + render(replaceImages(pair.translated), "target") + '</div></section>').join("") + '</div>'
 				: render(source, "document");
 			let metadata = JSON.stringify({ markdown: source }).replace(/</g, "\\u003c");

@@ -269,10 +269,11 @@ test('AI suggestions that lose images or footnotes fail without altering either 
 });
 test('AI retry processes failed advice without rerunning OCR or erasing completed comparison',async()=>{
  const s=aiReviewFixture();s.m.requestDocumentAI=async()=>{throw Error('controlled timeout')};await s.m.reviewCollationWithAI(s.task);
- const review={original:s.attachment,document:s.task.parsedResult.document,collation:s.task.parsedResult.collation,root:'/review'};
+ const review={source:{id:1},original:s.attachment,document:s.task.parsedResult.document,collation:s.task.parsedResult.collation,root:'/review'};
+ let saved=0;s.m.saveCollationReview=async()=>{saved++;return {attachment:{id:2,getFilePath:async()=>'/review2/file.md'}}};
  s.m.getCollationAISettings=()=>s.settings;s.m.parseAttachmentWithMineru=async()=>{throw Error('OCR must not rerun')};
  s.m.requestDocumentAI=async()=>s.reply();await s.m.retryCollationAIReview(review,new AbortController().signal);
- assert.equal(review.collation.ai.status,'completed');assert(s.files.has('/review/collation.json'));assert.equal(review.document.blocks[0].text,s.finding.a);
+ assert.equal(review.collation.ai.status,'completed');assert(s.files.has('/review/collation.json'));assert.equal(saved,1);assert.equal(review.source.id,2);assert.equal(review.document.blocks[0].text,s.finding.a.replace('原文','修正'));
 });
 test('AI model is snapshotted independently from recognition sources and disabled mode adds no AI configuration',()=>{
  const s=setup();s.pref('llmProviders',JSON.stringify([{id:'vision',llmApiBaseURL:'https://controlled.invalid',llmModel:'a-model',llmModel2:'review-model'}]));
@@ -280,6 +281,26 @@ test('AI model is snapshotted independently from recognition sources and disable
  let settings=s.m.getSettings();assert.equal(settings.collationAI,undefined);
  s.pref('collationAIEnabled',true);s.pref('collationAIModel','vision:2');settings=s.m.getSettings();
  s.pref('collationAIModel','vision:1');assert.equal(settings.collationAI.model,'review-model');assert.equal(settings.readerA.parserService,'mineru');
+});
+test('automatic AI collation saves a new edition, preserves base A and reuses the correction after a save failure',async()=>{
+ const s=aiReviewFixture();s.task.settings.collationAIEnabled=true;s.m.requestDocumentAI=async()=>s.reply();await s.m.reviewCollationWithAI(s.task);
+ const baseDocument=JSON.stringify(s.task.parsedResult.document),base={attachment:{key:'BASE',id:10}};let attempts=0,corrected;
+ s.m.parentForDocument=()=>null;
+ s.m.saveResultAsMarkdownAttachment=async options=>{attempts++;assert.equal(options.titleSuffix,' · AI 校勘');corrected=options.parsedResult;if(attempts===1)throw Error('controlled save failure');return {attachment:{id:11,key:'CORRECTED'}}};
+ await assert.rejects(s.m.saveAutomaticCollation(s.task,base),/controlled save failure/);
+ assert.equal(JSON.stringify(s.task.parsedResult.document),baseDocument);assert(s.task.aiCorrectedResult);
+ const saved=await s.m.saveAutomaticCollation(s.task,base);assert.equal(saved.attachment.id,11);assert.equal(attempts,2);
+ assert.equal(corrected.collation.baseAttachmentKey,'BASE');assert.equal(corrected.collation.ai.applied,1);assert.equal(corrected.collation.findings[0].confirmedBy,'ai');assert(corrected.document.blocks[0].text.startsWith('修正'));
+ assert.equal(s.task.aiCorrectedResult,null);
+ const finding=corrected.collation.findings[0],block=corrected.document.blocks[0];
+ s.m.applyCollationDecision(corrected,finding,[{id:block.id,before:block.text,after:block.text.replace('修正','人工修正')}],'人工核图');
+ assert.equal(finding.confirmedBy,'manual');assert.equal(finding.decisions.length,2);assert(block.text.startsWith('人工修正'));
+});
+test('automatic AI collation keeps uncertain readings and invalid protected references unchanged',async()=>{
+ for(const reply of [s=>JSON.stringify([{id:'d1',verdict:'uncertain',reason:'原图不清',edits:[]}]),s=>s.reply('遗漏引用')]) {
+  const s=aiReviewFixture(),before=JSON.stringify(s.task.parsedResult.document);s.m.requestDocumentAI=async()=>reply(s);await s.m.reviewCollationWithAI(s.task);
+  assert.equal(s.m.applyAICollation({document:s.task.parsedResult.document,collation:s.task.parsedResult.collation}),0);assert.equal(JSON.stringify(s.task.parsedResult.document),before);assert.equal(s.finding.status,'pending');
+ }
 });
 test('uncertain and unknown AI response identities do not become unchecked replacements',async()=>{
  const s=aiReviewFixture();s.m.requestDocumentAI=async()=>JSON.stringify([{id:'d1',verdict:'uncertain',reason:'原图不清晰',edits:[]}]);
@@ -425,4 +446,37 @@ test('exhausted rate-limit retries pause later batches instead of sending the en
  s.m.requestTaskDecision=async(_task,options)=>{assert.equal(options.failures.length,3);assert.match(options.failures[1].error,/暂未请求/);return 'discard';};
  await assert.rejects(()=>s.m.runAlignedTranslationTask({settings:{workKind:'translate',translateChunkSize:30,translateRetryCount:0,contextWindow:32768,translateLanguage:'中文',translateConcurrency:1},controller:new AbortController(),mineruSource:{},parentItem:{}}),/429/);
  assert.equal(calls,1);
+});
+
+test('cross-page prose is one translation unit while actual paragraphs keep their own page sources',()=>{
+ const s=setup(),settings={workKind:'translate',contextWindow:32768};
+ const units=s.m.translationUnits('<!--ocrflow-page:1-->\n\nThe argument continues\n\n<!--ocrflow-page:2-->\n\non the next page.\n\nA separate paragraph.\n\n<!--ocrflow-page:3-->\n\nAnother paragraph.',settings);
+ assert.equal(units.length,3);assert.equal(units[0].source,'The argument continues on the next page.');assert.deepEqual(Array.from(units[0].pages),[1,2]);assert.equal(units[0].page,1);
+ assert.equal(units[1].page,2);assert.deepEqual(Array.from(units[1].pages),[2]);assert.equal(units[2].page,3);
+ const inline=s.m.translationUnits('<!--ocrflow-page:2-->\n\nFirst<!--ocrflow-page:3-->second<!--ocrflow-page:4-->third.',settings);
+ assert.equal(inline[0].source,'First second third.');assert.deepEqual(Array.from(inline[0].pages),[2,3,4]);assert.equal(inline[0].page,2);
+});
+
+test('page joins handle Chinese and Arabic spacing without merging headings, lists, notes or complete paragraphs',()=>{
+ const s=setup(),settings={workKind:'translate',contextWindow:32768};
+ const units=s.m.translationUnits('<!--ocrflow-page:1-->\n\n这是跨页的\n\n<!--ocrflow-page:2-->\n\n同一段正文。',settings);
+ assert.equal(units[0].source,'这是跨页的同一段正文。');
+ const arabic=s.m.translationUnits('<!--ocrflow-page:1-->\n\nتاريخ الجزائر\n\n<!--ocrflow-page:2-->\n\nفي القديم والحديث.',settings);
+ assert.equal(arabic.length,1);assert.equal(arabic[0].source,'تاريخ الجزائر في القديم والحديث.');
+ for(const next of ['# New chapter','- New list item','[^1]: Footnote','| Table |','![Figure](image.png)','```js\ncode\n```']) {
+  assert.equal(s.m.translationUnits('<!--ocrflow-page:1-->\n\nUnfinished text\n\n<!--ocrflow-page:2-->\n\n'+next,settings).length,2);
+ }
+ assert.equal(s.m.translationUnits('<!--ocrflow-page:1-->\n\nComplete paragraph.\n\n<!--ocrflow-page:2-->\n\nAnother paragraph.',settings).length,2);
+ assert.equal(s.m.translationUnits('Two real paragraphs\n\nwithout any page boundary',settings).length,2);
+ assert.equal(s.m.translationUnits('<!--ocrflow-page:1-->\n\nUnfinished\n\n<!--ocrflow-page:3-->\n\nmissing page in between',settings).length,2);
+});
+
+test('bilingual translation sends a cross-page paragraph together and displays all source pages',async()=>{
+ const s=setup();s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown:'<!--ocrflow-page:1-->\n\nA continuous argument\n\n<!--ocrflow-page:2-->\n\nacross the page boundary.'});s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});
+ let input,saved;s.m.requestDocumentAI=async messages=>{input=JSON.parse(messages[1].content);return JSON.stringify(input.map(item=>({...item,text:'跨页段落的完整译文。'})));};
+ s.m.saveTranslationAsMarkdownAttachment=async value=>{saved=value;return s.m.saveDocumentAttachment({libraryID:1,title:'跨页翻译',markdown:value.translatedText,format:'html',pairs:value.pairs});};
+ await s.m.runAlignedTranslationTask({settings:{workKind:'translate',contextWindow:32768,translateLanguage:'中文',outputFormat:'html',translationMode:'bilingual'},controller:new AbortController(),mineruSource:{},parentItem:{}});
+ assert.equal(input.length,1);assert.equal(input[0].text,'A continuous argument across the page boundary.');assert.equal(saved.pairs.length,1);assert.deepEqual(Array.from(saved.pairs[0].pages),[1,2]);
+ const output=[...s.files.entries()].find(([name])=>name.startsWith('/storage/')&&name.endsWith('.html'));
+ assert(new TextDecoder().decode(output[1]).includes('PDF 第 1、2 页'));
 });

@@ -3,14 +3,36 @@ Object.assign(DocFlow, {
 		return Math.min(settings.translateChunkSize || 20000, Math.max(256, Math.min(this.getAIChunkBudget(settings) - 1024, this.getAIOutputBudget(settings))));
 	},
 
-	translationUnits(markdown, settings) {
-		let units = [], page = null;
+	translationParagraphs(markdown) {
+		let paragraphs = [], page = null, boundary = false;
+		let join = (left, right) => left + (/\s$/.test(left) || /^\s/.test(right) || /[-\u00ad]$/.test(left) || /[\u3400-\u9fff]$/.test(left) && /^[\u3400-\u9fff]/.test(right) ? "" : " ") + right;
+		let prose = text => !/^(?:#{1,6}\s|\[\^[^\]]+\]:|[-*+]\s|\d+[.)、]\s|>|\||!\[|<|```|~~~|\$\$|\\\[|[-*_]{3,}\s*$)/.test(text);
 		for (let block of this.splitTranslationBlocks(markdown)) {
-			let startPage = page, pages = [];
-			if (!/^(?:```|~~~)/.test(block)) block = block.replace(/<!--ocrflow-page:(\d+)[\s\S]*?-->/g, (_m, value) => { page = Number(value); return ""; }).trim();
-			if (!block) continue;
-			startPage ||= page;
-			pages = [...new Set([startPage, page].filter(Boolean))];
+			if (/^(?:```|~~~)/.test(block)) { paragraphs.push({text:block, page, pages:page ? [page] : []}); boundary = false; continue; }
+			let text = "", pages = [], startsAtBoundary = boundary;
+			for (let part of block.split(/(<!--ocrflow-page:\d+[\s\S]*?-->)/g)) {
+				let marker = part.match(/^<!--ocrflow-page:(\d+)[\s\S]*?-->$/);
+				if (marker) { page = Number(marker[1]); boundary = true; if (!text.trim()) startsAtBoundary = true; continue; }
+				if (part.trim()) {
+					if (page && !pages.includes(page)) pages.push(page);
+					text = boundary && text.trim() ? join(text, part) : text + part;
+					boundary = false;
+				} else text += part;
+			}
+			text = text.trim(); if (!text) continue;
+			let previous = paragraphs.at(-1);
+			if (startsAtBoundary && previous && previous.pages.at(-1) + 1 === pages[0] && prose(previous.text) && prose(text) &&
+				!/[。！？.!?;；：:؟…]([”’"»」』）)]|\[\^[^\]]+\])*$/.test(previous.text)) {
+				previous.text = join(previous.text, text);
+				previous.pages = [...new Set([...previous.pages, ...pages])];
+			} else paragraphs.push({text, page:pages[0] || null, pages});
+		}
+		return paragraphs;
+	},
+
+	translationUnits(markdown, settings) {
+		let units = [];
+		for (let {text:block, page:startPage, pages} of this.translationParagraphs(markdown)) {
 			let prefix = block.match(/^(?:\[\^[^\]]+\]:\s*|#{1,6}\s+)/)?.[0] || "";
 			let prepared = this.prepareTranslationText(block.slice(prefix.length)), protectedParts = [], text = prepared.parts.map(part => {
 				if (part.literal === undefined) return part.leading + prepared.texts[part.index] + part.trailing;

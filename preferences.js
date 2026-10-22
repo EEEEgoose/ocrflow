@@ -12,6 +12,10 @@ var DocFlowPreferences = {
 	modelTests: {},
 
 	FIELDS: [
+		{ id:"ocrflow-marker-url", pref:"marker.url", type:"string", defaultValue:"" },
+		{ id:"ocrflow-marker-token", pref:"marker.token", type:"string", defaultValue:"" },
+		{ id:"ocrflow-marker-mode", pref:"marker.mode", type:"string", defaultValue:"balanced" },
+		{ id:"ocrflow-marker-force-ocr", pref:"marker.forceOCR", type:"bool", defaultValue:false },
 		...["cloud", "local"].flatMap(mode => ["url", "token", "model"].map(name => ({ id: `ocrflow-paddle-${mode}-${name}`,
 			pref: `paddle.${mode}.${name}`, type: "string", defaultValue: name === "model" ? "PaddleOCR-VL-1.6" : name === "url" && mode === "cloud" ? "https://paddleocr.aistudio-app.com/api/v2/ocr" : "" }))),
 		{ id: "ocrflow-collation-ai-enabled", pref: "collationAIEnabled", type: "bool", defaultValue: false },
@@ -61,6 +65,19 @@ var DocFlowPreferences = {
 		return document.getElementById(id);
 	},
 
+	buttonFeedback(button,state) {
+		if(!button)return;
+		button.setAttribute("data-result",state);
+		button.animate?.([{boxShadow:"0 0 0 0 transparent"},{boxShadow:`0 0 0 3px ${state==="error" ? "#d4565680" : "#437cd180"}`},{boxShadow:"0 0 0 0 transparent"}],{duration:450});
+	},
+
+	setButtonBusy(button,busy) {
+		if(!button)return;
+		if(busy) { if(!button.ocrflowIdleLabel)button.ocrflowIdleLabel=button.textContent;button.textContent=button.id.includes("test") ? "测试中…" : "处理中…"; }
+		else if(button.ocrflowIdleLabel)button.textContent=button.ocrflowIdleLabel;
+		button.disabled=busy;button.setAttribute("data-busy",String(busy));button.setAttribute("aria-busy",String(busy));
+	},
+
 	setOutput(message, section = "ai") {
 		let output = this.$(`ocrflow-${section}-output`);
 		if (!output) return;
@@ -69,6 +86,7 @@ var DocFlowPreferences = {
 	},
 
 	setStatus(message, isError = false, section = "all") {
+		if(/测试|连接|超时/.test(message)&&(isError||/成功/.test(message)))this.buttonFeedback(this.$(`ocrflow-${section}-test`),isError ? "error" : "success");
 		if (section !== "all" && message === "有未保存的修改") this.setStatus(message);
 		let status = this.$(section === "all" ? "mineru-status" : `ocrflow-${section}-status`);
 		if (!status) return;
@@ -77,6 +95,7 @@ var DocFlowPreferences = {
 	},
 
 	sectionForField(name) {
+		if (name.startsWith("marker.")) return "marker";
 		if (name === "paddleMode" || name.startsWith("paddle.")) return "paddle";
 		if (name.startsWith("collation")) return "work";
 		if (name === "markitdownBaseURL") return "markitdown";
@@ -435,6 +454,7 @@ var DocFlowPreferences = {
 	},
 
 	saveSettings({ silent = false, section = "all" } = {}) {
+		let feedbackButton=this.$(section==="all" ? "mineru-save-button" : `ocrflow-${section}-save`)||this.$("mineru-save-button");
 		this.syncTranslationMode();
 		let fields = this.FIELDS.filter(field => section === "all" || this.sectionForField(field.pref) === section);
 		let apiMode = this.loadedAPIMode || Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true) || "cloud";
@@ -484,6 +504,7 @@ var DocFlowPreferences = {
 			}
 
 		} catch (error) {
+			if(!silent)this.buttonFeedback(feedbackButton,"error");
 			if (!silent) this.setStatus(error.message || String(error), true, section);
 			return false;
 		}
@@ -491,6 +512,7 @@ var DocFlowPreferences = {
 		if (work) { this.workSettings = work; Zotero.Prefs.set(this.PREF_BRANCH + "aiWorkSettings", JSON.stringify(work), true); }
 		if (section === "all" || section === "ai") this.saveLLMProvider();
 		if (!silent) this.setStatus(section === "all" ? "全部设置已保存" : "已保存", false, section);
+		if(!silent)this.buttonFeedback(feedbackButton,"saved");
 		return true;
 	},
 
@@ -549,7 +571,7 @@ var DocFlowPreferences = {
 		}
 		let controller = new AbortController();
 		let timeoutID = setTimeout(() => controller.abort(), settings.timeoutMS);
-		button.disabled = true;
+		this.setButtonBusy(button,true);
 		output.textContent = "正在查询任务进度…";
 		try {
 			let response = await fetch(`${settings.apiBaseURL}/v1/parse/jobs/${encodeURIComponent(jobID)}`, {
@@ -591,7 +613,7 @@ var DocFlowPreferences = {
 		}
 		finally {
 			clearTimeout(timeoutID);
-			button.disabled = false;
+			this.setButtonBusy(button,false);
 		}
 	},
 
@@ -601,7 +623,7 @@ var DocFlowPreferences = {
 		let button = this.$("ocrflow-markitdown-test");
 		let controller = new AbortController();
 		let timer = setTimeout(() => controller.abort(), 15000);
-		button.disabled = true;
+		this.setButtonBusy(button,true);
 		this.setStatus("正在测试…", false, "markitdown");
 		try {
 			let result = await OCRFlowMarkItDown.testConnection(base, controller.signal);
@@ -610,7 +632,7 @@ var DocFlowPreferences = {
 		} catch (error) {
 			this.setStatus(error.name === "AbortError" ? "请求超时" : "连接失败", true, "markitdown");
 			this.setOutput(error.message || String(error), "markitdown");
-		} finally { clearTimeout(timer); button.disabled = false; }
+		} finally { clearTimeout(timer); this.setButtonBusy(button,false); }
 	},
 
 	async testMineruConnection() {
@@ -635,7 +657,7 @@ var DocFlowPreferences = {
 		};
 
 		let button = this.$("ocrflow-mineru-test");
-		button.disabled = true;
+		this.setButtonBusy(button,true);
 		let controller = new AbortController();
 		let timeoutID = setTimeout(() => controller.abort(), settings.timeoutMS);
 		try {
@@ -696,7 +718,7 @@ var DocFlowPreferences = {
 		}
 		finally {
 			clearTimeout(timeoutID);
-			button.disabled = false;
+			this.setButtonBusy(button,false);
 		}
 	},
 
@@ -781,7 +803,7 @@ var DocFlowPreferences = {
 		delete this.modelTests[slot];
 		this.setStatus("", false, "model-" + slot);
 		this.setOutput("", "model-" + slot);
-		this.$(`ocrflow-model-${slot}-test`).disabled = false;
+		this.setButtonBusy(this.$(`ocrflow-model-${slot}-test`),false);
 	},
 
 	async testLLMConnection(slot = 1) {
@@ -796,7 +818,7 @@ var DocFlowPreferences = {
 		let endpoint = llm.apiBaseURL.endsWith("/chat/completions") ? llm.apiBaseURL : llm.apiBaseURL + "/chat/completions";
 		let button = this.$(`ocrflow-model-${slot}-test`), controller = new AbortController();
 		this.modelTests[slot] = controller;
-		button.disabled = true;
+		this.setButtonBusy(button,true);
 		this.setStatus(`正在测试 ${llm.model}…`, false, section);
 		this.setOutput("", section);
 		try {
@@ -816,8 +838,20 @@ var DocFlowPreferences = {
 			this.setOutput(error.message || String(error), section);
 		}
 		finally {
-			if (this.modelTests[slot] === controller) { delete this.modelTests[slot]; button.disabled = false; }
+			if (this.modelTests[slot] === controller) { delete this.modelTests[slot]; this.setButtonBusy(button,false); }
 		}
+	},
+
+	async testMarkerConnection() {
+		let button = this.$("ocrflow-marker-test"), controller = new AbortController();
+		this.setButtonBusy(button,true); this.setStatus("正在测试…", false, "marker");
+		let timer = setTimeout(() => controller.abort(), 10000);
+		try {
+			let result = await OCRFlowMarker.testConnection(this.$("ocrflow-marker-url").value, this.$("ocrflow-marker-token").value.trim().replace(/^Bearer\s+/i, ""), controller.signal);
+			this.setStatus("Marker API 连接成功", false, "marker"); this.setOutput(JSON.stringify(result, null, 2), "marker");
+		} catch (error) {
+			this.setStatus("连接失败", true, "marker"); this.setOutput(error.name === "AbortError" ? "请求超时" : error.message, "marker");
+		} finally { clearTimeout(timer); this.setButtonBusy(button,false); }
 	},
 
 	showSection(selected) {
@@ -830,7 +864,7 @@ var DocFlowPreferences = {
 	},
 
 	showService(selected) {
-		for (let key of ["mineru", "paddle", "markitdown", "ai"]) {
+		for (let key of ["mineru", "paddle", "marker", "markitdown", "ai"]) {
 			let panel = this.$("ocrflow-service-panel-" + key);
 			if (panel) panel.hidden = key !== selected;
 			this.$("ocrflow-service-tab-" + key)?.setAttribute("aria-pressed", String(key === selected));
@@ -853,7 +887,7 @@ var DocFlowPreferences = {
 
 	initNavigation() {
 		for (let key of ["services", "ai", "work", "collation", "output", "tasks"]) this.$("ocrflow-tab-" + key)?.addEventListener("click", () => this.showSection(key));
-		for (let key of ["mineru", "paddle", "markitdown", "ai"]) this.$("ocrflow-service-tab-" + key)?.addEventListener("click", () => this.showService(key));
+		for (let key of ["mineru", "paddle", "marker", "markitdown", "ai"]) this.$("ocrflow-service-tab-" + key)?.addEventListener("click", () => this.showService(key));
 		for (let key of this.WORK_KINDS) this.$("ocrflow-work-tab-" + key)?.addEventListener("click", () => this.showWork(key));
 		this.$("ocrflow-paddle-mode")?.addEventListener("change", () => this.syncPaddleMode());
 		this.$("ocrflow-go-ai")?.addEventListener("click", () => this.showSection("ai"));
@@ -875,6 +909,11 @@ var DocFlowPreferences = {
 		try {
 			this.loadSettings();
 			this.initNavigation();
+			this.$("docflow-prefpane")?.addEventListener("click",event=>{
+				let button=event.target.closest?.("button");if(!button||button.disabled)return;
+				button.setAttribute("data-result","");
+				button.animate?.([{transform:"scale(1)"},{transform:"scale(.97)"},{transform:"scale(1)"}],{duration:200});
+			},true);
 			for (let index = 0; index < this.LLM_PROVIDER_LIMIT; index++) {
 				this.$("mineru-llm-provider-" + index).addEventListener("click", () => this.switchLLMProvider(index));
 			}
@@ -906,7 +945,7 @@ var DocFlowPreferences = {
 					this.$("mineru-job-progress-output").textContent = `查询失败: ${e.message || e}`;
 				});
 			});
-			for (let [section, method] of [["markitdown", "testMarkItDownConnection"], ["mineru", "testMineruConnection"]]) {
+			for (let [section, method] of [["markitdown", "testMarkItDownConnection"], ["mineru", "testMineruConnection"], ["marker", "testMarkerConnection"]]) {
 				this.$(`ocrflow-${section}-save`).addEventListener("click", () => this.saveSettings({ section }));
 				this.$(`ocrflow-${section}-test`).addEventListener("click", () => this[method]().catch(error => {
 					Zotero.logError(error); this.setStatus(`测试失败：${error.message || error}`, true, section);

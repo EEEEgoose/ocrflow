@@ -22,6 +22,10 @@ test('timeline records real stages and retains failed comparison after successfu
  assert.match(sidebar.stateLabel(task),/对照识别未完成/);
  task.partial=true;assert.match(sidebar.stateLabel(task),/部分译文/);
 });
+test('Marker server queue is labeled separately from active OCR',()=>{
+ const {sidebar}=setup(),task={state:'running',phase:'Marker · queued'};
+ assert.equal(sidebar.stateLabel(task),'Marker 服务端排队中');task.phase='Marker · ocr';assert.equal(sidebar.stateLabel(task),'正在执行');task.state='canceled';task.phase='Marker · queued';assert.equal(sidebar.stateLabel(task),'已终止');
+});
 test('failed step becomes pending on retry and completed extraction stays available',()=>{
  const {plugin}=setup();const task={kind:'parse',settings:{}};
  plugin.initializeTaskSteps(task);plugin.setTaskStep(task,'extract','识别全文');plugin.setTaskStep(task,'save','保存结果');
