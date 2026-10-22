@@ -2,6 +2,8 @@
 
 <img src="icon96.png" width="64" alt="OCRFlow 图标" />
 
+**简体中文** · [English](README.en.md)
+
 面向 **Zotero 10.0.*** 的文献工作流插件。在主界面右侧栏处理当前文献，也可通过右键菜单启动；导入或选中文献不会自动发送识别请求。
 
 [下载安装](https://github.com/EEEEgoose/ocrflow/releases/latest) · [使用手册](README.zh-CN.md) · [部署页进度接口](docs/OCR-PROGRESS-DEPLOYMENT.zh-CN.md) · [更新记录](CHANGELOG.md)

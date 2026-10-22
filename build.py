@@ -58,7 +58,7 @@ with ZipFile(package, "w", ZIP_DEFLATED) as archive:
 source = out / f"ocrflow-{version}-source.zip"
 source_assets = assets + [
     "icon.svg", "icon16.svg", "vendor/katex/README.md", "vendor/pdf-lib/README.md", "vendor/paper-outline/README.md",
-    "build.py", "build-xpi.sh", "release_notes.py", "README.md", "README.zh-CN.md", "CHANGELOG.md",
+    "build.py", "build-xpi.sh", "release_notes.py", "README.md", "README.en.md", "README.zh-CN.md", "CHANGELOG.md",
     "VALIDATION.md", "docs", "tests", "server", ".gitignore", ".github",
 ]
 with ZipFile(source, "w", ZIP_DEFLATED) as archive:
