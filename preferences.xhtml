@@ -105,7 +105,7 @@
 				<html:h2>OCRFlow 设置</html:h2>
 				<html:p class="mineru-help">按需识别文档、整理条目与生成学术笔记</html:p>
 			</html:div>
-		</html:header><html:nav class="ocrflow-tabs" aria-label="OCRFlow 设置分类"><html:button id="ocrflow-tab-services" type="button" aria-pressed="false">提取服务</html:button><html:button id="ocrflow-tab-ai" type="button" aria-pressed="false">AI 服务商</html:button><html:button id="ocrflow-tab-work" type="button" aria-pressed="false">工作配置</html:button><html:button id="ocrflow-tab-collation" type="button" aria-pressed="false">双引擎校勘</html:button><html:button id="ocrflow-tab-output" type="button" aria-pressed="false">输出保存</html:button><html:button id="ocrflow-tab-tasks" type="button" aria-pressed="false">任务队列</html:button></html:nav><html:div id="ocrflow-panel-services"><html:div class="mineru-grid ocrflow-service-choice">
+		</html:header><html:nav class="ocrflow-tabs" aria-label="OCRFlow 设置分类"><html:button id="ocrflow-tab-services" type="button" aria-pressed="false">提取服务</html:button><html:button id="ocrflow-tab-ai" type="button" aria-pressed="false">AI 服务商</html:button><html:button id="ocrflow-tab-work" type="button" aria-pressed="false">工作配置</html:button><html:button id="ocrflow-tab-collation" type="button" aria-pressed="false">双引擎校勘</html:button><html:button id="ocrflow-tab-output" type="button" aria-pressed="false">输出保存</html:button><html:button id="ocrflow-tab-tasks" type="button" aria-pressed="false">任务队列</html:button><html:button id="ocrflow-tab-config" type="button" aria-pressed="false">配置与同步</html:button></html:nav><html:div id="ocrflow-panel-services"><html:div class="mineru-grid ocrflow-service-choice">
 			<html:label for="docflow-parser-service">PDF / 图片提取服务</html:label>
 			<menulist id="docflow-parser-service" native="true">
 				<menupopup>
@@ -196,14 +196,19 @@
 			<html:div class="ocrflow-group-actions"><html:button id="ocrflow-paddle-save" type="button">保存 PaddleOCR 配置</html:button><html:span id="ocrflow-paddle-status" class="ocrflow-status"/></html:div>
 		</html:section></html:div><html:div id="ocrflow-service-panel-marker"><html:section class="ocrflow-section" aria-labelledby="ocrflow-marker-heading">
 			<html:h3 id="ocrflow-marker-heading">Marker 文档解析</html:h3>
-			<html:p class="mineru-help">使用 Marker 任务与进度 API，整份 PDF 只上传一次，随后按任务 ID 查询进度与结果。marker_gui / Streamlit 网页地址不能用于插件调用；文件会发送到所填服务。</html:p>
-			<html:div class="mineru-grid">
+<html:div class="mineru-grid"><html:label for="ocrflow-marker-type">接口类型</html:label><html:select id="ocrflow-marker-type"><html:option value="local">自部署 API</html:option><html:option value="cloud">Datalab 在线 API</html:option></html:select></html:div>
+<html:div id="ocrflow-marker-local-fields"><html:p class="mineru-help">自部署使用整文件任务和页进度接口；Streamlit 网页不能用于插件调用。</html:p><html:div class="mineru-grid">
 				<html:label for="ocrflow-marker-url">API 服务地址</html:label><html:input id="ocrflow-marker-url" type="url" placeholder="http://127.0.0.1:8001"/>
 				<html:label for="ocrflow-marker-token">访问令牌（可空）</html:label><html:input id="ocrflow-marker-token" type="password"/>
 				<html:label for="ocrflow-marker-mode">识别模式</html:label><html:select id="ocrflow-marker-mode"><html:option value="balanced">Balanced · 高质量</html:option><html:option value="fast">Fast · 快速</html:option></html:select>
 			</html:div>
 			<html:label class="mineru-check"><html:input id="ocrflow-marker-force-ocr" type="checkbox"/>强制重新 OCR（用于文字层质量较差的 PDF）</html:label>
-			<html:div class="ocrflow-group-actions"><html:button id="ocrflow-marker-save" type="button">保存 Marker 配置</html:button><html:button id="ocrflow-marker-test" type="button">测试连接</html:button><html:span id="ocrflow-marker-status" class="ocrflow-status" role="status"/></html:div>
+			</html:div>
+<html:div id="ocrflow-marker-cloud-fields" hidden="hidden"><html:p class="mineru-help">文件将上传至 Datalab，使用 Convert API。停止等待不代表取消云端处理；在线接口未提供真实页完成数时只显示处理状态。连接测试不提交计费文档。</html:p><html:div class="mineru-grid">
+<html:label for="ocrflow-datalab-url">Datalab API 地址</html:label><html:input id="ocrflow-datalab-url" type="url" placeholder="https://www.datalab.to/api/v1"/>
+<html:label for="ocrflow-datalab-key">Datalab API Key</html:label><html:input id="ocrflow-datalab-key" type="password"/>
+<html:label for="ocrflow-datalab-mode">识别模式</html:label><html:select id="ocrflow-datalab-mode"><html:option value="fast">Fast</html:option><html:option value="balanced">Balanced</html:option><html:option value="accurate">Accurate</html:option></html:select></html:div></html:div>
+<html:div class="ocrflow-group-actions"><html:button id="ocrflow-marker-save" type="button">保存 Marker 配置</html:button><html:button id="ocrflow-marker-test" type="button">测试连接</html:button><html:span id="ocrflow-marker-status" class="ocrflow-status" role="status"/></html:div>
 			<html:pre id="ocrflow-marker-output" hidden="hidden" class="mineru-test-output"/>
 		</html:section></html:div><html:div id="ocrflow-service-panel-markitdown"><html:section class="ocrflow-section" aria-labelledby="ocrflow-markitdown-heading">
 			<html:div class="ocrflow-section-heading">
@@ -484,7 +489,19 @@
 				<html:button id="mineru-job-progress-button" type="button">查询任务进度</html:button>
 			</html:div>
 			<html:pre id="mineru-job-progress-output" class="mineru-test-output" />
-		</html:details></html:div><html:footer class="ocrflow-footer">
+		</html:details></html:div><html:section id="ocrflow-panel-config" class="ocrflow-section" hidden="hidden">
+<html:h3>加密配置与同步</html:h3><html:p id="ocrflow-config-state" role="status"/>
+<html:p class="mineru-help">全部插件配置使用同一配置密码加密。密码不随导出或同步；遗失后无法解密。导入会整套替换，文献与任务记录不属于配置包。</html:p>
+<html:div class="mineru-grid"><html:label for="ocrflow-config-pass">配置密码 / 新密码</html:label><html:input id="ocrflow-config-pass" type="password" autocomplete="off"/>
+<html:label for="ocrflow-config-confirm">确认新密码</html:label><html:input id="ocrflow-config-confirm" type="password" autocomplete="off"/></html:div>
+<html:label class="mineru-check"><html:input id="ocrflow-config-remember" type="checkbox"/>使用本机安全凭据存储记住解锁</html:label>
+<html:div class="mineru-actions"><html:button id="ocrflow-config-setup" type="button">创建配置密码</html:button><html:button id="ocrflow-config-unlock" type="button">解锁配置</html:button><html:button id="ocrflow-config-lock" type="button">锁定配置</html:button><html:button id="ocrflow-config-password" type="button">修改配置密码</html:button><html:button id="ocrflow-config-export" type="button">导出加密配置</html:button><html:button id="ocrflow-config-import" type="button">导入加密配置</html:button></html:div>
+<html:hr/><html:label class="mineru-check"><html:input id="ocrflow-config-sync" type="checkbox"/>通过 Zotero 文件同步传输加密配置</html:label>
+<html:p class="mineru-help">启用后在个人文库保存加密配置附件，随 Zotero 官方文件同步或已有 WebDAV 传输。需在 Zotero 设置中启用文件同步。仅同步已保存的配置，页面草稿请先保存。远端配置在本机解锁并确认后应用；多端修改保留版本供选择，不按时间覆盖。</html:p>
+<html:div class="mineru-actions"><html:button id="ocrflow-config-publish" type="button">保存同步选择 / 生成同步包</html:button><html:button id="ocrflow-config-check" type="button">检查远端配置</html:button></html:div>
+<html:select id="ocrflow-config-remote" aria-label="选择远端配置版本"/><html:button id="ocrflow-config-apply" type="button">预览并应用所选配置</html:button>
+<html:p id="ocrflow-config-sync-status" role="status"/><html:p id="ocrflow-config-message" role="status"/>
+</html:section><html:footer class="ocrflow-footer">
 			<html:div>
 				<html:span class="mineru-help">保存当前页面的全部设置</html:span>
 				<html:span id="mineru-status" role="status" class="ocrflow-status" aria-live="polite" />

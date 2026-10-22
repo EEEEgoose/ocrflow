@@ -22,10 +22,12 @@ test('installation entrypoint loads all modules and registers DocFlow menus with
   const registered=[],loaded=[],panes=[],listeners=[];
   let removed=false, paneRegistered=false;
   const context={
+    clearTimeout,
+    PathUtils:{join:(...parts)=>parts.join("/")},IOUtils:{exists:async()=>false},
     Cc:{'@mozilla.org/addons/addon-manager-startup;1':{getService:()=>({registerChrome:()=>({destruct:()=>{removed=true;}})})}},
     Ci:{amIAddonManagerStartup:{}},
     Services:{io:{newURI:uri=>uri},scriptloader:{loadSubScript:uri=>{loaded.push(uri);vm.runInContext(fs.readFileSync(uri,'utf8'),context);}}},
-    Zotero:{debug:()=>{},logError:error=>{throw error;},getMainWindows:()=>[],
+    Zotero:{debug:()=>{},logError:error=>{throw error;},getMainWindows:()=>[],getMainWindow:()=>({crypto:require("node:crypto").webcrypto}),DataDirectory:{dir:"/isolated-test"},
       PreferencePanes:{register:async options=>{await Promise.resolve();panes.push(options);paneRegistered=true;}},
       MenuManager:{registerMenu:options=>{assert(paneRegistered,'Startup must await preference pane registration');registered.push(options);},unregisterMenu:()=>{}},
       Reader:{_readers:[],registerEventListener:(...args)=>listeners.push(args),unregisterEventListener:()=>{}},
@@ -35,7 +37,7 @@ test('installation entrypoint loads all modules and registers DocFlow menus with
   };
   vm.createContext(context);vm.runInContext(fs.readFileSync('bootstrap.js','utf8'),context);
   await context.startup({id:manifest.applications.zotero.id,version:manifest.version,rootURI:''});
-  assert.deepEqual(loaded,['prompts.js','docflow.js','markitdown.js','marker.js','metadata.js','workflow.js','document.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','task-sidebar.js','outline.js']);
+  assert.deepEqual(loaded,['prompts.js','docflow.js','config.js','markitdown.js','marker.js','datalab.js','metadata.js','workflow.js','document.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','task-sidebar.js','outline.js']);
   assert.equal(panes[0].label,'OCRFlow');assert.equal(registered[0].menus[0].label,'OCRFlow');
   assert.equal(panes[0].id,'ocrflow-preferences');
   for(const uri of [panes[0].src,panes[0].image,...panes[0].scripts,...(panes[0].stylesheets || [])]) {
@@ -44,6 +46,6 @@ test('installation entrypoint loads all modules and registers DocFlow menus with
   }
   assert.equal(registered[0].menus[0].menus.filter(menu=>menu.menuType!=="separator").length,9);assert.equal(context.DocFlow.parseQueue.length,0);
   assert.equal(listeners[0][0],'renderToolbar');
-  context.shutdown();assert(removed);assert.equal(context.DocFlow,undefined);
+  await context.shutdown();assert(removed);assert.equal(context.DocFlow,undefined);
   assert.doesNotThrow(()=>context.onMainWindowUnload({window:{}}));
 });

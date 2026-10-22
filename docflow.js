@@ -14,6 +14,8 @@ DocFlow = {
 	outline: null,
 	
 	PREF_BRANCH: "extensions.docflow.",
+	getPref(key,global=true){return this.config ? this.config.get(key,global) : Zotero.Prefs.get(key,global);},
+	setPref(key,value,global=true){if(!this.config)return Zotero.Prefs.set(key,value,global);this.config.set(key,value,global);this.config.schedule();},
 	ROOT_MENU_ID: "docflow-menu",
 	CONTEXT_MENU_ID: "docflow-parse-pdf",
 	SUMMARY_MENU_ID: "docflow-ai-summary",
@@ -219,12 +221,12 @@ DocFlow = {
 		}
 	},
 	
-	getSettings(apiMode = Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true) || "cloud", capture = true) {
+	getSettings(apiMode = this.getPref(this.PREF_BRANCH + "apiMode", true) || "cloud", capture = true) {
 		let profile = apiMode === "local-v1" ? "local" : "cloud";
 		let readAPIPref = name => {
-			let value = Zotero.Prefs.get(this.PREF_BRANCH + profile + "." + name, true);
+			let value = this.getPref(this.PREF_BRANCH + profile + "." + name, true);
 			return value === undefined || value === null
-				? Zotero.Prefs.get(this.PREF_BRANCH + name, true) : value;
+				? this.getPref(this.PREF_BRANCH + name, true) : value;
 		};
 		let apiBaseURL = (readAPIPref("apiBaseURL") || "").trim();
 		apiBaseURL = apiBaseURL.replace(/\/+$/, "");
@@ -240,7 +242,7 @@ DocFlow = {
 			timeoutSec = 1200;
 		}
 		let localJobTimeoutSec = parseInt(
-			Zotero.Prefs.get(this.PREF_BRANCH + "localJobTimeoutSec", true), 10
+			this.getPref(this.PREF_BRANCH + "localJobTimeoutSec", true), 10
 		);
 		if (!Number.isFinite(localJobTimeoutSec) || localJobTimeoutSec < 0) {
 			localJobTimeoutSec = 7200;
@@ -263,8 +265,8 @@ DocFlow = {
 		}
 		
 		let apiToken = (readAPIPref("apiToken") || "").trim();
-		if (!apiToken && Zotero.Prefs.get(this.PREF_BRANCH + profile + ".apiToken", true) === undefined) {
-			apiToken = (Zotero.Prefs.get(this.PREF_BRANCH + "apiKey", true) || "").trim();
+		if (!apiToken && this.getPref(this.PREF_BRANCH + profile + ".apiToken", true) === undefined) {
+			apiToken = (this.getPref(this.PREF_BRANCH + "apiKey", true) || "").trim();
 		}
 		apiToken = apiToken.replace(/^Bearer\s+/i, "");
 		
@@ -273,21 +275,21 @@ DocFlow = {
 			apiMode,
 			apiToken,
 			modelVersion,
-			cloudLanguage: Zotero.Prefs.get(this.PREF_BRANCH + "cloudLanguage", true) || "auto",
+			cloudLanguage: this.getPref(this.PREF_BRANCH + "cloudLanguage", true) || "auto",
 			pollIntervalMS: pollIntervalSec * 1000,
 			timeoutMS: timeoutSec * 1000,
 			localJobTimeoutMS: localJobTimeoutSec * 1000,
 			...this.getOutputSettings("parse"),
-			parseLinkSourcePDF: Zotero.Prefs.get(this.PREF_BRANCH + "parseLinkSourcePDF", true) !== false,
+			parseLinkSourcePDF: this.getPref(this.PREF_BRANCH + "parseLinkSourcePDF", true) !== false,
 			parserService: (() => {
-				let service = Zotero.Prefs.get(this.PREF_BRANCH + "parserService", true) || "mineru";
-				return service === "paddle" ? "paddle-" + (Zotero.Prefs.get(this.PREF_BRANCH + "paddleMode", true) || "cloud") : service;
+				let service = this.getPref(this.PREF_BRANCH + "parserService", true) || "mineru";
+				return service === "paddle" ? "paddle-" + (this.getPref(this.PREF_BRANCH + "paddleMode", true) || "cloud") : service;
 			})(),
-			markitdownBaseURL: (Zotero.Prefs.get(this.PREF_BRANCH + "markitdownBaseURL", true) || "").trim().replace(/\/+$/, ""),
-			collationEnabled: Zotero.Prefs.get(this.PREF_BRANCH + "collationEnabled", true) === true,
-			collationAIEnabled: Zotero.Prefs.get(this.PREF_BRANCH + "collationAIEnabled", true) === true,
-			collationA: Zotero.Prefs.get(this.PREF_BRANCH + "collationA", true) || "mineru-cloud",
-			collationB: Zotero.Prefs.get(this.PREF_BRANCH + "collationB", true) || "",
+			markitdownBaseURL: (this.getPref(this.PREF_BRANCH + "markitdownBaseURL", true) || "").trim().replace(/\/+$/, ""),
+			collationEnabled: this.getPref(this.PREF_BRANCH + "collationEnabled", true) === true,
+			collationAIEnabled: this.getPref(this.PREF_BRANCH + "collationAIEnabled", true) === true,
+			collationA: this.getPref(this.PREF_BRANCH + "collationA", true) || "mineru-cloud",
+			collationB: this.getPref(this.PREF_BRANCH + "collationB", true) || "",
 			llmSettings: this.getLLMSettings("ocr")
 		};
 		if (capture && this.captureOCRSettings) this.captureOCRSettings(settings);
@@ -424,7 +426,10 @@ DocFlow = {
 			: task.kind === "outline" ? "已终止大纲任务；已发送的 LLM 请求可能继续在服务端运行"
 			: settings.apiMode === "cloud" ? "客户端已终止；已提交的云端任务可能继续运行" : "已终止，未提交新的解析任务";
 		if (!task.started && !jobID) detail = "已终止，任务尚未开始处理";
-		if (settings.parserService === "marker" && jobID) {
+		if (settings.parserService === "marker" && (settings.markerSettings||this.getMarkerSettings()).apiType==="cloud") {
+			detail=jobID?`已停止本地等待；Datalab 云端任务可能继续处理。任务 ${jobID} 保留，可重新处理以继续查询。`:"已停止等待 Datalab；提交中尚未返回任务 ID 时无法确认云端接收状态";
+		}
+		else if (settings.parserService === "marker" && jobID) {
 			let config = settings.markerSettings || this.getMarkerSettings(), controller = this.createAbortController();
 			let timer = setTimeout(() => controller.abort(), 30000);
 			try {
@@ -434,7 +439,7 @@ DocFlow = {
 			} catch (error) { task.cancelFailed=true;task.error=error.message;detail="Marker 取消未确认，可重试终止"; }
 			finally { clearTimeout(timer); }
 		}
-		if (settings.parserService === "marker" && !jobID && task.phase === "提交 Marker 任务") {
+		if (settings.parserService === "marker" && !jobID && ["提交 Marker 任务","提交 Datalab 任务"].includes(task.phase)) {
 			task.cancelFailed=true;task.error="提交请求未返回任务 ID，无法确认服务端是否已接收文件";
 			detail="Marker 取消未确认：未收到任务 ID，请检查服务端任务";
 		}
@@ -645,7 +650,7 @@ DocFlow = {
 		if (this.outline && task.attachment.isPDFAttachment?.()) {
 			try {
 				await this.outline.storeSource(task.attachment, task.parsedResult);
-				if (task.kind!=="organize" && Zotero.Prefs.get(this.PREF_BRANCH + "autoOutline", true) !== false) this.outline.enqueue(task.attachment);
+				if (task.kind!=="organize" && this.getPref(this.PREF_BRANCH + "autoOutline", true) !== false) this.outline.enqueue(task.attachment);
 			}
 			catch (error) {
 				task.detail += `；大纲资料保存失败：${error.message || error}`;
@@ -1014,7 +1019,7 @@ DocFlow = {
 		});
 		let jobID = job.job_id;
 		if (!jobID) throw new Error("MinerU 未返回任务 ID");
-		Zotero.Prefs.set(this.PREF_BRANCH + "lastLocalJobID", jobID, true);
+		this.setPref(this.PREF_BRANCH + "lastLocalJobID", jobID, true);
 		return await this.waitForLocalV1Job(job, jobID, fileName, settings, statusContext);
 	},
 
@@ -2795,7 +2800,7 @@ DocFlow = {
 
 
 	getOutputSettings(prefix) {
-		let read = name => Zotero.Prefs.get(this.PREF_BRANCH + prefix + name, true);
+		let read = name => this.getPref(this.PREF_BRANCH + prefix + name, true);
 		let outputFormat = (prefix === "parse" ? read("GenerateHTML") === true : read("OutputFormat") === "html") ? "html" : "md";
 		return {
 			outputFormat,
@@ -2978,24 +2983,24 @@ DocFlow = {
 	},
 
 	getLLMSettings(kind, selectedModel) {
-		let apiBaseURL = (Zotero.Prefs.get(this.PREF_BRANCH + "llmApiBaseURL", true) || "").trim();
+		let apiBaseURL = (this.getPref(this.PREF_BRANCH + "llmApiBaseURL", true) || "").trim();
 		apiBaseURL = apiBaseURL.replace(/\/+$/, "");
-		let apiKey = (Zotero.Prefs.get(this.PREF_BRANCH + "llmApiKey", true) || "").trim();
+		let apiKey = (this.getPref(this.PREF_BRANCH + "llmApiKey", true) || "").trim();
 		apiKey = apiKey.replace(/^Bearer\s+/i, "");
-		let model = (Zotero.Prefs.get(this.PREF_BRANCH + "llmModel", true) || "").trim();
-		let summaryLanguage = (Zotero.Prefs.get(this.PREF_BRANCH + "summaryLanguage", true) || "中文").trim();
-		let summaryPrompt = (Zotero.Prefs.get(this.PREF_BRANCH + "summaryPrompt", true) || "").trim();
-		let summaryRequestJSON = (Zotero.Prefs.get(this.PREF_BRANCH + "summaryRequestJSON", true) || "").trim();
-		let translateLanguage = (Zotero.Prefs.get(this.PREF_BRANCH + "translateLanguage", true) || "中文").trim();
-		let translateChunkSize = Zotero.Prefs.get(this.PREF_BRANCH + "translateChunkSize", true);
+		let model = (this.getPref(this.PREF_BRANCH + "llmModel", true) || "").trim();
+		let summaryLanguage = (this.getPref(this.PREF_BRANCH + "summaryLanguage", true) || "中文").trim();
+		let summaryPrompt = (this.getPref(this.PREF_BRANCH + "summaryPrompt", true) || "").trim();
+		let summaryRequestJSON = (this.getPref(this.PREF_BRANCH + "summaryRequestJSON", true) || "").trim();
+		let translateLanguage = (this.getPref(this.PREF_BRANCH + "translateLanguage", true) || "中文").trim();
+		let translateChunkSize = this.getPref(this.PREF_BRANCH + "translateChunkSize", true);
 		if (!Number.isFinite(translateChunkSize) || translateChunkSize < 5000) translateChunkSize = 20000;
-		let translateConcurrency = parseInt(Zotero.Prefs.get(this.PREF_BRANCH + "translateConcurrency", true), 10);
+		let translateConcurrency = parseInt(this.getPref(this.PREF_BRANCH + "translateConcurrency", true), 10);
 		if (!Number.isFinite(translateConcurrency) || translateConcurrency < 1) translateConcurrency = 3;
 		if (translateConcurrency > 8) translateConcurrency = 8;
-		let translateRetryCount = parseInt(Zotero.Prefs.get(this.PREF_BRANCH + "translateRetryCount", true), 10);
+		let translateRetryCount = parseInt(this.getPref(this.PREF_BRANCH + "translateRetryCount", true), 10);
 		if (!Number.isFinite(translateRetryCount) || translateRetryCount < 1) translateRetryCount = 2;
 		if (translateRetryCount > 5) translateRetryCount = 5;
-		let translateRequestJSON = (Zotero.Prefs.get(this.PREF_BRANCH + "translateRequestJSON", true) || "").trim();
+		let translateRequestJSON = (this.getPref(this.PREF_BRANCH + "translateRequestJSON", true) || "").trim();
 		let settings = {
 			apiBaseURL,
 			apiKey,
@@ -3010,10 +3015,10 @@ DocFlow = {
 			translateRetryCount,
 			translateRequestJSON
 		};
-		let savedProviders = Zotero.Prefs.get(this.PREF_BRANCH + "llmProviders", true);
+		let savedProviders = this.getPref(this.PREF_BRANCH + "llmProviders", true);
 		let providers = savedProviders ? JSON.parse(savedProviders) : [];
-		let work = JSON.parse(Zotero.Prefs.get(this.PREF_BRANCH + "aiWorkSettings", true) || "{}");
-		let index = Zotero.Prefs.get(this.PREF_BRANCH + "llmProviderIndex", true) || 0;
+		let work = JSON.parse(this.getPref(this.PREF_BRANCH + "aiWorkSettings", true) || "{}");
+		let index = this.getPref(this.PREF_BRANCH + "llmProviderIndex", true) || 0;
 		let selected = work.defaultModel || `${providers[index]?.id || "provider-" + index}:1`;
 		let config = kind ? work[kind] || {} : {};
 		let modelConcurrency = 1, modelContext = 32768, modelOutput = 0;

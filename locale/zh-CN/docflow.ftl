@@ -35,4 +35,4 @@ ocrflow-menu-changes =
     .label = 查看整理差异
 
 docflow-menu-ocr-marker =
-    .label = Marker（自部署 API）
+    .label = Marker（在线 / 自部署）

@@ -172,7 +172,7 @@ var DocFlowTaskQueue = {
 			setText(row.error, task.error);
 			setText(row.retry, task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : task.state === "canceled" ? "重新处理" : "重试");
 			row.retry.disabled = !["failed", "wait_expired", "canceled", "waiting"].includes(task.state);
-			setText(row.cancel, task.cancelFailed ? "重试终止" : "终止");
+			setText(row.cancel, task.cancelFailed ? "重试终止" : (task.cancelSettings||task.settings).markerSettings?.apiType==="cloud" ? "停止等待" : "终止");
 			row.cancel.disabled = !!task.saving || (!["queued", "running", "wait_expired"].includes(task.state) && !task.cancelFailed);
 		}
 		setText(document.getElementById("queue-summary"), this.plugin.parseQueue.length

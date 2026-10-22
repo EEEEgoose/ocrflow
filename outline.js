@@ -223,7 +223,7 @@ var DocFlowOutline = {
 		let outline = reader ? await this.embeddedOutline(reader) : [];
 		signal?.throwIfAborted();
 		if (outline.length) onStatus("已读取 PDF 自带书签");
-		else if (Zotero.Prefs.get(this.owner.PREF_BRANCH + "outlineUseAI", true) === false) {
+		else if (this.owner.getPref(this.owner.PREF_BRANCH + "outlineUseAI", true) === false) {
 			outline = data.headings.map(heading => ({ ...heading }));
 			if (!outline.length) throw new Error("未找到书签或识别标题，请先解析 PDF 或启用 LLM 大纲生成。");
 		}

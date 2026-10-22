@@ -1,8 +1,8 @@
 Object.assign(DocFlow, {
-	isCollationAIEnabled() { return Zotero.Prefs.get(this.PREF_BRANCH + "collationAIEnabled", true) === true; },
+	isCollationAIEnabled() { return this.getPref(this.PREF_BRANCH + "collationAIEnabled", true) === true; },
 
 	getCollationAISettings() {
-		let selected = Zotero.Prefs.get(this.PREF_BRANCH + "collationAIModel", true) || "";
+		let selected = this.getPref(this.PREF_BRANCH + "collationAIModel", true) || "";
 		if (!selected) throw new Error("请先在双引擎校勘设置中选择支持图片的 AI 校勘模型。");
 		return this.validateAISettings(this.getLLMSettings("collation", selected));
 	},
@@ -134,12 +134,12 @@ Object.assign(DocFlow, {
 	},
 
 	ocrProviders() {
-		let providers = JSON.parse(Zotero.Prefs.get(this.PREF_BRANCH + "llmProviders", true) || "[]");
+		let providers = JSON.parse(this.getPref(this.PREF_BRANCH + "llmProviders", true) || "[]");
 		return providers.map((provider, index) => ({ ...provider, id: provider.id || "provider-" + index }));
 	},
 
 	sourceSettings(choice, settings) {
-		if (choice === "marker") return {...settings, parserService:"marker", markerSettings:this.getMarkerSettings(), collationEnabled:false};
+		if (choice === "marker" || /^marker-/.test(choice)) return {...settings, parserService:"marker", markerSettings:this.getMarkerSettings(choice === "marker" ? undefined : choice.slice(7)), collationEnabled:false};
 		if (/^mineru-/.test(choice)) return { ...settings, ...this.getSettings(choice === "mineru-local" ? "local-v1" : "cloud", false), parserService: "mineru", collationEnabled: false };
 		if (/^paddle-/.test(choice)) return { ...settings, parserService: choice, paddleSettings: this.getPaddleSettings(choice === "paddle-local" ? "local" : "cloud"), collationEnabled: false };
 		if (choice.startsWith("ai:")) return { ...settings, parserService: "ai", llmSettings: this.getLLMSettings("ocr", choice.slice(3)), collationEnabled: false };
@@ -147,7 +147,7 @@ Object.assign(DocFlow, {
 	},
 
 	validateCollation(settings) {
-		if (!OCRFlowSources.valid(settings.collationA, settings.collationB, settings.ocrProviders || this.ocrProviders())) throw new Error("双引擎不能相同：MinerU 本地/云端互斥，PaddleOCR 官方/自部署互斥，AI 须选择不同模型。");
+		if (!OCRFlowSources.valid(settings.collationA, settings.collationB, settings.ocrProviders || this.ocrProviders())) throw new Error("双引擎不能相同：Marker 在线/自部署互斥，MinerU 本地/云端互斥，PaddleOCR 官方/自部署互斥，AI 须选择不同模型。");
 	},
 
 	captureOCRSettings(settings) {
