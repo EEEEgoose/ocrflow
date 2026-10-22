@@ -8,6 +8,7 @@ let aiOutput = {outline: [{level: 1, title: '第一章', summary: '章节概要'
 const owner = {
   id: 'plugin-id', PREF_BRANCH: 'extensions.docflow.', parseQueue: [], parseQueueNextID: 1,
   refreshParseQueueDialog: () => {}, getLLMSettings: () => ({apiBaseURL: 'https://llm.example/v1', model: 'model', apiKey: 'test'}),
+  getPref:key=>prefs.get(key),
   withAIRequestSlot:(_settings,_signal,run)=>run(),
   applyAIContextBudget(){},parseOptionalJSONObject: () => ({}), mergeRequestPayload: payload => payload
 };

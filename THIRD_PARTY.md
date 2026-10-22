@@ -45,6 +45,10 @@ OCRFlow 由作者在自有项目 Auto parent item 的基础上开发，曾使用
 
 ## Marker 任务服务与外部运行环境
 
+1.4.0 新增 Datalab 在线 Convert REST API 客户端，参考[转换接口](https://documentation.datalab.to/api-reference/convert-document)与[结果查询](https://documentation.datalab.to/api-reference/convert-result-check)。插件未包含 Datalab SDK、账号数据或模型；API Key 属于用户加密配置。旧 Marker 在线接口不作为新接入目标。
+
+配置加密使用 Zotero 运行环境自带的 Web Crypto（AES-GCM、PBKDF2）和凭据管理服务，没有加入第三方密码库；加密与配置同步代码按本项目 MIT 许可证分发。[Web Crypto 参考](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/deriveKey)。
+
 `server/marker_jobs.py`、`server/marker_progress.py` 是 OCRFlow 的服务端任务包装与进度观察实现，按本项目 MIT 许可证提供，只进入源码包，不进入 Zotero XPI。它们调用外部安装的 Marker / Surya，不包含其完整库、容器镜像或模型权重。
 
 | 外部组件 | 本项目实际使用方式 | 上游来源与许可 |

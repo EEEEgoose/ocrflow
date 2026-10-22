@@ -36,7 +36,7 @@ manifest["version"] = version
 manifest_bytes = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 out.mkdir(parents=True, exist_ok=True)
 assets = [
-    "manifest.json", "bootstrap.js", "prompts.js", "docflow.js", "markitdown.js", "marker.js", "metadata.js", "workflow.js",
+    "manifest.json", "bootstrap.js", "config.js", "config-preferences.js", "datalab.js", "prompts.js", "docflow.js", "markitdown.js", "marker.js", "metadata.js", "workflow.js",
     "outline.js", "preferences.js", "preferences.xhtml", "document.js", "paddleocr.js", "translation.js",
     "collation.js", "collation-dialog.js", "collation.xhtml", "ocr-sources.js",
     "task-queue.xhtml", "task-queue.js", "task-queue.css", "task-sidebar.js", "task-sidebar.css", "sidebar-icon.svg", "prefs.js",

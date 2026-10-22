@@ -35,4 +35,4 @@ ocrflow-menu-changes =
     .label = View Processing Changes
 
 docflow-menu-ocr-marker =
-    .label = Marker (self-hosted API)
+    .label = Marker (online / self-hosted)

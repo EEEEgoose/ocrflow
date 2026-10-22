@@ -30,7 +30,7 @@ test('a standalone checkout builds installable and clean source archives in defa
    assert.equal(inspected.status,0,inspected.stderr);
    const data=JSON.parse(inspected.stdout);
    assert.equal(data.manifest.version,version);assert.equal(data.manifest.applications.zotero.id,'docflow@egooose.local');
-   for(const file of ['bootstrap.js','prompts.js','workflow.js','preferences.xhtml','vendor/katex/katex.min.js','vendor/katex/LICENSE','vendor/pdf-lib/pdf-lib.min.js','vendor/pdf-lib/LICENSE.md','vendor/paper-outline/LICENSE'])assert(data.runtime.includes(file),file);
+   for(const file of ['bootstrap.js','config.js','config-preferences.js','datalab.js','prompts.js','workflow.js','preferences.xhtml','vendor/katex/katex.min.js','vendor/katex/LICENSE','vendor/pdf-lib/pdf-lib.min.js','vendor/pdf-lib/LICENSE.md','vendor/paper-outline/LICENSE'])assert(data.runtime.includes(file),file);
    assert(!data.runtime.some(file=>/^(tests\/|docs\/|\.github\/)|README|private-setting|scratch\.log/.test(file)));
    assert(data.runtime.includes('sidebar-icon.svg'));
    assert(data.runtime.includes('menu-icons/ocr.svg'));

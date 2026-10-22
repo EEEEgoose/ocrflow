@@ -114,3 +114,19 @@ test('queued Marker status clears upload progress and retains its job ID before 
  };
  await assert.rejects(()=>s.m.runParseTask(task),/controlled view closed/);assert.equal(task.jobID,'job1');assert.equal(task.cancelJobID,'job1');assert.equal(task.progress,null);
 });
+
+
+test('dual OCR lists both Marker profiles and captures the explicitly selected connection',()=>{
+ const s=setup(),sources=s.context.OCRFlowSources;
+ const choices=sources.choices([]).filter(row=>row.value.startsWith('marker'));
+ assert.deepEqual(Array.from(choices,row=>row.value),['marker-cloud','marker-local']);
+ assert(!sources.valid('marker-cloud','marker-local',[]));assert(sources.valid('marker-cloud','mineru-local',[]));
+ s.prefs.set('extensions.docflow.marker.apiType','cloud');
+ s.prefs.set('extensions.docflow.marker.url','http://local.test');s.prefs.set('extensions.docflow.marker.token','local-key');
+ s.prefs.set('extensions.docflow.marker.cloud.url','https://cloud.test/api/v1');s.prefs.set('extensions.docflow.marker.cloud.token','cloud-key');
+ const local=s.m.sourceSettings('marker-local',{}),cloud=s.m.sourceSettings('marker-cloud',{});
+ assert.equal(local.markerSettings.apiType,'local');assert.equal(local.markerSettings.baseURL,'http://local.test');assert.equal(local.markerSettings.token,'local-key');
+ assert.equal(cloud.markerSettings.apiType,'cloud');assert.equal(cloud.markerSettings.baseURL,'https://cloud.test/api/v1');assert.equal(cloud.markerSettings.token,'cloud-key');
+ s.prefs.set('extensions.docflow.marker.apiType','local');assert.equal(cloud.markerSettings.apiType,'cloud');
+ assert.equal(s.m.sourceSettings('marker',{}).markerSettings.apiType,'local');
+});

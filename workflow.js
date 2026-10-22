@@ -50,7 +50,7 @@ Object.assign(DocFlow, {
 			{ id: "markitdown", label: "MarkItDown", parserService: "markitdown" },
 			{ id: "paddle-cloud", label: "PaddleOCR（官方 API）", parserService: "paddle-cloud" },
 			{ id: "paddle-local", label: "PaddleOCR（自部署 API）", parserService: "paddle-local" },
-			{ id: "marker", label: "Marker（自部署 API）", parserService: "marker" },
+			{ id: "marker", label: "Marker（在线 / 自部署）", parserService: "marker" },
 			{ id: "ai", label: "AI 视觉 OCR", parserService: "ai" }
 		].map(choice => ({
 			id: `docflow-ocr-${choice.id}`, label: choice.label, l10nID: `docflow-menu-ocr-${choice.id}`,
@@ -642,15 +642,17 @@ Object.assign(DocFlow, {
 		return note;
 	},
 
-	getMarkerSettings() {
-		let read = name => Zotero.Prefs.get(this.PREF_BRANCH + "marker." + name, true);
-		return {baseURL:String(read("url") || "").trim(), token:String(read("token") || "").trim().replace(/^Bearer\s+/i, ""),
+	getMarkerSettings(apiType) {
+		let read = name => this.getPref(this.PREF_BRANCH + "marker." + name, true);
+		if((apiType || read("apiType"))==="cloud")return {apiType:"cloud",baseURL:String(read("cloud.url")||"https://www.datalab.to/api/v1").trim(),token:String(read("cloud.token")||"").trim(),mode:read("cloud.mode")||"balanced"};
+		return {apiType:"local",baseURL:String(read("url") || "").trim(), token:String(read("token") || "").trim().replace(/^Bearer\s+/i, ""),
 			mode:read("mode") || "balanced", forceOCR:read("forceOCR") === true};
 	},
 
 	async parseWithMarker(attachment, settings, options = {}) {
 		if (this.documentExtension(attachment) !== "pdf") throw new Error("Marker 当前仅接收 PDF，请选择 PDF 附件。");
 		let config = settings.markerSettings || this.getMarkerSettings(), base = OCRFlowMarker.baseURL(config.baseURL);
+		if(config.apiType==="cloud")return this.parseWithDatalab(attachment,settings,options);
 		let signal = options.signal, controller = this.createAbortController(), abort = () => controller.abort();
 		signal?.throwIfAborted(); signal?.addEventListener("abort", abort, {once:true});
 		let headers = config.token ? {Authorization:`Bearer ${config.token}`} : {};

@@ -1,5 +1,7 @@
 var DocFlowPreferences = {
 	PREF_BRANCH: "extensions.docflow.",
+	getPref(key,global=true){const plugin=Zotero.getMainWindow?.()?.DocFlow;return plugin?.getPref ? plugin.getPref(key,global) : Zotero.Prefs.get(key,global);},
+	setPref(key,value,global=true){const plugin=Zotero.getMainWindow?.()?.DocFlow;return plugin?.setPref ? plugin.setPref(key,value,global) : Zotero.Prefs.set(key,value,global);},
 	initialized: false,
 	loadedAPIMode: null,
 	API_FIELDS: ["apiBaseURL", "apiToken", "modelVersion", "pollIntervalSec", "timeoutSec"],
@@ -12,6 +14,10 @@ var DocFlowPreferences = {
 	modelTests: {},
 
 	FIELDS: [
+		{ id:"ocrflow-marker-type", pref:"marker.apiType", type:"string", defaultValue:"local" },
+		{ id:"ocrflow-datalab-url", pref:"marker.cloud.url", type:"string", defaultValue:"https://www.datalab.to/api/v1" },
+		{ id:"ocrflow-datalab-key", pref:"marker.cloud.token", type:"string", defaultValue:"" },
+		{ id:"ocrflow-datalab-mode", pref:"marker.cloud.mode", type:"string", defaultValue:"balanced" },
 		{ id:"ocrflow-marker-url", pref:"marker.url", type:"string", defaultValue:"" },
 		{ id:"ocrflow-marker-token", pref:"marker.token", type:"string", defaultValue:"" },
 		{ id:"ocrflow-marker-mode", pref:"marker.mode", type:"string", defaultValue:"balanced" },
@@ -146,14 +152,14 @@ var DocFlowPreferences = {
 		return mergedPayload;
 	},
 
-	readAPIPref(name, mode = Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true) || "cloud") {
+	readAPIPref(name, mode = this.getPref(this.PREF_BRANCH + "apiMode", true) || "cloud") {
 		let profile = mode === "local-v1" ? "local" : "cloud";
-		let value = Zotero.Prefs.get(this.PREF_BRANCH + profile + "." + name, true);
+		let value = this.getPref(this.PREF_BRANCH + profile + "." + name, true);
 		if (value !== undefined && value !== null) return value;
-		let currentMode = Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true) || "cloud";
+		let currentMode = this.getPref(this.PREF_BRANCH + "apiMode", true) || "cloud";
 		if (mode === currentMode) {
-			value = Zotero.Prefs.get(this.PREF_BRANCH + name, true);
-			if (name === "apiToken" && !value) value = Zotero.Prefs.get(this.PREF_BRANCH + "apiKey", true);
+			value = this.getPref(this.PREF_BRANCH + name, true);
+			if (name === "apiToken" && !value) value = this.getPref(this.PREF_BRANCH + "apiKey", true);
 			if (value !== undefined && value !== null) return value;
 		}
 		return {
@@ -192,22 +198,22 @@ var DocFlowPreferences = {
 			return;
 		}
 		this.loadAPISettings(nextMode);
-		Zotero.Prefs.set(this.PREF_BRANCH + "apiMode", nextMode, true);
+		this.setPref(this.PREF_BRANCH + "apiMode", nextMode, true);
 		this.setStatus("已切换接口", false, "mineru");
 	},
 
 	loadLLMProviders() {
-		let saved = Zotero.Prefs.get(this.PREF_BRANCH + "llmProviders", true);
+		let saved = this.getPref(this.PREF_BRANCH + "llmProviders", true);
 		this.llmProviders = saved ? JSON.parse(saved) : [Object.fromEntries(
-			[...this.LLM_PROVIDER_FIELDS, "summaryRequestJSON", "translateRequestJSON"].map(name => [name, Zotero.Prefs.get(this.PREF_BRANCH + name, true) || ""])
+			[...this.LLM_PROVIDER_FIELDS, "summaryRequestJSON", "translateRequestJSON"].map(name => [name, this.getPref(this.PREF_BRANCH + name, true) || ""])
 		)];
-		this.loadedLLMProviderIndex = Zotero.Prefs.get(this.PREF_BRANCH + "llmProviderIndex", true) || 0;
+		this.loadedLLMProviderIndex = this.getPref(this.PREF_BRANCH + "llmProviderIndex", true) || 0;
 		this.llmProviders.forEach((provider, index) => { provider.id ||= "provider-" + index; });
-		let savedWork = Zotero.Prefs.get(this.PREF_BRANCH + "aiWorkSettings", true);
+		let savedWork = this.getPref(this.PREF_BRANCH + "aiWorkSettings", true);
 		this.workSettings = savedWork ? JSON.parse(savedWork) : {};
 		if (!this.workSettings.defaultModel) {
 			this.workSettings.defaultModel = this.llmProviders[this.loadedLLMProviderIndex].id + ":1";
-			Zotero.Prefs.set(this.PREF_BRANCH + "aiWorkSettings", JSON.stringify(this.workSettings), true);
+			if(!this.configStore?.()||this.configStore().state==="unlocked")this.setPref(this.PREF_BRANCH+"aiWorkSettings",JSON.stringify(this.workSettings),true);
 		}
 		this.loadLLMProvider();
 		this.loadWorkSettings();
@@ -225,13 +231,13 @@ var DocFlowPreferences = {
 	},
 
 	persistLLMProviders() {
-		Zotero.Prefs.set(this.PREF_BRANCH + "llmProviders", JSON.stringify(this.llmProviders), true);
-		Zotero.Prefs.set(this.PREF_BRANCH + "llmProviderIndex", this.loadedLLMProviderIndex, true);
+		this.setPref(this.PREF_BRANCH + "llmProviders", JSON.stringify(this.llmProviders), true);
+		this.setPref(this.PREF_BRANCH + "llmProviderIndex", this.loadedLLMProviderIndex, true);
 	},
 
 	saveLLMProvider() {
 		this.llmProviders[this.loadedLLMProviderIndex] = { ...this.llmProviders[this.loadedLLMProviderIndex], ...Object.fromEntries(
-			this.LLM_PROVIDER_FIELDS.map(name => [name, Zotero.Prefs.get(this.PREF_BRANCH + name, true) || ""])
+			this.LLM_PROVIDER_FIELDS.map(name => [name, this.getPref(this.PREF_BRANCH + name, true) || ""])
 		) };
 		this.persistLLMProviders();
 		this.renderLLMProviders();
@@ -333,7 +339,7 @@ var DocFlowPreferences = {
 			for (let field of ["prompt", "params"]) {
 				let input = this.$(this.workFieldID(kind, field));
 				let legacy = ({ "summary-prompt": "summaryPrompt", "summary-params": "summaryRequestJSON", "translate-params": "translateRequestJSON" })[kind + "-" + field];
-				let legacyValue = legacy ? Zotero.Prefs.get(this.PREF_BRANCH + legacy, true) || "" : "";
+				let legacyValue = legacy ? this.getPref(this.PREF_BRANCH + legacy, true) || "" : "";
 				if (field === "params" && legacy) {
 					let selected = this.workSettings[kind]?.model;
 					if (!selected || selected === "default") selected = this.workSettings.defaultModel;
@@ -364,7 +370,7 @@ var DocFlowPreferences = {
 		}
 		let reviewModel = this.$("ocrflow-collation-ai-model");
 		if (reviewModel) {
-			let selected = this.collationModelLoaded ? reviewModel.value : Zotero.Prefs.get(this.PREF_BRANCH + "collationAIModel", true) || reviewModel.value;
+			let selected = this.collationModelLoaded ? reviewModel.value : this.getPref(this.PREF_BRANCH + "collationAIModel", true) || reviewModel.value;
 			this.collationModelLoaded = true; reviewModel.replaceChildren();
 			for (let choice of [{value:"",label:"请选择支持图片的模型"}, ...choices]) {
 				let option = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); option.value = choice.value; option.textContent = choice.label; reviewModel.appendChild(option);
@@ -379,7 +385,9 @@ var DocFlowPreferences = {
 		if (typeof OCRFlowSources === "undefined") return;
 		let a = this.$("ocrflow-collation-a"), b = this.$("ocrflow-collation-b");
 		if (!a || !b) return;
-		let choices = OCRFlowSources.choices(this.llmProviders || []), first = a.value || (!this.ocrSourcesLoaded && Zotero.Prefs.get(this.PREF_BRANCH + "collationA", true)) || "mineru-cloud", second = b.value || (!this.ocrSourcesLoaded && Zotero.Prefs.get(this.PREF_BRANCH + "collationB", true)) || "";
+		let choices = OCRFlowSources.choices(this.llmProviders || []), first = a.value || (!this.ocrSourcesLoaded && this.getPref(this.PREF_BRANCH + "collationA", true)) || "mineru-cloud", second = b.value || (!this.ocrSourcesLoaded && this.getPref(this.PREF_BRANCH + "collationB", true)) || "";
+		if (first === "marker") first = this.getPref(this.PREF_BRANCH + "marker.apiType", true) === "cloud" ? "marker-cloud" : "marker-local";
+		if (second === "marker") second = this.getPref(this.PREF_BRANCH + "marker.apiType", true) === "cloud" ? "marker-cloud" : "marker-local";
 		this.ocrSourcesLoaded = true;
 		for (let [input, selected, other] of [[a, first, ""], [b, second, first]]) {
 			input.replaceChildren();
@@ -403,9 +411,9 @@ var DocFlowPreferences = {
 	},
 
 	isModelInUse(value) {
-		let saved = JSON.parse(Zotero.Prefs.get(this.PREF_BRANCH + "aiWorkSettings", true) || "{}");
-		return this.$("ocrflow-collation-ai-model")?.value === value || Zotero.Prefs.get(this.PREF_BRANCH + "collationAIModel", true) === value || ["a", "b"].some(slot => this.$("ocrflow-collation-" + slot)?.value === "ai:" + value ||
-			Zotero.Prefs.get(this.PREF_BRANCH + "collation" + slot.toUpperCase(), true) === "ai:" + value) ||
+		let saved = JSON.parse(this.getPref(this.PREF_BRANCH + "aiWorkSettings", true) || "{}");
+		return this.$("ocrflow-collation-ai-model")?.value === value || this.getPref(this.PREF_BRANCH + "collationAIModel", true) === value || ["a", "b"].some(slot => this.$("ocrflow-collation-" + slot)?.value === "ai:" + value ||
+			this.getPref(this.PREF_BRANCH + "collation" + slot.toUpperCase(), true) === "ai:" + value) ||
 			saved.defaultModel === value || this.$("ocrflow-work-default-model").value === value || this.WORK_KINDS.some(kind =>
 			saved[kind]?.model === value || this.$("ocrflow-work-" + kind + "-model").value === value);
 	},
@@ -424,7 +432,8 @@ var DocFlowPreferences = {
 		return work;
 	},
 
-	loadSettings(apiMode = Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true) || "cloud") {
+	loadSettings(apiMode = this.getPref(this.PREF_BRANCH + "apiMode", true) || "cloud") {
+		this.ocrSourcesLoaded=false;this.collationModelLoaded=false;
 		this.loadedAPIMode = apiMode;
 		this.collationModelLoaded = false; this.ocrSourcesLoaded = false;
 		this.syncParseOptions(apiMode);
@@ -433,7 +442,7 @@ var DocFlowPreferences = {
 			if (!input) continue;
 			let value = field.pref === "apiMode" ? apiMode
 				: this.API_FIELDS.includes(field.pref) ? this.readAPIPref(field.pref, apiMode)
-				: Zotero.Prefs.get(this.PREF_BRANCH + field.pref, true);
+				: this.getPref(this.PREF_BRANCH + field.pref, true);
 			if (value === undefined || value === null) value = field.defaultValue ?? "";
 			if (field.pref === "parserService" && String(value).startsWith("paddle-")) {
 				this.$("ocrflow-paddle-mode").value = String(value).slice(7);
@@ -448,16 +457,30 @@ var DocFlowPreferences = {
 		}
 		this.loadLLMProviders();
 		this.syncTranslationMode();
+		this.syncMarkerMode();this.syncPaddleMode();
 		let jobIDInput = this.$("mineru-job-id");
-		if (jobIDInput) jobIDInput.value = Zotero.Prefs.get(this.PREF_BRANCH + "lastLocalJobID", true) || "";
+		if (jobIDInput) jobIDInput.value = this.getPref(this.PREF_BRANCH + "lastLocalJobID", true) || "";
 		this.setStatus("");
 	},
 
+	persistSettings(options={}) {
+		const config=Zotero.getMainWindow?.()?.DocFlow?.config;if(!config)return this.saveSettings(options);
+		return (async()=>{
+			const {silent=false,section="all"}=options,button=this.$(section==="all"?"mineru-save-button":`ocrflow-${section}-save`)||this.$("mineru-save-button");
+			try {
+				if(!this.saveSettings({silent:true,section})){if(!silent)this.saveSettings({section});return false;}
+				this.setButtonBusy(button,true);await config.flush();if(!silent){this.setStatus("已加密保存",false,section);this.buttonFeedback(button,"saved");}return true;
+			}catch(error){if(!silent){this.setStatus("保存失败："+error.message,true,section);this.buttonFeedback(button,"error");}return false;}
+			finally{this.setButtonBusy(button,false);}
+		})();
+	},
+
 	saveSettings({ silent = false, section = "all" } = {}) {
+		if(Zotero.getMainWindow?.()?.DocFlow?.config?.busy){if(!silent)this.setStatus("配置操作正在进行，请完成后再保存",true,section);return false;}
 		let feedbackButton=this.$(section==="all" ? "mineru-save-button" : `ocrflow-${section}-save`)||this.$("mineru-save-button");
 		this.syncTranslationMode();
 		let fields = this.FIELDS.filter(field => section === "all" || this.sectionForField(field.pref) === section);
-		let apiMode = this.loadedAPIMode || Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true) || "cloud";
+		let apiMode = this.loadedAPIMode || this.getPref(this.PREF_BRANCH + "apiMode", true) || "cloud";
 		let profile = apiMode === "local-v1" ? "local" : "cloud";
 		let updates = [], work;
 		try {
@@ -508,8 +531,8 @@ var DocFlowPreferences = {
 			if (!silent) this.setStatus(error.message || String(error), true, section);
 			return false;
 		}
-		for (let [name, value] of updates) Zotero.Prefs.set(name, value, true);
-		if (work) { this.workSettings = work; Zotero.Prefs.set(this.PREF_BRANCH + "aiWorkSettings", JSON.stringify(work), true); }
+		for (let [name, value] of updates) this.setPref(name, value, true);
+		if (work) { this.workSettings = work; this.setPref(this.PREF_BRANCH + "aiWorkSettings", JSON.stringify(work), true); }
 		if (section === "all" || section === "ai") this.saveLLMProvider();
 		if (!silent) this.setStatus(section === "all" ? "全部设置已保存" : "已保存", false, section);
 		if(!silent)this.buttonFeedback(feedbackButton,"saved");
@@ -530,7 +553,7 @@ var DocFlowPreferences = {
 
 	readCurrentSettings(fromInputs = false) {
 		let read = name => fromInputs ? this.$(this.FIELDS.find(field => field.pref === name).id).value : this.readAPIPref(name);
-		let apiMode = (fromInputs ? this.$("mineru-api-mode").value : Zotero.Prefs.get(this.PREF_BRANCH + "apiMode", true)) || "cloud";
+		let apiMode = (fromInputs ? this.$("mineru-api-mode").value : this.getPref(this.PREF_BRANCH + "apiMode", true)) || "cloud";
 		let apiBaseURL = (read("apiBaseURL") || "").trim();
 		if (!apiBaseURL) {
 			apiBaseURL = apiMode === "local-v1" ? "http://127.0.0.1:8000" : "https://mineru.net/api/v4";
@@ -551,7 +574,7 @@ var DocFlowPreferences = {
 			apiToken,
 			timeoutMS: timeoutSec * 1000,
 			modelVersion,
-			cloudLanguage: (fromInputs ? this.$("mineru-cloud-language").value : Zotero.Prefs.get(this.PREF_BRANCH + "cloudLanguage", true)) || "auto"
+			cloudLanguage: (fromInputs ? this.$("mineru-cloud-language").value : this.getPref(this.PREF_BRANCH + "cloudLanguage", true)) || "auto"
 		};
 	},
 
@@ -564,7 +587,7 @@ var DocFlowPreferences = {
 			return;
 		}
 		let jobID = this.$("mineru-job-id").value.trim()
-			|| Zotero.Prefs.get(this.PREF_BRANCH + "lastLocalJobID", true);
+			|| this.getPref(this.PREF_BRANCH + "lastLocalJobID", true);
 		if (!jobID) {
 			output.textContent = "请填写任务 ID，或先提交一个本地解析任务。";
 			return;
@@ -847,15 +870,17 @@ var DocFlowPreferences = {
 		this.setButtonBusy(button,true); this.setStatus("正在测试…", false, "marker");
 		let timer = setTimeout(() => controller.abort(), 10000);
 		try {
-			let result = await OCRFlowMarker.testConnection(this.$("ocrflow-marker-url").value, this.$("ocrflow-marker-token").value.trim().replace(/^Bearer\s+/i, ""), controller.signal);
-			this.setStatus("Marker API 连接成功", false, "marker"); this.setOutput(JSON.stringify(result, null, 2), "marker");
+			let cloud=this.$("ocrflow-marker-type").value==="cloud";
+			let result = cloud ? await OCRFlowDatalab.testConnection(this.$("ocrflow-datalab-url").value,this.$("ocrflow-datalab-key").value,controller.signal) : await OCRFlowMarker.testConnection(this.$("ocrflow-marker-url").value, this.$("ocrflow-marker-token").value.trim().replace(/^Bearer\s+/i, ""), controller.signal);
+			this.setStatus(cloud ? "Datalab 服务已连通，密钥权限待实际请求验证" : "Marker API 连接成功", false, "marker"); this.setOutput(JSON.stringify(result, null, 2), "marker");
 		} catch (error) {
 			this.setStatus("连接失败", true, "marker"); this.setOutput(error.name === "AbortError" ? "请求超时" : error.message, "marker");
 		} finally { clearTimeout(timer); this.setButtonBusy(button,false); }
 	},
 
 	showSection(selected) {
-		for (let key of ["services", "ai", "work", "collation", "output", "tasks"]) {
+		if(selected==="config")this.refreshConfig?.();
+		for (let key of ["services", "ai", "work", "collation", "output", "tasks", "config"]) {
 			let panel = this.$("ocrflow-panel-" + key);
 			if (panel) panel.hidden = key !== selected;
 			this.$("ocrflow-tab-" + key)?.setAttribute("aria-pressed", String(key === selected));
@@ -884,17 +909,21 @@ var DocFlowPreferences = {
 			if (panel) panel.hidden = this.$("ocrflow-paddle-mode").value !== key;
 		}
 	},
+	syncMarkerMode(){const cloud=this.$("ocrflow-marker-type")?.value==="cloud";this.$("ocrflow-marker-local-fields").hidden=cloud;this.$("ocrflow-marker-cloud-fields").hidden=!cloud;},
 
 	initNavigation() {
-		for (let key of ["services", "ai", "work", "collation", "output", "tasks"]) this.$("ocrflow-tab-" + key)?.addEventListener("click", () => this.showSection(key));
+		if(this.navigationBound)return;this.navigationBound=true;
+		for (let key of ["services", "ai", "work", "collation", "output", "tasks", "config"]) this.$("ocrflow-tab-" + key)?.addEventListener("click", () => this.showSection(key));
 		for (let key of ["mineru", "paddle", "marker", "markitdown", "ai"]) this.$("ocrflow-service-tab-" + key)?.addEventListener("click", () => this.showService(key));
 		for (let key of this.WORK_KINDS) this.$("ocrflow-work-tab-" + key)?.addEventListener("click", () => this.showWork(key));
 		this.$("ocrflow-paddle-mode")?.addEventListener("change", () => this.syncPaddleMode());
+		this.$("ocrflow-marker-type")?.addEventListener("change",()=>this.syncMarkerMode());
 		this.$("ocrflow-go-ai")?.addEventListener("click", () => this.showSection("ai"));
 		this.$("ocrflow-go-ocr")?.addEventListener("click", () => { this.showSection("work"); this.showWork("ocr"); });
 		this.showService(this.$("docflow-parser-service").value);
 		this.showWork("parent");
 		this.syncPaddleMode();
+		this.syncMarkerMode();
 		let plugin = Zotero.getMainWindow?.()?.DocFlow;
 		if (plugin && typeof DocFlowTaskQueue !== "undefined") {
 			this.queueView = DocFlowTaskQueue;
@@ -907,8 +936,11 @@ var DocFlowPreferences = {
 	init() {
 		if (this.initialized) return;
 		try {
+			this.initConfig?.();
+			if(this.configStore?.()?.state!==undefined&&this.configStore().state!=="unlocked"){this.initNavigation();this.showSection("config");this.refreshConfig();return;}
 			this.loadSettings();
 			this.initNavigation();
+			this.refreshConfig?.();
 			this.$("docflow-prefpane")?.addEventListener("click",event=>{
 				let button=event.target.closest?.("button");if(!button||button.disabled)return;
 				button.setAttribute("data-result","");
@@ -922,8 +954,8 @@ var DocFlowPreferences = {
 			for (let kind of ["default", ...this.WORK_KINDS]) {
 				this.$("ocrflow-work-" + kind + "-model").addEventListener("change", () => { this.updateWorkLabels(); this.setStatus("有未保存的修改"); });
 			}
-			this.$("ocrflow-work-save").addEventListener("click", () => this.saveSettings({ section: "work" }));
-			this.$("ocrflow-paddle-save")?.addEventListener("click", () => this.saveSettings({ section: "paddle" }));
+			this.$("ocrflow-work-save").addEventListener("click", () => this.persistSettings({ section: "work" }));
+			this.$("ocrflow-paddle-save")?.addEventListener("click", () => this.persistSettings({ section: "paddle" }));
 			this.$("ocrflow-collation-a")?.addEventListener("change", () => this.renderOCRSources());
 			for (let kind of this.WORK_KINDS) this.$("ocrflow-work-" + kind + "-reset").addEventListener("click", () => {
 				this.$(this.workFieldID(kind, "prompt")).value = OCRFlowPrompts.defaults[kind];
@@ -934,7 +966,7 @@ var DocFlowPreferences = {
 			}
 			let saveButton = this.$("mineru-save-button");
 			if (saveButton) {
-				saveButton.addEventListener("click", () => this.saveSettings());
+				saveButton.addEventListener("click", () => this.persistSettings());
 			}
 			this.$("mineru-open-queue-button")?.addEventListener("click", () => {
 				Zotero.getMainWindow().DocFlow.openParseQueueDialog();
@@ -946,12 +978,12 @@ var DocFlowPreferences = {
 				});
 			});
 			for (let [section, method] of [["markitdown", "testMarkItDownConnection"], ["mineru", "testMineruConnection"], ["marker", "testMarkerConnection"]]) {
-				this.$(`ocrflow-${section}-save`).addEventListener("click", () => this.saveSettings({ section }));
+				this.$(`ocrflow-${section}-save`).addEventListener("click", () => this.persistSettings({ section }));
 				this.$(`ocrflow-${section}-test`).addEventListener("click", () => this[method]().catch(error => {
 					Zotero.logError(error); this.setStatus(`测试失败：${error.message || error}`, true, section);
 				}));
 			}
-			this.$("ocrflow-ai-save").addEventListener("click", () => this.saveSettings({ section: "ai" }));
+			this.$("ocrflow-ai-save").addEventListener("click", () => this.persistSettings({ section: "ai" }));
 			for (let slot of [1, 2]) this.$(`ocrflow-model-${slot}-test`).addEventListener("click", () => this.testLLMConnection(slot));
 			for (let field of this.FIELDS) {
 				let input = this.$(field.id);

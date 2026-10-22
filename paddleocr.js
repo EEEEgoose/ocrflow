@@ -1,7 +1,7 @@
 // Official API: PaddleOCR SDK /api/v2/ocr/jobs. Self-hosted: full /layout-parsing pipeline.
 Object.assign(DocFlow, {
 	getPaddleSettings(mode) {
-		let read = key => String(Zotero.Prefs.get(this.PREF_BRANCH + `paddle.${mode}.${key}`, true) || "").trim();
+		let read = key => String(this.getPref(this.PREF_BRANCH + `paddle.${mode}.${key}`, true) || "").trim();
 		return { mode, baseURL: (read("url") || (mode === "cloud" ? "https://paddleocr.aistudio-app.com/api/v2/ocr" : "")).replace(/\/+$/, ""),
 			token: read("token").replace(/^Bearer\s+/i, ""), model: read("model") || "PaddleOCR-VL-1.6" };
 	},

@@ -24,18 +24,19 @@ Organize document reuses existing full text and parent items, filling missing me
 
 ## Recognition and proofreading
 
-- Supports **MinerU local / cloud, PaddleOCR official / self-hosted APIs, Marker, MarkItDown, and vision models**. Marker currently accepts PDFs; EPUB, Office, and other document formats use MarkItDown.
+- Supports **MinerU local / cloud, PaddleOCR official / self-hosted APIs, Marker (self-hosted or Datalab hosted API), MarkItDown, and vision models**. Marker currently accepts PDFs; EPUB, Office, and other document formats use MarkItDown.
 - Preserves raw responses, document structure, footnotes, captions, physical page references, and available coordinates. Cross-page joins retain their source fragments, and a change report records document processing changes.
 - Optional dual-engine recognition uses engine A as the base text and engine B for comparison. The same engine cannot occupy both slots. Optional AI proofreading uses the source images and automatically saves clear suggestions as a new edition, retaining the base text, evidence, and change history. Uncertain readings remain unchanged.
 - Stores up to five AI provider configurations, each with two models. Assign models, prompts, and request parameters independently to each task; configure context windows, output limits, and concurrency per model.
 - Shows execution steps and actual progress in the sidebar, with the complete queue in Settings. Supports cancellation, retries, translation recovery, and opening results. Marker reconnects to the existing job after a brief network interruption without uploading the document again.
+- Encrypts configuration locally and supports encrypted import/export and transport through Zotero file syncing. See the [configuration and sync guide (Chinese)](docs/CONFIGURATION-SYNC.zh-CN.md).
 - Schedules independent documents concurrently across operations, services, and models. AI requests share each configured model’s concurrency limit; conflicting operations on the same bibliographic item wait. Server-side queues and resource limits still apply.
 
 ## Installation and quick start
 
 1. Download the `.xpi` from the [latest release](https://github.com/EEEEgoose/ocrflow/releases/latest).
 2. In Zotero, open **Tools → Plugins → Install Plugin From File**. Fully restart Zotero after the initial installation.
-3. Open **Settings → OCRFlow**, configure the recognition services and AI models you need, test the connections, and save.
+3. Open **Settings → OCRFlow → Configuration & Sync** (配置与同步), create a configuration password or import an encrypted configuration, then configure your services and AI models.
 4. Select a file or bibliographic item and use the OCRFlow panel on the right. If the item has multiple source files, first choose the attachment to process.
 
 Wait for active tasks to finish before updating the plugin so that the current session’s queue and job IDs remain available. The client queue and unfinished translation cache do not survive a Zotero restart. Server jobs and saved attachments are stored separately from the client session.
@@ -71,6 +72,6 @@ Builds produce `dist/ocrflow-<version>.xpi`, a matching source archive, and `upd
 
 ## Data and licensing
 
-When you run an action, the relevant filename, full text, original file, or page images are sent to the service you selected. Viewing or selecting an item does not start a task. API keys remain in local Zotero preferences and are not distributed with the source.
+When you run an action, the relevant filename, full text, original file, or page images are sent to the service you selected. Viewing or selecting an item does not start a task. API keys and other settings are stored in a local encrypted vault and are not distributed with the source.
 
 This project retains its [MIT license](LICENSE), along with third-party notices and component licenses. OCRFlow was developed with assistance from LLMs. Check OCR and model-generated results against the source document; the user guide and validation notes describe the supported behavior and verification scope.

@@ -322,7 +322,7 @@ var OCRFlowTaskSidebar = {
 				actions.appendChild(action("服务与模型设置", () => plugin.openPreferences("work")));
 			}
 			else if (["failed", "canceled", "wait_expired", "waiting"].includes(task.state)) actions.appendChild(action(task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : "重新处理", () => plugin.retryParseQueueTasks([task.id])));
-			if (["queued", "running", "wait_expired"].includes(task.state) || task.cancelFailed) actions.appendChild(action(task.cancelFailed ? "重试终止" : "终止任务", () => plugin.cancelParseQueueTask(task.id), !!task.saving));
+			if (["queued", "running", "wait_expired"].includes(task.state) || task.cancelFailed) actions.appendChild(action(task.cancelFailed ? "重试终止" : (task.cancelSettings||task.settings).markerSettings?.apiType==="cloud" ? "停止等待" : "终止任务", () => plugin.cancelParseQueueTask(task.id), !!task.saving));
 			if (task.resultAttachment) {
 				actions.appendChild(action("查看结果", () => view.window.ZoteroPane.viewItems([task.resultAttachment])));
 				if (task.collationStatus) actions.appendChild(action(view.reviewOpening ? "正在打开校勘…" : "审阅 OCR 校勘", () => this.openReview(view, task.resultAttachment), view.reviewOpening));
@@ -352,6 +352,7 @@ var OCRFlowTaskSidebar = {
 
 	serviceLabel(task) {
 		let settings = task.displaySettings || task.settings;
+		if(settings.parserService==="marker"&&settings.markerSettings?.apiType==="cloud")return "Marker · Datalab 在线 API";
 		if (settings.parserService === "ai" || (!settings.parserService && settings.model) || !["parse", "organize"].includes(task.kind)) {
 			let model = settings.llmSettings || settings;
 			return [model.providerName, model.model].filter(Boolean).join(" · ") || "AI 工作";
