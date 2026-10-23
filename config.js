@@ -12,13 +12,13 @@ var OCRFlowConfig = {
  },
  get(key,global=true){
   if(!key.startsWith(this.prefix)||this.isRuntime(key))return Zotero.Prefs.get(key,global);
-  if(this.state==='locked')throw Error('OCRFlow 配置已锁定，请在“配置与同步”中解锁。');
-  if(this.state==='setup')throw Error('请先在“配置与同步”创建配置密码，将现有设置转为加密保存。');
+  if(this.state==='locked')throw Error('OCRFlow 配置已锁定，请在“同步功能”中解锁。');
+  if(this.state==='setup')throw Error('请先在“同步功能”创建配置密码，将现有设置转为加密保存。');
   return Object.hasOwn(this.values,key)?this.values[key]:undefined;
  },
  set(key,value,global=true){
   if(!key.startsWith(this.prefix)||this.isRuntime(key))return Zotero.Prefs.set(key,value,global);
-  if(this.state!=='unlocked')throw Error('请先在“配置与同步”设置配置密码并解锁，再保存配置。');
+  if(this.state!=='unlocked')throw Error('请先在“同步功能”设置配置密码并解锁，再保存配置。');
   if(!['string','number','boolean'].includes(typeof value))throw Error('不支持的配置值类型');
   if(this.values[key]===value)return;
   this.values[key]=value;this.dirty=true;

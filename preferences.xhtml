@@ -105,8 +105,8 @@
 				<html:h2>OCRFlow 设置</html:h2>
 				<html:p class="mineru-help">按需识别文档、整理条目与生成学术笔记</html:p>
 			</html:div>
-		</html:header><html:nav class="ocrflow-tabs" aria-label="OCRFlow 设置分类"><html:button id="ocrflow-tab-services" type="button" aria-pressed="false">提取服务</html:button><html:button id="ocrflow-tab-ai" type="button" aria-pressed="false">AI 服务商</html:button><html:button id="ocrflow-tab-work" type="button" aria-pressed="false">工作配置</html:button><html:button id="ocrflow-tab-collation" type="button" aria-pressed="false">双引擎校勘</html:button><html:button id="ocrflow-tab-output" type="button" aria-pressed="false">输出保存</html:button><html:button id="ocrflow-tab-tasks" type="button" aria-pressed="false">任务队列</html:button><html:button id="ocrflow-tab-config" type="button" aria-pressed="false">配置与同步</html:button></html:nav><html:div id="ocrflow-panel-services"><html:div class="mineru-grid ocrflow-service-choice">
-			<html:label for="docflow-parser-service">PDF / 图片提取服务</html:label>
+		</html:header><html:nav class="ocrflow-tabs" aria-label="OCRFlow 设置分类"><html:button id="ocrflow-tab-services" type="button" aria-pressed="false">识别服务</html:button><html:button id="ocrflow-tab-ai" type="button" aria-pressed="false">AI 服务商</html:button><html:button id="ocrflow-tab-work" type="button" aria-pressed="false">流程配置</html:button><html:button id="ocrflow-tab-collation" type="button" aria-pressed="false">勘校配置</html:button><html:button id="ocrflow-tab-output" type="button" aria-pressed="false">输出保存</html:button><html:button id="ocrflow-tab-tasks" type="button" aria-pressed="false">任务队列</html:button><html:button id="ocrflow-tab-config" type="button" aria-pressed="false">同步功能</html:button></html:nav><html:div id="ocrflow-panel-services"><html:div class="mineru-grid ocrflow-service-choice">
+			<html:label for="docflow-parser-service">PDF / 图片识别服务</html:label>
 			<menulist id="docflow-parser-service" native="true">
 				<menupopup>
 					<menuitem label="MinerU" value="mineru" /><menuitem label="PaddleOCR" value="paddle" />
@@ -226,7 +226,7 @@
 			</html:div>
 			<html:pre id="ocrflow-markitdown-output" hidden="hidden" class="mineru-test-output" />
 			<html:p class="mineru-help">可填写服务根地址或 MCP 地址，例如 http://127.0.0.1:33001/mcp/。</html:p>
-		</html:section></html:div><html:div id="ocrflow-service-panel-ai"><html:h3>AI 视觉 OCR</html:h3><html:p class="mineru-help">连接信息在“AI 服务商”中配置；识别模型、提示词与页面参数在“工作配置 → OCR”中选择。</html:p><html:button id="ocrflow-go-ai" type="button">配置 AI 服务商</html:button><html:button id="ocrflow-go-ocr" type="button">配置 OCR 工作</html:button></html:div></html:div><html:div id="ocrflow-panel-ai"><html:section class="ocrflow-section" aria-labelledby="ocrflow-ai-heading">
+		</html:section></html:div><html:div id="ocrflow-service-panel-ai"><html:h3>AI 视觉 OCR</html:h3><html:p class="mineru-help">连接信息在“AI 服务商”中配置；识别模型、提示词与页面参数在“流程配置 → 识别全文”中选择。</html:p><html:button id="ocrflow-go-ai" type="button">配置 AI 服务商</html:button><html:button id="ocrflow-go-ocr" type="button">配置识别全文</html:button></html:div></html:div><html:div id="ocrflow-panel-ai"><html:section class="ocrflow-section" aria-labelledby="ocrflow-ai-heading">
 			<html:div class="ocrflow-section-heading">
 				<html:h3 id="ocrflow-ai-heading">服务商配置</html:h3>
 				<html:span class="mineru-help">每个配置最多两个模型，共用连接信息</html:span>
@@ -275,10 +275,10 @@
 			</html:div>
 			<html:p class="mineru-help ocrflow-action-help">保存当前服务商配置；两个模型分别设置上下文、最大输出长度与并发，留空使用默认值。最大输出长度填写 8K、16K 或整数 tokens；应小于上下文并符合模型实际能力。工作请求参数中的 max_tokens / max_completion_tokens 优先于此设置。上下文直接填写 128K 或 1M（1K＝1024 tokens，1M＝1024K）。每个模型下的“测试连接”只测试该模型，使用当前填写内容，不自动保存。</html:p>
 		</html:section></html:div><html:div id="ocrflow-panel-work"><html:section class="ocrflow-section" aria-labelledby="ocrflow-work-heading">
-			<html:div class="ocrflow-section-heading"><html:h3 id="ocrflow-work-heading">工作模型配置</html:h3><html:span class="mineru-help">内置提示词可直接编辑，支持恢复默认</html:span></html:div>
+			<html:div class="ocrflow-section-heading"><html:h3 id="ocrflow-work-heading">流程模型配置</html:h3><html:span class="mineru-help">内置提示词可直接编辑，支持恢复默认</html:span></html:div>
 			<html:div class="mineru-grid"><html:label for="ocrflow-work-default-model">默认模型</html:label><html:select id="ocrflow-work-default-model" /></html:div>
-			<html:nav class="ocrflow-tabs" aria-label="工作类型"><html:button id="ocrflow-work-tab-parent" type="button" aria-pressed="false">建立父条目</html:button><html:button id="ocrflow-work-tab-metadata" type="button" aria-pressed="false">补全条目</html:button><html:button id="ocrflow-work-tab-summary" type="button" aria-pressed="false">总结</html:button><html:button id="ocrflow-work-tab-ocr" type="button" aria-pressed="false">OCR</html:button><html:button id="ocrflow-work-tab-translate" type="button" aria-pressed="false">翻译</html:button><html:button id="ocrflow-work-tab-outline" type="button" aria-pressed="false">大纲</html:button></html:nav><html:div class="ocrflow-work" id="ocrflow-work-parent">
-				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-parent-model">建立父条目</html:label><html:p class="mineru-help">根据文件名识别条目信息</html:p></html:div><html:div><html:select id="ocrflow-work-parent-model" /><html:p id="ocrflow-work-parent-actual" class="mineru-help" /></html:div></html:div>
+			<html:nav class="ocrflow-tabs" aria-label="流程类型"><html:button id="ocrflow-work-tab-parent" type="button" aria-pressed="false">建立条目</html:button><html:button id="ocrflow-work-tab-metadata" type="button" aria-pressed="false">补全条目</html:button><html:button id="ocrflow-work-tab-summary" type="button" aria-pressed="false">全文总结</html:button><html:button id="ocrflow-work-tab-ocr" type="button" aria-pressed="false">识别全文</html:button><html:button id="ocrflow-work-tab-translate" type="button" aria-pressed="false">全文翻译</html:button><html:button id="ocrflow-work-tab-title" type="button" aria-pressed="false">标题翻译</html:button><html:button id="ocrflow-work-tab-outline" type="button" aria-pressed="false">生成大纲</html:button></html:nav><html:div class="ocrflow-work" id="ocrflow-work-parent">
+				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-parent-model">建立条目</html:label><html:p class="mineru-help">根据文件名识别条目信息</html:p></html:div><html:div><html:select id="ocrflow-work-parent-model" /><html:p id="ocrflow-work-parent-actual" class="mineru-help" /></html:div></html:div>
 				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
 					<html:label for="ocrflow-work-parent-prompt">提示词</html:label>
 					<html:textarea id="ocrflow-work-parent-prompt" rows="6" />
@@ -302,7 +302,7 @@
 				</html:div></html:details>
 			</html:div>
 			<html:div class="ocrflow-work" id="ocrflow-work-summary">
-				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-summary-model">总结文献</html:label><html:p class="mineru-help">生成学术总结笔记</html:p></html:div><html:div><html:select id="ocrflow-work-summary-model" /><html:p id="ocrflow-work-summary-actual" class="mineru-help" /></html:div></html:div>
+				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-summary-model">全文总结</html:label><html:p class="mineru-help">生成学术总结笔记</html:p></html:div><html:div><html:select id="ocrflow-work-summary-model" /><html:p id="ocrflow-work-summary-actual" class="mineru-help" /></html:div></html:div>
 				<html:div class="mineru-grid">
 				<html:label for="mineru-summary-language">总结语言</html:label>
 				<menulist id="mineru-summary-language" native="true">
@@ -328,7 +328,7 @@
 				<html:p class="mineru-help">{{language}} 代表总结语言。输出截断时，可提高所选模型的最大输出长度（如 16K）；若请求参数 JSON 已指定 max_tokens / max_completion_tokens，则需修改该参数，并确认模型支持该输出上限；推理模型可能同时消耗推理与正文额度。分段整理仍会要求每段摘要不超过 1500 字。</html:p>
 			</html:div>
 			<html:div class="ocrflow-work" id="ocrflow-work-ocr">
-				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-ocr-model">AI 视觉 OCR</html:label><html:p class="mineru-help">仅用于 AI OCR；模型须支持图片</html:p></html:div><html:div><html:select id="ocrflow-work-ocr-model" /><html:p id="ocrflow-work-ocr-actual" class="mineru-help" /></html:div></html:div>
+				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-ocr-model">识别全文</html:label><html:p class="mineru-help">仅用于 AI OCR；模型须支持图片</html:p></html:div><html:div><html:select id="ocrflow-work-ocr-model" /><html:p id="ocrflow-work-ocr-actual" class="mineru-help" /></html:div></html:div>
 				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
 					<html:label for="ocrflow-work-ocr-prompt">提示词</html:label>
 					<html:textarea id="ocrflow-work-ocr-prompt" rows="6" />
@@ -339,7 +339,7 @@
 				</html:div></html:details>
 			</html:div>
 			<html:div class="ocrflow-work" id="ocrflow-work-translate">
-				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-translate-model">翻译文献</html:label><html:p class="mineru-help">翻译 Markdown 全文</html:p></html:div><html:div><html:select id="ocrflow-work-translate-model" /><html:p id="ocrflow-work-translate-actual" class="mineru-help" /></html:div></html:div>
+				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-translate-model">全文翻译</html:label><html:p class="mineru-help">翻译 Markdown 全文</html:p></html:div><html:div><html:select id="ocrflow-work-translate-model" /><html:p id="ocrflow-work-translate-actual" class="mineru-help" /></html:div></html:div>
 				<html:div class="mineru-grid">
 				<html:label for="mineru-translateOutputFormat">翻译保存格式</html:label>
 				<menulist id="mineru-translateOutputFormat" native="true">
@@ -383,8 +383,32 @@
 				<html:p class="mineru-help">{{language}} 代表翻译目标语言。分段字符数仍受模型上下文预算限制；双栏对照仅支持 HTML。含图片时只翻译文字，程序会追加分片 JSON 格式要求。</html:p>
 			</html:div>
 
+			<html:div class="ocrflow-work" id="ocrflow-work-title">
+				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-title-model">标题翻译</html:label><html:p class="mineru-help">只翻译父条目原题名，写入短标题；无需 Markdown</html:p></html:div><html:div><html:select id="ocrflow-work-title-model" /><html:p id="ocrflow-work-title-actual" class="mineru-help" /></html:div></html:div>
+				<html:div class="mineru-grid">
+					<html:label for="ocrflow-title-service">默认翻译服务</html:label><html:select id="ocrflow-title-service"><html:option value="ai">AI</html:option><html:option value="deepl">DeepL</html:option><html:option value="deeplx">DeepLX</html:option></html:select>
+					<html:label for="ocrflow-title-language">标题目标语言</html:label><html:input id="ocrflow-title-language" type="text" placeholder="ZH / EN / FR / JA / AR"/>
+				</html:div>
+				<html:label class="ocrflow-check"><html:input id="ocrflow-title-overwrite" type="checkbox"/>覆盖已有短标题（默认跳过）</html:label>
+				<html:p class="mineru-help">标题与全文翻译的目标语言分别保存。执行时可临时更改服务、模型与语言；AI 提示词中的 {{language}} 替换为标题目标语言。</html:p>
+				<html:div class="ocrflow-group-actions"><html:button id="ocrflow-title-save" type="button">保存标题翻译设置</html:button><html:span id="ocrflow-title-status" role="status" class="ocrflow-status"/></html:div>
+				<html:h4>DeepL</html:h4><html:div class="mineru-grid"><html:label for="ocrflow-deepl-plan">API 类型</html:label><html:select id="ocrflow-deepl-plan"><html:option value="free">API Free</html:option><html:option value="pro">API Pro</html:option></html:select><html:label for="ocrflow-deepl-key">API Key</html:label><html:input id="ocrflow-deepl-key" type="password"/></html:div>
+				<html:div class="ocrflow-group-actions"><html:button id="ocrflow-deepl-save" type="button">保存 DeepL</html:button><html:button id="ocrflow-deepl-test" type="button">测试连接</html:button><html:span id="ocrflow-deepl-status" role="status" class="ocrflow-status"/></html:div>
+				<html:h4>DeepLX</html:h4><html:div class="mineru-grid"><html:label for="ocrflow-deeplx-endpoint">完整接口地址</html:label><html:input id="ocrflow-deeplx-endpoint" type="url" placeholder="http://127.0.0.1:1188/translate"/><html:label for="ocrflow-deeplx-token">访问 Token（可选）</html:label><html:input id="ocrflow-deeplx-token" type="password"/></html:div>
+				<html:div class="ocrflow-group-actions"><html:button id="ocrflow-deeplx-save" type="button">保存 DeepLX</html:button><html:button id="ocrflow-deeplx-test" type="button">测试连接</html:button><html:span id="ocrflow-deeplx-status" role="status" class="ocrflow-status"/></html:div>
+				<html:p class="mineru-help">测试连接会翻译示例“Hello”，可能计入服务用量，不修改任何条目。密钥与 Token 随配置加密保存。</html:p>
+
+				<html:details class="ocrflow-details"><html:summary>提示词与请求参数</html:summary><html:div class="mineru-grid">
+					<html:label for="ocrflow-work-title-prompt">提示词</html:label>
+					<html:textarea id="ocrflow-work-title-prompt" rows="6" />
+					<html:div class="ocrflow-prompt-actions"><html:button id="ocrflow-work-title-reset" type="button">恢复内置提示词</html:button><html:span class="mineru-help">修改后保存生效；清空并保存使用内置提示词。</html:span></html:div>
+					<html:details class="ocrflow-prompt-reference"><html:summary>查看内置提示词参考</html:summary><html:textarea id="ocrflow-work-title-default" rows="6" readonly="readonly" /></html:details>
+					<html:label for="ocrflow-work-title-params">请求参数 JSON</html:label>
+					<html:textarea id="ocrflow-work-title-params" rows="3" placeholder="留空使用默认参数" />
+				</html:div></html:details>
+			</html:div>
 			<html:div class="ocrflow-work" id="ocrflow-work-outline">
-				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-outline-model">阅读器大纲</html:label><html:p class="mineru-help">PDF 书签优先，AI 补充目录和章节摘要</html:p></html:div><html:div><html:select id="ocrflow-work-outline-model" /><html:p id="ocrflow-work-outline-actual" class="mineru-help" /></html:div></html:div>
+				<html:div class="ocrflow-work-heading"><html:div><html:label for="ocrflow-work-outline-model">生成大纲</html:label><html:p class="mineru-help">PDF 书签优先，AI 补充目录和章节摘要</html:p></html:div><html:div><html:select id="ocrflow-work-outline-model" /><html:p id="ocrflow-work-outline-actual" class="mineru-help" /></html:div></html:div>
 				<html:div class="mineru-grid">
 				<html:label for="mineru-auto-outline">MinerU 解析完成后自动生成大纲</html:label>
 				<html:input id="mineru-auto-outline" type="checkbox" />
@@ -403,7 +427,7 @@
 			<html:p class="mineru-help">各工作分别选择模型、编辑提示词和请求参数；上下文与并发统一读取所选模型的设置。文档依次处理，分段和 OCR 页面按模型并发请求；同一模型的父条目可批量建立。</html:p>
 			<html:div class="ocrflow-group-actions"><html:button id="ocrflow-work-save" type="button">保存工作设置</html:button><html:span id="ocrflow-work-status" role="status" aria-live="polite" class="ocrflow-status" /></html:div>
 		</html:section></html:div><html:div id="ocrflow-panel-collation"><html:section class="ocrflow-section" aria-labelledby="ocrflow-collation-heading">
-			<html:h3 id="ocrflow-collation-heading">双引擎校勘</html:h3>
+			<html:h3 id="ocrflow-collation-heading">勘校配置</html:h3>
 			<html:label class="ocrflow-check"><html:input id="ocrflow-collation-enabled" type="checkbox"/>启用双引擎：按 A 生成底稿，再用 B 独立识别并生成疑字清单</html:label>
 			<html:div class="mineru-grid">
 				<html:label for="ocrflow-collation-a">主识别来源 A</html:label><html:select id="ocrflow-collation-a"/>
@@ -490,7 +514,7 @@
 			</html:div>
 			<html:pre id="mineru-job-progress-output" class="mineru-test-output" />
 		</html:details></html:div><html:section id="ocrflow-panel-config" class="ocrflow-section" hidden="hidden">
-<html:h3>加密配置与同步</html:h3><html:p id="ocrflow-config-state" role="status"/>
+<html:h3>加密同步功能</html:h3><html:p id="ocrflow-config-state" role="status"/>
 <html:p class="mineru-help">全部插件配置使用同一配置密码加密。密码不随导出或同步；遗失后无法解密。导入会整套替换，文献与任务记录不属于配置包。</html:p>
 <html:div class="mineru-grid"><html:label for="ocrflow-config-pass">配置密码 / 新密码</html:label><html:input id="ocrflow-config-pass" type="password" autocomplete="off"/>
 <html:label for="ocrflow-config-confirm">确认新密码</html:label><html:input id="ocrflow-config-confirm" type="password" autocomplete="off"/></html:div>

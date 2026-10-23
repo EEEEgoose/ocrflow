@@ -62,3 +62,9 @@ OCRFlow 由作者在自有项目 Auto parent item 的基础上开发，曾使用
 Marker 2.0.0 的上游区分 Apache-2.0 代码许可与独立的模型权重条款；不应将代码许可视为模型许可。本文件记录调用与分发边界，实际部署须以所安装版本附带的许可和模型声明为准。
 
 MinerU 补丁与 Marker 任务接口的安装、验证和取消说明统一见 [本地页进度部署指南](docs/OCR-PROGRESS-DEPLOYMENT.zh-CN.md)。外部 API 服务及模型均不因为出现在配置列表中而成为随包组件。
+
+## 标题翻译接口
+
+1.5.0 的标题翻译模块参考用户提供的 `ocrflow-github-ready.zip` 中 `title-translation.js`、`translation-services.js`，迁入当前加密配置、任务队列和工作设置；配置统一放在设置页，不沿用独立标题对话框。
+
+DeepL 通过[官方文本翻译 REST API](https://developers.deepl.com/docs/getting-started/quickstart)调用 API Free / Pro，不包含 DeepL SDK。DeepLX 适配 [OwO-Network/DLX](https://github.com/OwO-Network/DLX)（原名 DeepLX）的 `/translate` 接口及可选 Bearer Token；不包含服务端源码或部署。两者是独立接口，使用用户自行配置的服务与凭据。

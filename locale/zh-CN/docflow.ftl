@@ -3,7 +3,7 @@ docflow-menu-root =
 docflow-menu-organize =
     .label = 一键整理
 docflow-menu-create-parent =
-    .label = 建立父条目
+    .label = 建立条目
 docflow-menu-parse-pdf =
     .label = 识别文档
 docflow-menu-ocr-default =
@@ -36,3 +36,6 @@ ocrflow-menu-changes =
 
 docflow-menu-ocr-marker =
     .label = Marker（在线 / 自部署）
+
+docflow-menu-translate-title =
+    .label = 翻译标题

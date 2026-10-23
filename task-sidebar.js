@@ -91,7 +91,7 @@ var OCRFlowTaskSidebar = {
 	documentTasks(context) {
 		if (!context.item) return [];
 		let ids = new Set([context.file?.id, context.source?.id, !context.files.length ? context.item.id : null].filter(Boolean));
-		return this.plugin.parseQueue.filter(task => [task.attachment.id, task.source?.id, task.mineruSource?.id, task.resultAttachment?.id].some(id => ids.has(id)));
+		return this.plugin.parseQueue.filter(task => (task.kind === "title" && task.attachment.id === context.parent?.id) || [task.attachment.id, task.source?.id, task.mineruSource?.id, task.resultAttachment?.id].some(id => ids.has(id)));
 	},
 
 	async loadSourceActions(view, source) {
@@ -117,7 +117,10 @@ var OCRFlowTaskSidebar = {
 		if (!context.item) return "请先选择一篇文献或文件附件。";
 		if (context.item.isNote?.() && !context.parent) return "独立笔记暂不支持文献处理，请选择文献条目或文件附件。";
 		if (busy) return "当前文件已有任务，请在下方查看进度或终止后重试。";
-		if (["metadata", "summary", "translate"].includes(kind)) {
+		if (kind === "title") {
+			if (!context.parent) return "请先建立条目，再翻译标题。";
+			if (!context.parent.getField("title").trim()) return "当前条目没有标题，请先填写原标题。";
+		} else if (["metadata", "summary", "translate"].includes(kind)) {
 			if (!context.parent) return "请先通过“一键整理”建立父条目，再进行总结、翻译或信息补全。";
 			if (!context.source) return "请先识别文档，再进行总结、翻译或信息补全。";
 		} else if (kind === "parent") {
@@ -144,12 +147,13 @@ var OCRFlowTaskSidebar = {
 		}
 		view.launching.add(context.key); view.error = null; this.render(view);
 		try {
-			let target = ["summary", "metadata", "translate"].includes(kind) || (kind === "organize" && plugin.isMarkdownResult(context.item)) ? context.source : context.file || context.source;
+			let target = kind === "title" ? context.parent : ["summary", "metadata", "translate"].includes(kind) || (kind === "organize" && plugin.isMarkdownResult(context.item)) ? context.source : context.file || context.source;
 			let options = {window:view.window, selectedItems:[target]};
 			let running;
 			if (kind === "organize") running=plugin.handleOrganizeCommand(options);
 			else if (kind === "ocr") running=plugin.handleParseCommand(options);
 			else if (kind === "translate") running=plugin.handleTranslateCommand(options);
+			else if (kind === "title") running=plugin.handleTitleTranslation(options);
 			else if (kind === "outline") running=plugin.outline.enqueueSelected([target]);
 			else running=plugin.handleDocumentCommand(kind, options);
 			if(this.documentTasks(context).some(task=>["queued","running","stopping"].includes(task.state))) { view.launching.delete(context.key);this.render(view); }
@@ -247,7 +251,7 @@ var OCRFlowTaskSidebar = {
 			primary.title = this.actionUnavailableReason(context, "organize", busy);
 			primary.appendChild(make("small", "识别 · 建条目 · 补全 · 大纲 · 总结 · 翻译")); content.appendChild(primary);
 			let operations = make("div", undefined, "of-document-actions");
-			for (let [kind, label, icon] of [["ocr", "识别文档", "ocr"], ["metadata", "补全条目", "metadata"], ["summary", "总结文献", "summary"], ["translate", "翻译文献", "translate"], ["outline", "生成大纲", "outline"]]) {
+			for (let [kind, label, icon] of [["ocr", "识别文档", "ocr"], ["metadata", "补全条目", "metadata"], ["summary", "总结文献", "summary"], ["translate", "翻译文献", "translate"], ["outline", "生成大纲", "outline"], ["title", "翻译标题", "translate"]]) {
 				let button = iconButton(label, icon, () => this.performDocumentAction(view, kind), !this.canPerform(context, kind, busy));
 				button.title = this.actionUnavailableReason(context, kind, busy) || (kind === "ocr" && context.source ? "将重新识别关联原文件，保留已有全文。" : "");
 				button.setAttribute("data-focus-key", kind); operations.appendChild(button);
@@ -264,7 +268,7 @@ var OCRFlowTaskSidebar = {
 			let more = make("details", undefined, "of-more"); more.open = !!view.moreOpen;
 			more.appendChild(make("summary", "更多操作"));
 			let moreActions = make("div", undefined, "of-actions");
-			moreActions.append(action("建立父条目", () => this.performDocumentAction(view, "parent"), !this.canPerform(context, "parent", busy)),
+			moreActions.append(action("建立条目", () => this.performDocumentAction(view, "parent"), !this.canPerform(context, "parent", busy)),
 				action(view.reviewOpening ? "正在打开校勘…" : "审阅 OCR 校勘", () => this.openReview(view, context.source), view.reviewOpening || !view.sourceActions?.review),
 				action("查看整理差异", () => plugin.openChangesReport({selectedItems:[context.source]}), !view.sourceActions?.changes));
 			more.appendChild(moreActions); more.querySelector("summary").addEventListener("click", () => { view.moreOpen = !more.open; });
@@ -274,7 +278,7 @@ var OCRFlowTaskSidebar = {
 		content.appendChild(make("p", "当前文献任务", "of-section-title"));
 		if (relatedTasks.length > 1) {
 			let selector = make("select"); selector.setAttribute("aria-label", "选择当前文献的任务"); selector.setAttribute("data-focus-key", "task-selector");
-			for (let row of relatedTasks) selector.appendChild(Object.assign(make("option", `${({parse:"识别文档",organize:"一键整理",summary:"总结",translate:"翻译",outline:"大纲",metadata:"书目信息",parent:"建立父条目"})[row.kind]} · ${this.stateLabel(row)}`), {value:String(row.id)}));
+			for (let row of relatedTasks) selector.appendChild(Object.assign(make("option", `${({parse:"识别文档",organize:"一键整理",summary:"总结",title:"翻译标题",translate:"翻译",outline:"大纲",metadata:"书目信息",parent:"建立条目"})[row.kind]} · ${this.stateLabel(row)}`), {value:String(row.id)}));
 			selector.value = String(task.id); selector.addEventListener("change", () => { view.selectActive = null; view.taskID = Number(selector.value); this.render(view); }); content.appendChild(selector);
 		}
 		if (!task) content.appendChild(make("p", "暂无任务。点击上方操作后，在这里查看执行步骤。", "of-muted"));
@@ -352,6 +356,7 @@ var OCRFlowTaskSidebar = {
 
 	serviceLabel(task) {
 		let settings = task.displaySettings || task.settings;
+		if(task.kind==="title")return `${this.plugin.titleTranslationServiceLabel(settings)} → ${settings.targetLang}`;
 		if(settings.parserService==="marker"&&settings.markerSettings?.apiType==="cloud")return "Marker · Datalab 在线 API";
 		if (settings.parserService === "ai" || (!settings.parserService && settings.model) || !["parse", "organize"].includes(task.kind)) {
 			let model = settings.llmSettings || settings;
@@ -385,7 +390,7 @@ Object.assign(DocFlow, {
 		if (!task.steps) {
 			let labels = task.kind === "organize" ? [["extract","识别文档"],["parent","建立条目"],["metadata","补全条目"],["outline","生成大纲"],["summary","总结文献"],["translate","翻译文献"]] : task.kind === "parse"
 				? [["extract", "识别文档"], ["structure", "整理文档结构"], ...(task.settings.collationEnabled ? [["compare", "对照识别 B"]] : []), ...(task.settings.collationEnabled && task.settings.collationAIEnabled ? [["ai-review", "AI 辅助校勘"]] : []), ["save", "保存结果"], ...(task.kind === "organize" ? [["metadata", "补全条目"]] : [])]
-				: [["work", ({translate:"逐段翻译",summary:"生成学术总结",metadata:"补全条目",parent:"建立父条目",outline:"生成大纲"})[task.kind] || "处理文档"], ["save", "保存结果"]];
+				: [["work", ({title:"翻译标题",translate:"逐段翻译",summary:"生成学术总结",metadata:"补全条目",parent:"建立条目",outline:"生成大纲"})[task.kind] || "处理文档"], ["save", "保存结果"]];
 			if(task.kind!=="organize")labels.unshift(["read", "确认文献与来源"]);
 			task.steps = labels.map(([id, label]) => ({id, label, state:"pending", detail:"等待执行"}));
 		}

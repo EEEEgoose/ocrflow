@@ -8,12 +8,19 @@ var DocFlowPreferences = {
 	LLM_PROVIDER_LIMIT: 5,
 	LLM_PROVIDER_FIELDS: ["llmProviderName", "llmApiBaseURL", "llmApiKey", "llmModel", "llmModel2", "llmModelContext", "llmModelConcurrency", "llmModel2Context", "llmModel2Concurrency", "llmModelMaxOutput", "llmModel2MaxOutput"],
 	llmProviders: null,
-	WORK_KINDS: ["parent", "metadata", "summary", "ocr", "translate", "outline"],
+	WORK_KINDS: ["parent", "metadata", "summary", "ocr", "translate", "outline", "title"],
 	workSettings: {},
 	loadedLLMProviderIndex: 0,
 	modelTests: {},
 
 	FIELDS: [
+		{ id: "ocrflow-title-service", pref: "titleService", type: "string", defaultValue: "ai" },
+		{ id: "ocrflow-title-language", pref: "titleLanguage", type: "string", defaultValue: "ZH" },
+		{ id: "ocrflow-title-overwrite", pref: "titleOverwrite", type: "bool", defaultValue: false },
+		{ id: "ocrflow-deepl-plan", pref: "deeplPlan", type: "string", defaultValue: "free" },
+		{ id: "ocrflow-deepl-key", pref: "deeplApiKey", type: "string", defaultValue: "" },
+		{ id: "ocrflow-deeplx-endpoint", pref: "deeplxEndpoint", type: "string", defaultValue: "http://127.0.0.1:1188/translate" },
+		{ id: "ocrflow-deeplx-token", pref: "deeplxToken", type: "string", defaultValue: "" },
 		{ id:"ocrflow-marker-type", pref:"marker.apiType", type:"string", defaultValue:"local" },
 		{ id:"ocrflow-datalab-url", pref:"marker.cloud.url", type:"string", defaultValue:"https://www.datalab.to/api/v1" },
 		{ id:"ocrflow-datalab-key", pref:"marker.cloud.token", type:"string", defaultValue:"" },
@@ -101,6 +108,9 @@ var DocFlowPreferences = {
 	},
 
 	sectionForField(name) {
+		if (["titleService", "titleLanguage", "titleOverwrite"].includes(name)) return "title";
+		if (["deeplPlan", "deeplApiKey"].includes(name)) return "deepl";
+		if (["deeplxEndpoint", "deeplxToken"].includes(name)) return "deeplx";
 		if (name.startsWith("marker.")) return "marker";
 		if (name === "paddleMode" || name.startsWith("paddle.")) return "paddle";
 		if (name.startsWith("collation")) return "work";
@@ -418,9 +428,9 @@ var DocFlowPreferences = {
 			saved[kind]?.model === value || this.$("ocrflow-work-" + kind + "-model").value === value);
 	},
 
-	readWorkSettings() {
-		let work = { defaultModel: this.$("ocrflow-work-default-model").value };
-		for (let kind of this.WORK_KINDS) {
+	readWorkSettings(kinds = this.WORK_KINDS) {
+		let work = { ...this.workSettings, defaultModel: this.$("ocrflow-work-default-model").value };
+		for (let kind of kinds) {
 			work[kind] = { ...this.workSettings[kind], model: this.$("ocrflow-work-" + kind + "-model").value };
 			for (let field of ["prompt", "params"]) {
 				let input = this.$(this.workFieldID(kind, field)), value = input.value.trim();
@@ -490,6 +500,7 @@ var DocFlowPreferences = {
 			if (["all", "work"].includes(section) && this.$("ocrflow-collation-enabled")?.checked && this.$("ocrflow-collation-ai-enabled")?.checked &&
 				!this.modelChoices().some(choice => choice.value === this.$("ocrflow-collation-ai-model").value)) throw new Error("请选择支持图片的 AI 校勘模型。");
 			if (["all", "work"].includes(section)) work = this.readWorkSettings();
+			if (section === "title") work = this.readWorkSettings(["title"]);
 			if (["all", "ai"].includes(section)) for (let slot of [1, 2]) {
 				let provider = this.llmProviders[this.loadedLLMProviderIndex], name = slot === 1 ? "llmModel" : "llmModel2";
 				let input = this.$(slot === 1 ? "mineru-llm-model" : "mineru-llm-model-2");
@@ -499,6 +510,7 @@ var DocFlowPreferences = {
 				let input = this.$(field.id);
 				if (!input) continue;
 				let value = field.pref === "apiMode" ? apiMode : field.type === "bool" ? !!input.checked : input.value.trim();
+				if (field.pref === "titleLanguage") { if (!value) throw new Error("请填写标题翻译的目标语言。"); value = value.toUpperCase(); }
 				if (field.type === "context") value = this.parseContextTokens(value);
 				if (field.type === "output") value = this.parseOutputTokens(value);
 				if (field.type === "optional-int" && value) {
@@ -865,6 +877,18 @@ var DocFlowPreferences = {
 		}
 	},
 
+	async testTitleService(service) {
+		let button = this.$(`ocrflow-${service}-test`), settings = { service, targetLang: this.$("ocrflow-title-language").value.trim().toUpperCase(),
+			deeplPlan: this.$("ocrflow-deepl-plan").value, deeplApiKey: this.$("ocrflow-deepl-key").value,
+			deeplxEndpoint: this.$("ocrflow-deeplx-endpoint").value, deeplxToken: this.$("ocrflow-deeplx-token").value };
+		this.setButtonBusy(button, true); this.setStatus("正在测试…", false, service);
+		try {
+			let result = await OCRFlowTitleServices.translate("Hello", settings);
+			this.setStatus(`测试成功：${result.text}`, false, service);
+		} catch (error) { this.setStatus(`测试失败：${error.message || error}`, true, service); }
+		finally { this.setButtonBusy(button, false); }
+	},
+
 	async testMarkerConnection() {
 		let button = this.$("ocrflow-marker-test"), controller = new AbortController();
 		this.setButtonBusy(button,true); this.setStatus("正在测试…", false, "marker");
@@ -954,6 +978,11 @@ var DocFlowPreferences = {
 			for (let kind of ["default", ...this.WORK_KINDS]) {
 				this.$("ocrflow-work-" + kind + "-model").addEventListener("change", () => { this.updateWorkLabels(); this.setStatus("有未保存的修改"); });
 			}
+			for (let service of ["deepl", "deeplx"]) {
+				this.$(`ocrflow-${service}-save`).addEventListener("click", () => this.persistSettings({ section: service }));
+				this.$(`ocrflow-${service}-test`).addEventListener("click", () => this.testTitleService(service));
+			}
+			this.$("ocrflow-title-save").addEventListener("click", () => this.persistSettings({ section: "title" }));
 			this.$("ocrflow-work-save").addEventListener("click", () => this.persistSettings({ section: "work" }));
 			this.$("ocrflow-paddle-save")?.addEventListener("click", () => this.persistSettings({ section: "paddle" }));
 			this.$("ocrflow-collation-a")?.addEventListener("change", () => this.renderOCRSources());

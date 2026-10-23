@@ -166,7 +166,7 @@ async function run() {
  const result=await m.translateChunksWithConcurrency({chunks:["A","B"],concurrency:2,autoRetryCount:1,
   translateChunk:async(text,i)=>{ if(i===0&&!run.retried){run.retried=true;throw Error("retry");}return text+" translated"; }});
  assert.equal(result.failures.length,0); assert.equal(result.successes.get(0),"A translated");
- const inputs=new Map(panel.FIELDS.map(f=>[f.id,{value:f.type==="int"?"1":"",checked:false}]));
+ const inputs=new Map(panel.FIELDS.map(f=>[f.id,{value:String(f.defaultValue ?? (f.type==="int"?"1":"")),checked:false}]));
  require("./preferences-dom.cjs")(context, panel, inputs);
  panel.$=id=>inputs.get(id); inputs.set("mineru-bilingual-option",{disabled:false});
  inputs.get("mineru-translateOutputFormat").value="html";

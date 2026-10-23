@@ -32,7 +32,7 @@ function setup() {
   require("./preferences-dom.cjs")(context, panel, elements);
   panel.$=id=>elements.get(id);panel.init();assert(panel.initialized);
   const value=(id,text)=>{elements.get(id).value=text;};
-  return {prefs,elements,requests,panel,plugin:context.DocFlow,source,value,prompts:context.OCRFlowPrompts};
+  return {context,prefs,elements,requests,panel,plugin:context.DocFlow,source,value,prompts:context.OCRFlowPrompts};
 }
 
 test('settings buttons show busy state, restore labels and acknowledge saved or invalid settings',()=>{
@@ -274,4 +274,29 @@ test('Marker settings save independently and test the upload API without uploadi
  assert.equal(s.prefs.get(prefix+'marker.url'),'http://marker.saved/');assert.equal(s.prefs.get(prefix+'marker.mode'),'fast');assert.equal(s.prefs.get(prefix+'marker.forceOCR'),true);assert.equal(s.prefs.get(prefix+'markitdownBaseURL'),'http://mark.saved');
  await s.panel.testMarkerConnection();assert.equal(s.requests.at(-1).url,'http://marker.saved/openapi.json');assert.equal(s.requests.at(-1).options.body,undefined);assert(s.elements.get('ocrflow-marker-status').textContent.includes('成功'));
  s.panel.showService('marker');assert.equal(s.elements.get('ocrflow-service-panel-marker').hidden,false);assert.equal(s.elements.get('ocrflow-service-panel-paddle').hidden,true);
+});
+
+
+test('title defaults and AI prompt save separately from full-text language and external credentials',()=>{
+ const s=setup();s.value('ocrflow-title-service','deeplx');s.value('ocrflow-title-language','fr');s.value('ocrflow-work-title-prompt','Custom title {{language}}');
+ s.value('mineru-translate-language','Japanese');s.value('ocrflow-deepl-key','unsaved-key');
+ assert(s.panel.saveSettings({section:'title'}));assert.equal(s.prefs.get(prefix+'titleService'),'deeplx');assert.equal(s.prefs.get(prefix+'titleLanguage'),'FR');
+ assert.equal(JSON.parse(s.prefs.get(prefix+'aiWorkSettings')).title.prompt,'Custom title {{language}}');
+ assert.notEqual(s.prefs.get(prefix+'translateLanguage'),'Japanese');assert.notEqual(s.prefs.get(prefix+'deeplApiKey'),'unsaved-key');
+ s.panel.showWork('title');assert.equal(s.elements.get('ocrflow-work-title').hidden,false);assert.equal(s.elements.get('ocrflow-work-translate').hidden,true);
+});
+test('DeepL and DeepLX have independent save and connection test controls',async()=>{
+ const s=setup();s.context.Zotero.getMainWindow=()=>({AbortController});vm.runInContext(fs.readFileSync('translation-services.js','utf8'),s.context);
+ s.value('ocrflow-deepl-plan','pro');s.value('ocrflow-deepl-key','official-key');s.value('ocrflow-deeplx-endpoint','http://local.test/translate');s.value('ocrflow-deeplx-token','local-token');
+ assert(s.panel.saveSettings({section:'deepl'}));assert.equal(s.prefs.get(prefix+'deeplApiKey'),'official-key');assert.notEqual(s.prefs.get(prefix+'deeplxToken'),'local-token');
+ assert(s.panel.saveSettings({section:'deeplx'}));assert.equal(s.prefs.get(prefix+'deeplxToken'),'local-token');
+ s.context.fetch=async(url,options)=>{s.requests.push({url,options});return {ok:true,status:200,text:async()=>JSON.stringify(url.includes('deepl.com')?{translations:[{text:'你好'}]}:{code:200,data:'你好'})};};
+ for(const service of ['deepl','deeplx']){await s.panel.testTitleService(service);assert.match(s.elements.get('ocrflow-'+service+'-status').textContent,/测试成功/);assert.equal(s.elements.get('ocrflow-'+service+'-test').disabled,false);}
+ assert.equal(s.requests.at(-2).options.headers.Authorization,'DeepL-Auth-Key official-key');assert.equal(s.requests.at(-1).options.headers.Authorization,'Bearer local-token');
+});
+
+test('settings navigation uses the requested service and workflow labels',()=>{
+ const s=setup();for(const [id,label]of Object.entries({'ocrflow-tab-services':'识别服务','ocrflow-tab-work':'流程配置','ocrflow-tab-collation':'勘校配置','ocrflow-tab-config':'同步功能','ocrflow-work-tab-parent':'建立条目','ocrflow-work-tab-summary':'全文总结','ocrflow-work-tab-ocr':'识别全文','ocrflow-work-tab-translate':'全文翻译','ocrflow-work-tab-outline':'生成大纲'})){
+  assert(s.source.includes('id="'+id+'" type="button" aria-pressed="false">'+label+'</html:button>'),id);
+ }
 });

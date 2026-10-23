@@ -380,6 +380,7 @@ DocFlow = {
 			if (!ids.includes(task.id) || !["failed", "wait_expired", "canceled", "waiting"].includes(task.state)) continue;
 			let parserService = task.settings.parserService;
 			task.settings = task.kind === "organize" ? this.getOrganizeSettings(task.jobID ? task.settings.apiMode : undefined) : task.kind === "translate" ? this.getTranslationSettings()
+				: task.kind === "title" ? this.getTitleTranslationSettings({service:task.settings.service,targetLang:task.settings.targetLang,overwrite:task.settings.overwrite,modelID:task.settings.modelID})
 				: ["outline", "parent", "metadata", "summary"].includes(task.kind) ? this.getLLMSettings(task.kind) : this.getSettings(task.settings.apiMode);
 			if (task.kind === "parse" && parserService) task.settings.parserService = parserService;
 			if (task.kind === "organize" && task.jobID) task.settings.parserService = parserService;
@@ -507,7 +508,9 @@ DocFlow = {
 	},
 
 	parseQueueLane(task) {
-		let s=task.settings||{}, reader=s.collationEnabled ? s.readerA||s : s;
+		let s=task.settings||{};
+		if(task.kind==="title")return JSON.stringify(["title",s.service,s.service==="ai" ? s.aiSettings.apiBaseURL : s.service==="deepl" ? s.deeplPlan : s.deeplxEndpoint,s.aiSettings?.modelID,s.aiSettings?.model]);
+		let reader=s.collationEnabled ? s.readerA||s : s;
 		let ext=this.documentExtension?.(task.attachment);
 		if(["parse","organize"].includes(task.kind)&&reader.parserService!=="marker"&&ext&&!["pdf","png","jpg","jpeg","txt","md","markdown","csv"].includes(ext))reader={...reader,parserService:"markitdown"};
 		let ai=reader.parserService==="ai" ? reader.llmSettings||{} : s;
@@ -527,7 +530,7 @@ DocFlow = {
 			if(task.state!=="queued"||task.active)continue;
 			let active=this.parseQueue.filter(row=>row.active), document=this.parseQueueDocument(task), lane=this.parseQueueLane(task);
 			if(document!=null&&active.some(row=>this.parseQueueDocument(row)===document))continue;
-			let limit=["parent","metadata","summary","translate","outline"].includes(task.kind) ? task.settings.concurrency||1 : 1;
+			let limit=["parent","metadata","summary","translate","outline","title"].includes(task.kind) ? task.settings.concurrency||1 : 1;
 			if(active.filter(row=>this.parseQueueLane(row)===lane).length>=limit)continue;
 			let work=this.processParseQueueTask(task).finally(()=>{
 				this.parseQueueWork.delete(work);this.dispatchParseQueue();
@@ -551,6 +554,11 @@ DocFlow = {
 			this.refreshParseQueueDialog();
 			if (task.kind === "organize") {
 				await this.runOrganizeTask(task);
+				return;
+			}
+			if (task.kind === "title") {
+				task.detail = await this.runTitleTranslation(task);
+				task.state = "completed";
 				return;
 			}
 			if (task.kind === "translate") {

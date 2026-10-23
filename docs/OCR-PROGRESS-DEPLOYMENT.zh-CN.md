@@ -73,7 +73,7 @@ curl -fsS http://127.0.0.1:18501/v1/parse/jobs/实际任务ID/result -o result.j
 
 ### 4. 配置插件与理解进度
 
-Zotero 设置 → OCRFlow → 提取服务 → Marker，填写 API **根地址** `http://服务器地址:18501`，不追加 `/marker/upload` 或 `/v1/parse/jobs`。按需选择 Balanced / Fast 和强制 OCR，测试连接后保存。强制 OCR 表示即使有文字层也重新识别。
+Zotero 设置 → OCRFlow → 识别服务 → Marker，填写 API **根地址** `http://服务器地址:18501`，不追加 `/marker/upload` 或 `/v1/parse/jobs`。按需选择 Balanced / Fast 和强制 OCR，测试连接后保存。强制 OCR 表示即使有文字层也重新识别。
 
 - `queued`：服务端排队，尚未开始当前文件；不显示 0/N 页作为识别进度。
 - `loading` / `layout` / `text`：加载模型、分析版面、读取文字层。这些阶段可能尚未产生已完成 OCR 页数。

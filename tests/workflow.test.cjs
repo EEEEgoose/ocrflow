@@ -176,7 +176,7 @@ test('manual defaults and menu dispatch; file-name action creates only the paren
   assert.equal(defaults.get('extensions.docflow.autoOutline'),false);
   assert.equal(defaults.get('extensions.docflow.parseGenerateHTML'),true);
   assert.equal(defaults.has('extensions.docflow.autoImport'),false);
-  assert.deepEqual(Array.from(s.plugin.getContextMenuDefinitions().slice(0,4), item => item.label),['一键整理','识别文档','建立父条目','补全条目']);
+  assert.deepEqual(Array.from(s.plugin.getContextMenuDefinitions().slice(0,4), item => item.label),['一键整理','识别文档','建立条目','补全条目']);
   const original = s.file('Smith 2024 History.epub');
   const markdown = s.parsed(original,'SECRET FULL TEXT MUST NOT BE SENT');
   s.setReply(() => JSON.stringify({itemType:'book',title:'History',date:'2024',creators:[{lastName:'Smith',creatorType:'author'}]}));

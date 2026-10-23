@@ -18,6 +18,7 @@ A document workflow plugin for **Zotero 10.0.***. Work with the selected documen
 | Complete item | Extract bibliographic metadata from the full text; store a Chinese translation of a non-Chinese title in Zotero’s Short Title field |
 | Summarize document | Save an academic summary as a child note |
 | Translate document | Translate by paragraph, with aligned original and translated text in two-column HTML; join unfinished paragraphs across page boundaries before translation |
+| Translate title | Translate the parent item’s original Title into Short Title using AI, DeepL, or DeepLX; no OCR or Markdown required |
 | Generate outline | Create a navigable reader outline for the associated PDF |
 
 Organize document reuses existing full text and parent items, filling missing metadata. It skips outline generation for non-PDF files. An outline or summary failure does not prevent subsequent stages from running; retries process only unfinished stages. Each action can also run independently.
@@ -36,7 +37,7 @@ Organize document reuses existing full text and parent items, filling missing me
 
 1. Download the `.xpi` from the [latest release](https://github.com/EEEEgoose/ocrflow/releases/latest).
 2. In Zotero, open **Tools → Plugins → Install Plugin From File**. Fully restart Zotero after the initial installation.
-3. Open **Settings → OCRFlow → Configuration & Sync** (配置与同步), create a configuration password or import an encrypted configuration, then configure your services and AI models.
+3. Open **Settings → OCRFlow → Sync** (同步功能), create a configuration password or import an encrypted configuration, then configure your services and AI models.
 4. Select a file or bibliographic item and use the OCRFlow panel on the right. If the item has multiple source files, first choose the attachment to process.
 
 Wait for active tasks to finish before updating the plugin so that the current session’s queue and job IDs remain available. The client queue and unfinished translation cache do not survive a Zotero restart. Server jobs and saved attachments are stored separately from the client session.
