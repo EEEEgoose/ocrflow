@@ -8,6 +8,12 @@ A document workflow plugin for **Zotero 10.0.***. Work with the selected documen
 
 [Download](https://github.com/EEEEgoose/ocrflow/releases/latest) · [User guide (Chinese)](README.zh-CN.md) · [Page progress deployment (Chinese)](docs/OCR-PROGRESS-DEPLOYMENT.zh-CN.md) · [Changelog (Chinese)](CHANGELOG.md)
 
+## Interface language
+
+The same installer supports Chinese and English. OCRFlow follows Zotero's interface language: Chinese locales use Chinese; other locales use English. To use the English interface, switch Zotero to English and restart. This does not change document text, saved prompts, model names, or summary and translation target languages.
+
+![OCRFlow settings in English](docs/screenshots/settings-en.png)
+
 ## Features
 
 | Action | Result |

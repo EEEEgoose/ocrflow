@@ -1,3 +1,4 @@
+var ocrflowText = typeof ocrflowText === "function" ? ocrflowText : value => String(value ?? "");
 var DocFlowPreferences = {
 	PREF_BRANCH: "extensions.docflow.",
 	getPref(key,global=true){const plugin=Zotero.getMainWindow?.()?.DocFlow;return plugin?.getPref ? plugin.getPref(key,global) : Zotero.Prefs.get(key,global);},
@@ -81,13 +82,14 @@ var DocFlowPreferences = {
 	buttonFeedback(button,state) {
 		if(!button)return;
 		button.setAttribute("data-result",state);
+		button.setAttribute("data-saved-label",ocrflowText(" ✓ 已保存"));
 		button.animate?.([{boxShadow:"0 0 0 0 transparent"},{boxShadow:`0 0 0 3px ${state==="error" ? "#d4565680" : "#437cd180"}`},{boxShadow:"0 0 0 0 transparent"}],{duration:450});
 	},
 
 	setButtonBusy(button,busy) {
 		if(!button)return;
-		if(busy) { if(!button.ocrflowIdleLabel)button.ocrflowIdleLabel=button.textContent;button.textContent=button.id.includes("test") ? "测试中…" : "处理中…"; }
-		else if(button.ocrflowIdleLabel)button.textContent=button.ocrflowIdleLabel;
+		if(busy) { if(!button.ocrflowIdleLabel)button.ocrflowIdleLabel=button.textContent;button.textContent=ocrflowText(button.id.includes("test") ? "测试中…" : "处理中…"); }
+		else if(button.ocrflowIdleLabel)button.textContent=ocrflowText(button.ocrflowIdleLabel);
 		button.disabled=busy;button.setAttribute("data-busy",String(busy));button.setAttribute("aria-busy",String(busy));
 	},
 
@@ -103,7 +105,7 @@ var DocFlowPreferences = {
 		if (section !== "all" && message === "有未保存的修改") this.setStatus(message);
 		let status = this.$(section === "all" ? "mineru-status" : `ocrflow-${section}-status`);
 		if (!status) return;
-		status.textContent = message || "";
+		status.textContent = ocrflowText(message || "");
 		status.setAttribute("data-state", isError ? "error" : message === "有未保存的修改" ? "changed" : "saved");
 	},
 
@@ -191,11 +193,11 @@ var DocFlowPreferences = {
 		for (let option of input.querySelectorAll("menuitem")) {
 			option.hidden = option.getAttribute("data-api-mode") !== apiMode;
 		}
-		this.$("mineru-model-version-label").textContent = apiMode === "local-v1" ? "解析档位" : "模型版本";
+		this.$("mineru-model-version-label").textContent = ocrflowText(apiMode === "local-v1" ? "解析档位" : "模型版本");
 		this.$("mineru-cloud-language").disabled = apiMode !== "cloud";
-		this.$("mineru-cloud-language-help").textContent = apiMode === "cloud"
+		this.$("mineru-cloud-language-help").textContent = ocrflowText(apiMode === "cloud"
 			? "自动读取父条目语言；为空或无法识别时使用云端默认值。手动选择不会改写条目语言。"
-			: "识别语言仅适用于官方云端，本地 V1 不接收该参数。云端选择会保留。";
+			: "识别语言仅适用于官方云端，本地 V1 不接收该参数。云端选择会保留。");
 	},
 
 	switchAPIMode() {
@@ -258,10 +260,10 @@ var DocFlowPreferences = {
 			let button = this.$("mineru-llm-provider-" + index);
 			let provider = this.llmProviders[index];
 			button.hidden = !provider;
-			button.textContent = provider?.llmProviderName || `供应商 ${index + 1}`;
+			button.textContent = provider?.llmProviderName || ocrflowText(`供应商 ${index + 1}`);
 			button.setAttribute("aria-pressed", String(index === this.loadedLLMProviderIndex));
 		}
-		this.$("mineru-llm-provider-count").textContent = `${this.llmProviders.length}/${this.LLM_PROVIDER_LIMIT}`;
+		this.$("mineru-llm-provider-count").textContent = ocrflowText(`${this.llmProviders.length}/${this.LLM_PROVIDER_LIMIT}`);
 		this.$("mineru-llm-provider-add").disabled = this.llmProviders.length >= this.LLM_PROVIDER_LIMIT;
 		this.$("mineru-llm-provider-delete").disabled = this.llmProviders.length === 1;
 		this.renderWorkModels();
@@ -370,11 +372,11 @@ var DocFlowPreferences = {
 			let input = this.$("ocrflow-work-" + kind + "-model");
 			let value = input.value || (kind === "default" ? this.workSettings.defaultModel : this.workSettings[kind]?.model) || "default";
 			input.replaceChildren();
-			let options = kind === "default" ? choices : [{ value: "default", label: "跟随默认模型" }, ...choices];
-			if (kind === "default" && !options.some(option => option.value === value)) options = [{value, label:"请先填写服务商模型"}, ...options];
+			let options = kind === "default" ? choices : [{ value: "default", label: ocrflowText("跟随默认模型") }, ...choices];
+			if (kind === "default" && !options.some(option => option.value === value)) options = [{value, label:ocrflowText("请先填写服务商模型")}, ...options];
 			for (let choice of options) {
 				let option = document.createElementNS("http://www.w3.org/1999/xhtml", "option");
-				option.value = choice.value; option.textContent = choice.label; input.appendChild(option);
+				option.value = choice.value; option.textContent = choice.value === "default" ? ocrflowText(choice.label) : choice.label; input.appendChild(option);
 			}
 			input.value = value;
 		}
@@ -383,7 +385,7 @@ var DocFlowPreferences = {
 			let selected = this.collationModelLoaded ? reviewModel.value : this.getPref(this.PREF_BRANCH + "collationAIModel", true) || reviewModel.value;
 			this.collationModelLoaded = true; reviewModel.replaceChildren();
 			for (let choice of [{value:"",label:"请选择支持图片的模型"}, ...choices]) {
-				let option = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); option.value = choice.value; option.textContent = choice.label; reviewModel.appendChild(option);
+				let option = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); option.value = choice.value; option.textContent = choice.value === "default" ? ocrflowText(choice.label) : choice.label; reviewModel.appendChild(option);
 			}
 			reviewModel.value = choices.some(choice => choice.value === selected) ? selected : "";
 		}
@@ -401,10 +403,10 @@ var DocFlowPreferences = {
 		this.ocrSourcesLoaded = true;
 		for (let [input, selected, other] of [[a, first, ""], [b, second, first]]) {
 			input.replaceChildren();
-			let empty = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); empty.value = ""; empty.textContent = "请选择识别来源"; input.appendChild(empty);
+			let empty = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); empty.value = ""; empty.textContent = ocrflowText("请选择识别来源"); input.appendChild(empty);
 			for (let choice of choices) {
 				if (other && !OCRFlowSources.valid(other, choice.value, this.llmProviders || [])) continue;
-				let option = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); option.value = choice.value; option.textContent = choice.label; input.appendChild(option);
+				let option = document.createElementNS("http://www.w3.org/1999/xhtml", "option"); option.value = choice.value; option.textContent = choice.value === "default" ? ocrflowText(choice.label) : choice.label; input.appendChild(option);
 			}
 			input.value = choices.some(choice => choice.value === selected && (!other || OCRFlowSources.valid(other, selected, this.llmProviders || []))) ? selected : "";
 		}
@@ -416,7 +418,7 @@ var DocFlowPreferences = {
 		for (let kind of this.WORK_KINDS) {
 			let selected = this.$("ocrflow-work-" + kind + "-model").value;
 			let choice = choices.find(option => option.value === (selected === "default" ? defaultModel : selected));
-			this.$("ocrflow-work-" + kind + "-actual").textContent = choice ? `实际使用：${choice.label} · 并发 ${choice.concurrency} · 上下文 ${this.formatContextTokens(choice.context)} · 输出 ${choice.output ? this.formatContextTokens(choice.output) : "按工作默认"}` : "请先填写服务商模型";
+			this.$("ocrflow-work-" + kind + "-actual").textContent = ocrflowText(choice ? `实际使用：${choice.label} · 并发 ${choice.concurrency} · 上下文 ${this.formatContextTokens(choice.context)} · 输出 ${choice.output ? this.formatContextTokens(choice.output) : ocrflowText("按工作默认")}` : "请先填写服务商模型");
 		}
 	},
 
@@ -595,19 +597,19 @@ var DocFlowPreferences = {
 		let button = this.$("mineru-job-progress-button");
 		let settings = this.readCurrentSettings(true);
 		if (settings.apiMode !== "local-v1") {
-			output.textContent = "请先选择本地 MinerU 4（V1）接口。";
+			output.textContent = ocrflowText("请先选择本地 MinerU 4（V1）接口。");
 			return;
 		}
 		let jobID = this.$("mineru-job-id").value.trim()
 			|| this.getPref(this.PREF_BRANCH + "lastLocalJobID", true);
 		if (!jobID) {
-			output.textContent = "请填写任务 ID，或先提交一个本地解析任务。";
+			output.textContent = ocrflowText("请填写任务 ID，或先提交一个本地解析任务。");
 			return;
 		}
 		let controller = new AbortController();
 		let timeoutID = setTimeout(() => controller.abort(), settings.timeoutMS);
 		this.setButtonBusy(button,true);
-		output.textContent = "正在查询任务进度…";
+		output.textContent = ocrflowText("正在查询任务进度…");
 		try {
 			let response = await fetch(`${settings.apiBaseURL}/v1/parse/jobs/${encodeURIComponent(jobID)}`, {
 				method: "GET", signal: controller.signal,
@@ -640,11 +642,11 @@ var DocFlowPreferences = {
 					}
 				}
 			}
-			output.textContent = lines.join("\n");
+			output.textContent = ocrflowText(lines.map(line => ocrflowText(line)).join("\n"));
 			return job;
 		}
 		catch (e) {
-			output.textContent = `查询失败: ${e.name === "AbortError" ? "请求超时" : e.message || e}`;
+			output.textContent = ocrflowText(`查询失败: ${e.name === "AbortError" ? "请求超时" : e.message || e}`);
 		}
 		finally {
 			clearTimeout(timeoutID);
@@ -960,6 +962,7 @@ var DocFlowPreferences = {
 	init() {
 		if (this.initialized) return;
 		try {
+			if (typeof OCRFlowL10n !== "undefined") OCRFlowL10n.localize(this.$("docflow-prefpane"));
 			this.initConfig?.();
 			if(this.configStore?.()?.state!==undefined&&this.configStore().state!=="unlocked"){this.initNavigation();this.showSection("config");this.refreshConfig();return;}
 			this.loadSettings();
@@ -1003,7 +1006,7 @@ var DocFlowPreferences = {
 			this.$("mineru-job-progress-button")?.addEventListener("click", () => {
 				this.queryJobProgress().catch(e => {
 					Zotero.logError(e);
-					this.$("mineru-job-progress-output").textContent = `查询失败: ${e.message || e}`;
+					this.$("mineru-job-progress-output").textContent = ocrflowText(`查询失败: ${e.message || e}`);
 				});
 			});
 			for (let [section, method] of [["markitdown", "testMarkItDownConnection"], ["mineru", "testMineruConnection"], ["marker", "testMarkerConnection"]]) {

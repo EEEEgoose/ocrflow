@@ -1,3 +1,4 @@
+var ocrflowText = typeof ocrflowText === "function" ? ocrflowText : value => String(value ?? "");
 var OCRFlowTaskSidebar = {
 	views: new Map(),
 	plugin: null,
@@ -12,12 +13,12 @@ var OCRFlowTaskSidebar = {
 		let style = doc.createElementNS("http://www.w3.org/1999/xhtml", "link");
 		style.rel = "stylesheet"; style.href = "chrome://docflow/content/task-sidebar.css"; doc.documentElement.appendChild(style);
 		let button = make("button"); button.id = "ocrflow-sidebar-button"; button.className = "ocrflow-sidebar-button";
-		button.type = "button"; button.title = "OCRFlow 任务进度"; button.setAttribute("aria-label", "OCRFlow 任务进度");
+		button.type = "button"; button.title = "OCRFlow 任务进度"; button.setAttribute("aria-label", ocrflowText("OCRFlow 任务进度"));
 		button.setAttribute("aria-controls", "ocrflow-task-sidebar"); button.setAttribute("aria-expanded", "false");
 		let icon = make("span"); icon.className = "ocrflow-sidebar-icon"; icon.setAttribute("aria-hidden", "true");
 		let badge = make("span"); badge.className = "ocrflow-task-badge"; badge.hidden = true; button.append(icon, badge);
 		rail.insertBefore(button, rail.querySelector(".highlight-notes-active")?.previousElementSibling || null);
-		let panel = make("section"); panel.id = "ocrflow-task-sidebar"; panel.hidden = true; panel.setAttribute("aria-label", "OCRFlow 任务进度");
+		let panel = make("section"); panel.id = "ocrflow-task-sidebar"; panel.hidden = true; panel.setAttribute("aria-label", ocrflowText("OCRFlow 任务进度"));
 		host.insertBefore(panel, doc.getElementById("zotero-item-pane-content"));
 		let view = { window, host, rail, panel, button, badge, style, open: false, dismissed: false, taskID: null, expanded: new Set(), collapsed: new Set(), launching: new Set(), fileID: null };
 		this.views.set(window, view);
@@ -194,16 +195,16 @@ var OCRFlowTaskSidebar = {
 		let plugin = this.plugin, tasks = plugin.parseQueue;
 		let active = tasks.filter(task => ["queued", "running", "stopping"].includes(task.state));
 		view.badge.textContent = String(active.length); view.badge.hidden = !active.length;
-		view.button.title = active.length ? `OCRFlow · ${active.length} 项任务进行中` : "OCRFlow 文献操作";
+		view.button.title = ocrflowText(active.length ? `OCRFlow · ${active.length} 项任务进行中` : "OCRFlow 文献操作");
 		if (!view.open) return;
 		let context = this.documentContext(view), relatedTasks = this.documentTasks(context), doc = view.window.document;
 		if (context.source && view.sourceActions?.id !== context.source.id) this.loadSourceActions(view, context.source);
 		if (!context.source) view.sourceActions = null;
 		let task = relatedTasks.find(task => task.id === view.taskID) || relatedTasks.find(task => ["running", "stopping", "queued"].includes(task.state)) || relatedTasks.at(-1);
 		view.taskID = task?.id || null;
-		let make = (tag, text, className) => {
+		let make = (tag, text, className, content = false) => {
 			let node = doc.createElementNS("http://www.w3.org/1999/xhtml", tag);
-			if (text !== undefined) node.textContent = text;
+			if (text !== undefined) node.textContent = content ? text : ocrflowText(text);
 			if (className) node.className = className;
 			return node;
 		};
@@ -224,16 +225,16 @@ var OCRFlowTaskSidebar = {
 		let header = make("header"); header.append(make("strong", "OCRFlow"), action("收起", () => this.toggle(view, false, true)));
 		let content = make("div", undefined, "of-content");
 		if (context.item) {
-			content.append(make("p", "当前选中文献", "of-caption"), make("h3", context.title));
+			content.append(make("p", "当前选中文献", "of-caption"), make("h3", context.title, undefined, true));
 			content.appendChild(make("p", context.item.isNote?.() ? context.parent ? "已选中子笔记 · 以下操作针对所属文献，不处理当前笔记正文。" : "独立笔记暂不支持文献处理，请选择文献条目或文件附件。" : context.parent ? "已有父条目" : "独立文件附件", "of-muted"));
 			let fileRow = make("div", undefined, "of-file");
 			if (context.files.length > 1) {
-				let files = make("select"); files.setAttribute("aria-label", "选择本次操作的原文件"); files.setAttribute("data-focus-key", "source-file");
-				for (let file of context.files) files.appendChild(Object.assign(make("option", file.getField("title") || file.attachmentFilename), {value:String(file.id)}));
+				let files = make("select"); files.setAttribute("aria-label", ocrflowText("选择本次操作的原文件")); files.setAttribute("data-focus-key", "source-file");
+				for (let file of context.files) files.appendChild(Object.assign(make("option", file.getField("title") || file.attachmentFilename, undefined, true), {value:String(file.id)}));
 				files.value = String(context.file.id);
 				files.addEventListener("change", () => { view.selectActive = null; view.fileID = Number(files.value); view.taskID = null; view.error = null; this.render(view); });
 				fileRow.appendChild(files);
-			} else fileRow.appendChild(make("span", context.file?.attachmentFilename || context.file?.getField("title") || "未关联原文件"));
+			} else fileRow.appendChild(make("span", context.file?.attachmentFilename || context.file?.getField("title") || ocrflowText("未关联原文件"), undefined, true));
 			if (context.file) fileRow.appendChild(action("打开", () => view.window.ZoteroPane.viewAttachment(context.file.id)));
 			content.appendChild(fileRow);
 			let sourceRow = make("div", undefined, "of-source"); sourceRow.appendChild(make("span", context.source ? "✓ 已有全文" : "暂无全文", "of-muted"));
@@ -248,12 +249,12 @@ var OCRFlowTaskSidebar = {
 			}
 			let busy = relatedTasks.some(task => ["queued", "running", "stopping"].includes(task.state)) || view.launching.has(context.key);
 			let primary = iconButton("一键整理", "organize", () => this.performDocumentAction(view, "organize"), !this.canPerform(context, "organize", busy), "of-primary");
-			primary.title = this.actionUnavailableReason(context, "organize", busy);
+			primary.title = ocrflowText(this.actionUnavailableReason(context, "organize", busy));
 			primary.appendChild(make("small", "识别 · 建条目 · 补全 · 大纲 · 总结 · 翻译")); content.appendChild(primary);
 			let operations = make("div", undefined, "of-document-actions");
 			for (let [kind, label, icon] of [["ocr", "识别文档", "ocr"], ["metadata", "补全条目", "metadata"], ["summary", "总结文献", "summary"], ["translate", "翻译文献", "translate"], ["outline", "生成大纲", "outline"], ["title", "翻译标题", "translate"]]) {
 				let button = iconButton(label, icon, () => this.performDocumentAction(view, kind), !this.canPerform(context, kind, busy));
-				button.title = this.actionUnavailableReason(context, kind, busy) || (kind === "ocr" && context.source ? "将重新识别关联原文件，保留已有全文。" : "");
+				button.title = ocrflowText(this.actionUnavailableReason(context, kind, busy) || (kind === "ocr" && context.source ? "将重新识别关联原文件，保留已有全文。" : ""));
 				button.setAttribute("data-focus-key", kind); operations.appendChild(button);
 			}
 			content.appendChild(operations);
@@ -277,18 +278,18 @@ var OCRFlowTaskSidebar = {
 
 		content.appendChild(make("p", "当前文献任务", "of-section-title"));
 		if (relatedTasks.length > 1) {
-			let selector = make("select"); selector.setAttribute("aria-label", "选择当前文献的任务"); selector.setAttribute("data-focus-key", "task-selector");
-			for (let row of relatedTasks) selector.appendChild(Object.assign(make("option", `${({parse:"识别文档",organize:"一键整理",summary:"总结",title:"翻译标题",translate:"翻译",outline:"大纲",metadata:"书目信息",parent:"建立条目"})[row.kind]} · ${this.stateLabel(row)}`), {value:String(row.id)}));
+			let selector = make("select"); selector.setAttribute("aria-label", ocrflowText("选择当前文献的任务")); selector.setAttribute("data-focus-key", "task-selector");
+			for (let row of relatedTasks) selector.appendChild(Object.assign(make("option", `${ocrflowText(({parse:"识别文档",organize:"一键整理",summary:"总结",title:"翻译标题",translate:"翻译",outline:"大纲",metadata:"书目信息",parent:"建立条目"})[row.kind])} · ${ocrflowText(this.stateLabel(row))}`), {value:String(row.id)}));
 			selector.value = String(task.id); selector.addEventListener("change", () => { view.selectActive = null; view.taskID = Number(selector.value); this.render(view); }); content.appendChild(selector);
 		}
 		if (!task) content.appendChild(make("p", "暂无任务。点击上方操作后，在这里查看执行步骤。", "of-muted"));
 		else {
 			content.appendChild(make("p", this.stateLabel(task), "of-status"));
 			let tool = detail => {
-				let box = make("div", undefined, "of-tool"); box.append(make("span", this.serviceLabel(task), "of-muted"), make("p", detail || task.detail || "等待处理"));
+				let box = make("div", undefined, "of-tool"); box.append(make("span", this.serviceLabel(task), "of-muted", true), make("p", detail || task.detail || "等待处理"));
 				if (task.progress?.total > 0) {
-					box.appendChild(make("p", `${["failed", "canceled"].includes(task.state) ? "最后回报进度：" : ""}${task.progress.completed} / ${task.progress.total} ${task.progress.unit || "页"}`, "of-muted"));
-					if (task.state === "running" && !task.decision) { let progress = make("progress"); progress.max = task.progress.total; progress.value = task.progress.completed; progress.setAttribute("aria-label", "实际任务进度"); box.appendChild(progress); }
+					box.appendChild(make("p", `${["failed", "canceled"].includes(task.state) ? "最后回报进度：" : ""}${task.progress.completed} / ${task.progress.total} ${ocrflowText(task.progress.unit || "页")}`, "of-muted"));
+					if (task.state === "running" && !task.decision) { let progress = make("progress"); progress.max = task.progress.total; progress.value = task.progress.completed; progress.setAttribute("aria-label", ocrflowText("实际任务进度")); box.appendChild(progress); }
 				}
 				if (task.error) box.appendChild(make("p", task.error, "of-error"));
 				let jobID = task.cancelSettings ? task.cancelJobID : task.jobID;
@@ -309,7 +310,7 @@ var OCRFlowTaskSidebar = {
 				details.open = view.expanded.has(key) || (!view.collapsed.has(key) && step === current);
 				let summary = make("summary"); summary.append(make("span", step.label, "of-step-label"), make("small", state==="running"&&task.phase==="Marker · queued" ? "排队中" : ({completed:"已完成",running:"执行中",failed:"失败",canceled:"已终止",pending:"待执行",not_run:"未执行",skipped:"已复用",stopping:"终止中",waiting:"待补充",wait_expired:"等待已结束"})[state], "of-step-state"));
 				details.appendChild(summary);
-				details.appendChild(step === current ? tool(["running", "stopping", "canceled", "wait_expired", "waiting"].includes(task.state) ? task.detail : task.state === "failed" ? task.error || task.detail : step.detail || task.detail) : make("p", state === "not_run" ? "前序处理已结束，此步骤未执行。" : step.detail || "等待前序步骤完成。", "of-step-detail"));
+				details.appendChild(step === current ? tool(["running", "stopping", "canceled", "wait_expired", "waiting"].includes(task.state) ? task.detail : task.state === "failed" ? task.error || task.detail : step.detail || task.detail) : make("p", state === "not_run" ? "前序处理已结束，此步骤未执行。" : step.detail || "等待前序步骤完成。", "of-step-detail", step.id === "read"));
 				summary.addEventListener("click", () => { if (!details.open) {view.expanded.add(key);view.collapsed.delete(key);} else {view.expanded.delete(key);view.collapsed.add(key);} });
 				item.appendChild(details); timeline.appendChild(item);
 			}
@@ -357,12 +358,12 @@ var OCRFlowTaskSidebar = {
 	serviceLabel(task) {
 		let settings = task.displaySettings || task.settings;
 		if(task.kind==="title")return `${this.plugin.titleTranslationServiceLabel(settings)} → ${settings.targetLang}`;
-		if(settings.parserService==="marker"&&settings.markerSettings?.apiType==="cloud")return "Marker · Datalab 在线 API";
+		if(settings.parserService==="marker"&&settings.markerSettings?.apiType==="cloud")return ocrflowText("Marker · Datalab 在线 API");
 		if (settings.parserService === "ai" || (!settings.parserService && settings.model) || !["parse", "organize"].includes(task.kind)) {
 			let model = settings.llmSettings || settings;
-			return [model.providerName, model.model].filter(Boolean).join(" · ") || "AI 工作";
+			return [model.providerName, model.model].filter(Boolean).join(" · ") || ocrflowText("AI 工作");
 		}
-		return ({marker:"Marker · 自部署 API","paddle-cloud":"PaddleOCR · 官方 API","paddle-local":"PaddleOCR · 自部署 API",markitdown:"MarkItDown"})[settings.parserService] || (settings.apiMode === "local-v1" ? "MinerU · 本地服务" : "MinerU · 官方云端");
+		return ocrflowText(({marker:"Marker · 自部署 API","paddle-cloud":"PaddleOCR · 官方 API","paddle-local":"PaddleOCR · 自部署 API",markitdown:"MarkItDown"})[settings.parserService] || (settings.apiMode === "local-v1" ? "MinerU · 本地服务" : "MinerU · 官方云端"));
 	},
 
 	unmount(window) {

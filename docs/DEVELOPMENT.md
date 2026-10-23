@@ -28,6 +28,7 @@ python3 build.py --output-dir ./dist
 | 文件或目录 | 职责 |
 | --- | --- |
 | `title-translation.js` / `translation-services.js` | 标题翻译收集与写入、DeepL / DeepLX 接口与设置选项；使用现有加密配置与任务队列 |
+| `localization.js` / `locale/en-US/ui.js` | 跟随 Zotero 的界面语言；翻译静态界面与动态状态，文献内容和配置值保持原样 |
 | `manifest.json` | 插件名称、版本、图标、Zotero 兼容范围和稳定 ID |
 | `bootstrap.js` | 插件启动、模块加载、设置页及菜单注册、关闭清理 |
 | `task-sidebar.js` / `task-sidebar.css` | 主窗口任务面板、执行步骤、真实进度、文档选择跟随与侧栏清理 |
