@@ -182,3 +182,18 @@ test('selected Markdown is reused explicitly and is never its own original for r
  s.plugin.handleParseCommand=async options=>calls.push(options.selectedItems[0]);
  await s.sidebar.performDocumentAction(s.view,'ocr');assert.equal(calls[1],file);
 });
+
+
+test('sidebar title translation works without source files and sends the selected parent directly',async()=>{
+ const s=documentSetup(),parent=s.item(1);s.select([parent]);s.sidebar.render=()=>{};
+ const context=s.sidebar.documentContext(s.view);assert(s.sidebar.canPerform(context,'title'));assert(!s.sidebar.canPerform(context,'title',true));
+ const calls=[];s.plugin.handleTitleTranslation=async options=>calls.push(options.selectedItems);
+ await s.sidebar.performDocumentAction(s.view,'title');assert.equal(calls.length,1);assert.equal(calls[0][0],parent);assert.equal(s.view.launching.size,0);
+ s.select([s.item(2,'standalone.pdf')]);assert.match(s.sidebar.actionUnavailableReason(s.sidebar.documentContext(s.view),'title'),/先建立条目/);
+});
+test('parent title tasks remain visible when either of its attachments is selected',()=>{
+ const s=documentSetup(),parent=s.item(1),a=s.item(2,'first.pdf',1),b=s.item(3,'second.pdf',1),other=s.item(4);
+ s.plugin.parseQueue=[{id:1,kind:'title',attachment:parent,state:'running'},{id:2,kind:'title',attachment:other,state:'running'},{id:3,kind:'parse',attachment:a,state:'running'}];
+ s.select([b]);assert.deepEqual(Array.from(s.sidebar.documentTasks(s.sidebar.documentContext(s.view)),t=>t.id),[1]);
+ s.select([a]);assert.deepEqual(Array.from(s.sidebar.documentTasks(s.sidebar.documentContext(s.view)),t=>t.id),[1,3]);
+});

@@ -7,7 +7,7 @@ function setup() {
   const prefs=new Map(Object.entries({apiMode:'local-v1',parserService:'ai','local.apiBaseURL':'http://local.example','local.modelVersion':'advanced','cloud.apiBaseURL':'https://cloud.example/v4','cloud.apiToken':'cloud-token','cloud.modelVersion':'vlm'}).map(([key,value])=>['extensions.docflow.'+key,value]));
   const calls=[],registered=[];
   const context={Zotero:{Prefs:{get:key=>prefs.get(key)},debug:()=>{},logError:error=>{throw error;},getMainWindows:()=>[],MenuManager:{registerMenu:menu=>registered.push(menu)}}};
-  vm.createContext(context);for(const file of ['prompts.js','docflow.js','workflow.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
+  vm.createContext(context);for(const file of ['prompts.js','docflow.js','workflow.js','title-translation.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
   const plugin=context.DocFlow;plugin.enqueueDocumentTasks=async(kind,tasks,settings)=>calls.push({kind,tasks,settings});
   const file=(id,name)=>({id,libraryID:1,attachmentFilename:name,isAttachment:()=>true,isRegularItem:()=>false,isNote:()=>false,isPDFAttachment:()=>name.endsWith('.pdf'),getTags:()=>[],hasTag:()=>false,getField:()=>name,relatedItems:[]});
   return {plugin,prefs,calls,registered,context,pdf:file(1,'scan.pdf'),image:file(2,'scan.png'),epub:file(3,'book.epub')};

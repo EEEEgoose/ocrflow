@@ -59,3 +59,11 @@ pref("extensions.docflow.llmModel2MaxOutput", "");
 
 pref("extensions.docflow.collationAIEnabled", false);
 pref("extensions.docflow.collationAIModel", "");
+
+pref("extensions.docflow.titleService", "ai");
+pref("extensions.docflow.titleLanguage", "ZH");
+pref("extensions.docflow.titleOverwrite", false);
+pref("extensions.docflow.deeplPlan", "free");
+pref("extensions.docflow.deeplApiKey", "");
+pref("extensions.docflow.deeplxEndpoint", "http://127.0.0.1:1188/translate");
+pref("extensions.docflow.deeplxToken", "");

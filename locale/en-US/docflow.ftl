@@ -36,3 +36,6 @@ ocrflow-menu-changes =
 
 docflow-menu-ocr-marker =
     .label = Marker (online / self-hosted)
+
+docflow-menu-translate-title =
+    .label = Translate title

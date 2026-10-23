@@ -29,6 +29,8 @@ async function startup({ id, version, rootURI }) {
 	OCRFlowDatalab.install(DocFlow);
 	Services.scriptloader.loadSubScript(rootURI + 'metadata.js');
 	Services.scriptloader.loadSubScript(rootURI + 'workflow.js');
+	Services.scriptloader.loadSubScript(rootURI + 'translation-services.js');
+	Services.scriptloader.loadSubScript(rootURI + 'title-translation.js');
 	Services.scriptloader.loadSubScript(rootURI + 'document.js');
 	Services.scriptloader.loadSubScript(rootURI + 'paddleocr.js');
 	Services.scriptloader.loadSubScript(rootURI + 'ocr-sources.js');
@@ -44,7 +46,7 @@ async function startup({ id, version, rootURI }) {
 		id: "ocrflow-preferences",
 		pluginID: id,
 		src: "chrome://docflow/content/preferences.xhtml",
-		scripts: ["chrome://docflow/content/prompts.js", "chrome://docflow/content/markitdown.js", "chrome://docflow/content/marker.js", "chrome://docflow/content/datalab.js", "chrome://docflow/content/ocr-sources.js", "chrome://docflow/content/task-queue.js", "chrome://docflow/content/preferences.js", "chrome://docflow/content/config-preferences.js"],
+		scripts: ["chrome://docflow/content/prompts.js", "chrome://docflow/content/markitdown.js", "chrome://docflow/content/marker.js", "chrome://docflow/content/datalab.js", "chrome://docflow/content/ocr-sources.js", "chrome://docflow/content/task-queue.js", "chrome://docflow/content/preferences.js", "chrome://docflow/content/config-preferences.js", "chrome://docflow/content/translation-services.js"],
 		label: "OCRFlow",
 		image: "chrome://docflow/content/icon48.png"
 	});

@@ -161,7 +161,7 @@ var DocFlowTaskQueue = {
 			}
 			setText(row.number, index + 1);
 			setText(row.title, task.title);
-			let mode = ({organize: "一键整理", parent: "建立父条目", metadata: "补全条目", summary: "总结文献", outline: "生成大纲", translate: `翻译文献 → ${task.settings.translateLanguage || "中文"}`})[task.kind]
+			let mode = task.kind === "title" ? `翻译标题 · ${this.plugin.titleTranslationServiceLabel(task.settings)} → ${task.settings.targetLang}` : ({organize: "一键整理", parent: "建立条目", metadata: "补全条目", summary: "总结文献", outline: "生成大纲", translate: `翻译文献 → ${task.settings.translateLanguage || "中文"}`})[task.kind]
 				|| (task.settings.parserService === "marker" ? "Marker" : task.settings.parserService === "ai" ? "AI 视觉 OCR" : task.settings.parserService === "markitdown" ? "MarkItDown" : task.settings.parserService?.startsWith("paddle-") ? (task.settings.parserService === "paddle-local" ? "PaddleOCR 自部署 API" : "PaddleOCR 官方 API") : task.settings.apiMode === "local-v1" ? "本地 MinerU" : "MinerU 官方 API");
 			let ai = task.kind === "organize" ? null : task.settings.parserService === "ai" ? task.settings.llmSettings : task.kind !== "parse" ? task.settings : null;
 			setText(row.mode, mode + (ai?.providerName ? ` · ${ai.providerName} + ${ai.model}` : ""));
