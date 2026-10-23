@@ -1,3 +1,4 @@
+var ocrflowText = typeof ocrflowText === "function" ? ocrflowText : value => String(value ?? "");
 /* Reader outline interactions adapted from DrinkTea905/zotero-paper-outline.
  * Copyright (c) 2026 独钓寒江雪, MIT; see vendor/paper-outline/LICENSE.
  */
@@ -351,11 +352,11 @@ var DocFlowOutline = {
 		let outline = data?.outline || [];
 		let rootLevel = outline.length ? Math.min(...outline.map(section => section.level)) : 1;
 		let bar = make("div", null, "mo-bar");
-		let generate = make("button", outline.length ? "重新生成大纲" : "生成大纲");
+		let generate = make("button", ocrflowText(outline.length ? "重新生成大纲" : "生成大纲"));
 		generate.type = "button";
 		generate.addEventListener("click", () => { this.enqueue(reader._item, true); this.owner.openParseQueueDialog(); this.owner.processParseQueue().catch(error => Zotero.logError(error)); });
 		bar.appendChild(generate);
-		let toggle = make("button", "展开 / 收起"); toggle.type = "button";
+		let toggle = make("button", ocrflowText("展开 / 收起")); toggle.type = "button";
 		toggle.addEventListener("click", () => {
 			let collapsed = panel.getAttribute("data-collapsed") !== "true";
 			panel.setAttribute("data-collapsed", String(collapsed));
@@ -368,7 +369,7 @@ var DocFlowOutline = {
 		});
 		if (outline.length) bar.appendChild(toggle);
 		panel.appendChild(bar);
-		if (!outline.length) panel.appendChild(make("p", "生成后可点击标题跳页；进度和重试显示在任务队列中。"));
+		if (!outline.length) panel.appendChild(make("p", ocrflowText("生成后可点击标题跳页；进度和重试显示在任务队列中。")));
 		for (let [index, section] of outline.entries()) {
 			let row = make("div", null, "mo-row");
 			row.dataset.level = section.level; row.dataset.page = section.page || "";

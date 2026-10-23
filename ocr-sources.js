@@ -9,7 +9,7 @@ var OCRFlowSources = {
 			...providers.flatMap(provider => [1, 2].filter(slot => provider[slot === 1 ? "llmModel" : "llmModel2"]?.trim()).map(slot => ({
 				value: `ai:${provider.id}:${slot}`, label: `${provider.llmProviderName || "服务商"} · ${provider[slot === 1 ? "llmModel" : "llmModel2"]}`
 			})))
-		];
+		].map(choice => ({...choice, label: !choice.value.startsWith("ai:") && typeof OCRFlowL10n !== "undefined" ? OCRFlowL10n.text(choice.label) : choice.label}));
 	},
 	identity(value, providers) {
 		if (value === "marker" || /^marker-/.test(value)) return "marker";

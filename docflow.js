@@ -1,3 +1,4 @@
+var ocrflowText = typeof ocrflowText === "function" ? ocrflowText : value => String(value ?? "");
 DocFlow = {
 	id: null,
 	version: null,
@@ -56,7 +57,7 @@ DocFlow = {
 			let menuDefinitions = this.getContextMenuDefinitions();
 			let makeMenu = definition => ({
 				menuType: definition.children ? "submenu" : "menuitem",
-				label: definition.label, l10nID: definition.l10nID,
+				label: ocrflowText(definition.label), l10nID: definition.l10nID,
 				icon: this.getMenuIconURL(definition.icon),
 				onShowing: (_event, context) => {
 					if (typeof context?.setEnabled === "function") {
@@ -131,7 +132,7 @@ DocFlow = {
 		let appendMenu = (definition, popup) => {
 			let menuitem = doc.createXULElement(definition.children ? "menu" : "menuitem");
 			menuitem.id = definition.id;
-			menuitem.setAttribute("label", definition.label);
+			menuitem.setAttribute("label", ocrflowText(definition.label));
 			menuitem.setAttribute("class", definition.children ? "menu-iconic" : "menuitem-iconic");
 			let itemIcon = this.getMenuIconURL(definition.icon);
 			menuitem.setAttribute("image", itemIcon);
@@ -322,7 +323,7 @@ DocFlow = {
 
 	showAlert(window, title, message) {
 		if (window) {
-			Zotero.alert(window, title, message);
+			Zotero.alert(window, ocrflowText(title), ocrflowText(message));
 			return;
 		}
 		this.log(`${title}: ${message}`);
@@ -331,14 +332,14 @@ DocFlow = {
 	showConfirm(window, title, message) {
 		try {
 			if (typeof Services !== "undefined" && Services.prompt?.confirm) {
-				return Services.prompt.confirm(window || null, title, message);
+				return Services.prompt.confirm(window || null, ocrflowText(title), ocrflowText(message));
 			}
 		}
 		catch (e) {
 			Zotero.logError(e);
 		}
 		if (window?.confirm) {
-			return window.confirm(message);
+			return window.confirm(ocrflowText(message));
 		}
 		this.log(`${title}: ${message}`);
 		return false;

@@ -1,3 +1,4 @@
+var ocrflowText = typeof ocrflowText === "function" ? ocrflowText : value => String(value ?? "");
 var DocFlowTaskQueue = {
 	plugin: window.arguments?.[0]?.plugin || null,
 	rows: new Map(),
@@ -6,6 +7,7 @@ var DocFlowTaskQueue = {
 	init(plugin = window.arguments[0].plugin) {
 		if (this.initialized) return;
 		this.initialized = true;
+		if (typeof OCRFlowL10n !== "undefined") OCRFlowL10n.localize(document.querySelector(".queue-shell"));
 		this.plugin = plugin;
 		plugin.parseQueueViews.add(this);
 		this.owner = document.getElementById("docflow-prefpane") || window;
@@ -46,9 +48,9 @@ var DocFlowTaskQueue = {
 		if (!text) return;
 		try {
 			Components.classes["@mozilla.org/widget/clipboardhelper;1"].getService(Components.interfaces.nsIClipboardHelper).copyString(text);
-			document.getElementById("queue-copy-status").textContent = message;
+			document.getElementById("queue-copy-status").textContent = ocrflowText(message);
 		} catch (error) {
-			document.getElementById("queue-copy-status").textContent = `复制失败：${error.message || error}`;
+			document.getElementById("queue-copy-status").textContent = ocrflowText(`复制失败：${error.message || error}`);
 		}
 	},
 
@@ -112,20 +114,20 @@ var DocFlowTaskQueue = {
 
 	retry(ids) {
 		this.plugin.retryParseQueueTasks(ids).catch(error => {
-			document.getElementById("queue-summary").textContent = `重试失败: ${error.message || error}`;
+			document.getElementById("queue-summary").textContent = ocrflowText(`重试失败: ${error.message || error}`);
 		});
 	},
 
 	cancel(id) {
 		this.plugin.cancelParseQueueTask(id).catch(error => {
-			document.getElementById("queue-summary").textContent = `终止失败: ${error.message || error}`;
+			document.getElementById("queue-summary").textContent = ocrflowText(`终止失败: ${error.message || error}`);
 		});
 	},
 
 	render() {
 		// Keep unchanged text nodes so progress updates preserve text selection.
-		let setText = (element, value) => {
-			let text = String(value ?? "");
+		let setText = (element, value, content = false) => {
+			let text = content ? String(value ?? "") : ocrflowText(value);
 			if (element.textContent !== text) element.textContent = text;
 		};
 		let body = document.getElementById("queue-body");
@@ -151,7 +153,7 @@ var DocFlowTaskQueue = {
 				cancel.type = "button";
 				cancel.addEventListener("click", () => this.cancel(task.id));
 				copy.type = "button";
-				copy.textContent = "复制";
+				copy.textContent = ocrflowText("复制");
 				copy.addEventListener("click", () => this.copyText(this.taskText(row), "已复制本条任务"));
 				cells[4].className = "queue-row-actions";
 				cells[1].append(title, mode); cells[2].append(state); cells[3].append(detail, job, error); cells[4].append(retry, cancel, copy);
@@ -160,11 +162,11 @@ var DocFlowTaskQueue = {
 				this.rows.set(task.id, row);
 			}
 			setText(row.number, index + 1);
-			setText(row.title, task.title);
+			setText(row.title, task.title, true);
 			let mode = task.kind === "title" ? `翻译标题 · ${this.plugin.titleTranslationServiceLabel(task.settings)} → ${task.settings.targetLang}` : ({organize: "一键整理", parent: "建立条目", metadata: "补全条目", summary: "总结文献", outline: "生成大纲", translate: `翻译文献 → ${task.settings.translateLanguage || "中文"}`})[task.kind]
 				|| (task.settings.parserService === "marker" ? "Marker" : task.settings.parserService === "ai" ? "AI 视觉 OCR" : task.settings.parserService === "markitdown" ? "MarkItDown" : task.settings.parserService?.startsWith("paddle-") ? (task.settings.parserService === "paddle-local" ? "PaddleOCR 自部署 API" : "PaddleOCR 官方 API") : task.settings.apiMode === "local-v1" ? "本地 MinerU" : "MinerU 官方 API");
 			let ai = task.kind === "organize" ? null : task.settings.parserService === "ai" ? task.settings.llmSettings : task.kind !== "parse" ? task.settings : null;
-			setText(row.mode, mode + (ai?.providerName ? ` · ${ai.providerName} + ${ai.model}` : ""));
+			setText(row.mode, ocrflowText(mode) + (ai?.providerName ? ` · ${ai.providerName} + ${ai.model}` : ""));
 			setText(row.state, task.state==="running"&&task.phase==="Marker · queued" ? "服务端排队中" : this.labels[task.state]);
 			row.state.dataset.state = task.state;
 			setText(row.detail, task.detail);
@@ -176,7 +178,7 @@ var DocFlowTaskQueue = {
 			row.cancel.disabled = !!task.saving || (!["queued", "running", "wait_expired"].includes(task.state) && !task.cancelFailed);
 		}
 		setText(document.getElementById("queue-summary"), this.plugin.parseQueue.length
-			? Object.entries(counts).map(([state, count]) => `${this.labels[state]} ${count}`).join("　") : "暂无任务");
+			? Object.entries(counts).map(([state, count]) => `${ocrflowText(this.labels[state])} ${count}`).join("　") : "暂无任务");
 		document.getElementById("queue-retry-failed").disabled = counts.failed === 0;
 		document.getElementById("queue-clear").disabled = !this.plugin.parseQueue.some(task => this.plugin.canClearParseQueueTask(task));
 		this.updateScrollbar();
