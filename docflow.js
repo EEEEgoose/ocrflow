@@ -512,8 +512,7 @@ DocFlow = {
 		let s=task.settings||{};
 		if(task.kind==="title")return JSON.stringify(["title",s.service,s.service==="ai" ? s.aiSettings.apiBaseURL : s.service==="deepl" ? s.deeplPlan : s.deeplxEndpoint,s.aiSettings?.modelID,s.aiSettings?.model]);
 		let reader=s.collationEnabled ? s.readerA||s : s;
-		let ext=this.documentExtension?.(task.attachment);
-		if(["parse","organize"].includes(task.kind)&&reader.parserService!=="marker"&&ext&&!["pdf","png","jpg","jpeg","txt","md","markdown","csv"].includes(ext))reader={...reader,parserService:"markitdown"};
+		if (["parse", "organize"].includes(task.kind)) reader = this.recognitionSettingsFor(task.attachment, reader);
 		let ai=reader.parserService==="ai" ? reader.llmSettings||{} : s;
 		let endpoint=reader.parserService==="marker" ? reader.markerSettings?.baseURL : reader.parserService?.startsWith("paddle-") ? reader.paddleSettings?.baseURL : reader.parserService==="markitdown" ? reader.markitdownBaseURL : ai.apiBaseURL;
 		let models=task.kind==="organize" ? [s.metadataSettings,s.outlineSettings,s.summarySettings,s.translationSettings].map(row=>[row?.apiBaseURL,row?.modelID,row?.model]) : [];
@@ -609,6 +608,7 @@ DocFlow = {
 	},
 
 	async runParseTask(task) {
+		task.settings = this.recognitionSettingsFor(task.attachment, task.settings);
 		if (!task.parsedResult) {
 			task.displaySettings = task.settings.collationEnabled && ["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(task.attachment)) ? task.settings.readerA || task.settings : task.settings;
 			task.cancelSettings = task.displaySettings;
@@ -1546,7 +1546,8 @@ DocFlow = {
 		let entryName = entryMap.get(normalizedPath.toLowerCase());
 		if (!entryName) {
 			let basename = this.fileNameFromPath(normalizedPath).toLowerCase();
-			let matches = [...entryMap.values()].filter(name => this.fileNameFromPath(name).toLowerCase() === basename);
+			let matches = [...entryMap.values()].filter(name => this.normalizeArchivePath(name).toLowerCase().endsWith("/" + normalizedPath.toLowerCase()));
+			if (!matches.length) matches = [...entryMap.values()].filter(name => this.fileNameFromPath(name).toLowerCase() === basename);
 			if (matches.length === 1) entryName = matches[0];
 		}
 		if (!entryName) return null;
@@ -2601,7 +2602,7 @@ DocFlow = {
 		return normalizedMarkdownPath.startsWith("/") ? "/" + normalizedPath : normalizedPath
 	},
 
-	async inlineStoredImagesInMarkdownAttachment({ markdownText, markdownPath, signal, onImage }) {
+	async inlineStoredImagesInMarkdownAttachment({ markdownText, markdownPath, signal, onImage, archive }) {
 		let embeddedByPath = new Map()
 		let embeddedImages = []
 		let addEmbedded = (imagePath, mimeType, bytes) => {
@@ -2633,6 +2634,12 @@ DocFlow = {
 				if (!match) throw new Error("不支持的内嵌图片格式");
 				let binary = atob(match[2].replace(/\s/g, ""));
 				return addEmbedded(resourceURL, match[1], Uint8Array.from(binary, ch => ch.charCodeAt(0)));
+			}
+			if (archive && !this.isExternalResourceURL(resourceURL)) {
+				let image = await this.resolveArchiveImageReference({ ...archive, resourceURL, embeddedByEntry:embeddedByPath, addEmbedded });
+				signal?.throwIfAborted();
+				if (!image) throw new Error(`EPUB 图片未找到：${resourceURL}（已检查书内图片资源）`);
+				return image;
 			}
 			let imagePath = this.resolveStoredAttachmentImagePath(markdownPath, resourceURL)
 			if (!imagePath) return null

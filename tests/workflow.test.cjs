@@ -697,3 +697,8 @@ test('images converted to PDF also receive the parent document cloud language',a
   const result=await s.plugin.parseAttachmentWithMineru(original,{apiMode:'cloud',apiToken:'test',parserService:'mineru',cloudLanguage:'auto'},{});
   assert.equal(language,'arabic');assert.equal(result.markdownText,'image text');
 });
+
+test('EPUB tasks snapshot the actual MarkItDown service instead of the default OCR and unrelated cloud profile',async()=>{
+ const s=setup(),original=s.file('book.epub');s.prefs.set('extensions.docflow.parserService','mineru');s.prefs.set('extensions.docflow.apiMode','cloud');s.prefs.set('extensions.docflow.marker.apiType','cloud');
+ await s.plugin.handleParseCommand({selectedItems:[original]});const task=s.plugin.parseQueue[0];assert.equal(task.state,'completed');assert.equal(task.settings.parserService,'markitdown');assert.equal(task.displaySettings.parserService,'markitdown');assert.equal(task.cancelSettings.parserService,'markitdown');assert.equal(s.prefs.get('extensions.docflow.parserService'),'mineru');assert.equal(s.uploads.length,1);
+});
