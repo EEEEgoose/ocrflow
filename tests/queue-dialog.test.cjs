@@ -128,6 +128,10 @@ plugin.titleTranslationServiceLabel=context.DocFlow.titleTranslationServiceLabel
 plugin.parseQueue.push({id:9,kind:'title',title:'Original title',settings:{service:'deepl',deeplPlan:'pro',targetLang:'FR'},state:'completed',detail:'已写入短标题（FR）：Titre traduit'});
 view.render();assert.equal(view.rows.get(9).mode.textContent,'翻译标题 · DeepL API Pro → FR');
 view.rows.get(9).copy.listeners.click();assert(copied.at(-1).includes('Titre traduit'));assert(copied.at(-1).includes('DeepL API Pro'));
+plugin.parseQueue.push({id:10,kind:'parse',title:'book.epub',settings:{parserService:'mineru',apiMode:'cloud',markerSettings:{apiType:'cloud'}},displaySettings:{parserService:'markitdown'},state:'failed',detail:'failed'});
+view.render();assert.equal(view.rows.get(10).mode.textContent,'MarkItDown');assert.equal(view.rows.get(10).cancel.textContent,'终止');assert.equal(view.rows.get(10).cancel.disabled,true);
+plugin.parseQueue.push({id:11,kind:'parse',title:'cloud.pdf',settings:{parserService:'marker',markerSettings:{apiType:'cloud'}},state:'running'});
+view.render();assert.equal(view.rows.get(11).cancel.textContent,'停止等待');assert.equal(view.rows.get(11).cancel.disabled,false);
 elements.get('queue-close').listeners.click();
 assert.equal(plugin.parseQueueWindow, null);
 assert.equal(plugin.parseQueueViews.size,0,'closing the view unregisters it before its script scope is destroyed');

@@ -341,7 +341,7 @@ Object.assign(DocFlow, {
 	async enqueueDocumentTasks(kind, tasks, settings) {
 		for (let task of tasks) {
 			if (this.parseQueue.some(row => row.kind === kind && row.attachment.id === task.attachment.id && ["queued", "running", "stopping"].includes(row.state))) continue;
-			this.parseQueue.push({ ...task, kind, settings: { ...settings }, id: this.parseQueueNextID++, state: "queued",
+			this.parseQueue.push({ ...task, kind, settings: { ...(kind === "parse" ? this.recognitionSettingsFor(task.attachment, settings) : settings) }, id: this.parseQueueNextID++, state: "queued",
 				title: task.title || task.attachment.getField("title") || task.attachment.attachmentFilename,
 				detail: "等待处理", error: "", jobID: null, parsedResult: null });
 		}
@@ -727,6 +727,12 @@ Object.assign(DocFlow, {
 		finally { signal?.removeEventListener("abort",abort); }
 	},
 
+	recognitionSettingsFor(attachment, settings) {
+		let ext = this.documentExtension(attachment);
+		return settings.parserService !== "marker" && ext && !["pdf", "png", "jpg", "jpeg", "txt", "md", "markdown", "csv"].includes(ext)
+			? { ...settings, parserService: "markitdown" } : settings;
+	},
+
 	async parseAttachmentWithMineru(attachment, settings, options = {}) {
 		let ext = this.documentExtension(attachment);
 		let image = ["png", "jpg", "jpeg"].includes(ext);
@@ -759,7 +765,8 @@ Object.assign(DocFlow, {
 	},
 
 	async parseWithMarkItDown(attachment, settings, options) {
-		if (!settings.markitdownBaseURL) throw new Error("请先在 OCRFlow 设置中填写 MarkItDown 服务地址。");
+		if (!settings.markitdownBaseURL?.trim()) throw new Error(this.documentExtension(attachment) === "epub"
+			? "EPUB 需要 MarkItDown，请先在识别服务中配置。" : "请先在 OCRFlow 设置中填写 MarkItDown 服务地址。");
 		let path = await attachment.getFilePath();
 		if (!path) throw new Error("附件文件尚未下载。");
 		let bytes = await IOUtils.read(path);
@@ -798,7 +805,9 @@ Object.assign(DocFlow, {
 				result = await response.json();
 			}
 			if (typeof result.markdown !== "string" || !result.markdown.trim()) throw new Error("MarkItDown 未返回正文；扫描件请在设置中选择 MinerU 或 AI 视觉 OCR 后重试。");
-			return this.inlineStoredImagesInMarkdownAttachment({ markdownText: result.markdown, markdownPath: path });
+			return await (this.documentExtension(attachment) === "epub"
+				? this.inlineEPUBImagesInMarkdown(result.markdown, path, controller.signal)
+				: this.inlineStoredImagesInMarkdownAttachment({ markdownText: result.markdown, markdownPath: path, signal: controller.signal }));
 		} finally {
 			clearTimeout(timer);
 			options.signal?.removeEventListener("abort", abort);
@@ -835,6 +844,24 @@ Object.assign(DocFlow, {
 		if (!markdown.length) throw new Error("MarkItDown 未提取到 PDF 文字，扫描件请在右键菜单中选择 MinerU 或 AI 视觉 OCR。");
 		return { markdownText: markdown.join("\n\n"), embeddedImages: [],
 			warning: hasEmptyParts ? "部分分段未提取到文字，可能包含扫描页；需要 OCR 时请选择 MinerU 或 AI 视觉 OCR。" : null };
+	},
+
+	async inlineEPUBImagesInMarkdown(markdownText, path, signal) {
+		let references = [...markdownText.matchAll(/!\[[^\]]*\]\(([^)]+)\)|<img\b[^>]*\bsrc=["']([^"']+)["']/gi)]
+			.map(match => match[1] ? this.parseMarkdownImageTarget(match[1]).url : match[2]);
+		if (!references.some(url => !this.isExternalResourceURL(url))) return this.inlineStoredImagesInMarkdownAttachment({ markdownText, markdownPath:path, signal });
+		signal?.throwIfAborted();
+		let tempDir = PathUtils.join(PathUtils.tempDir, `ocrflow-epub-images-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+		await IOUtils.makeDirectory(tempDir, { createAncestors:true });
+		let zip = Components.classes["@mozilla.org/libjar/zip-reader;1"].createInstance(Components.interfaces.nsIZipReader);
+		try {
+			zip.open(this.pathToNSIFile(path));
+			return await this.inlineStoredImagesInMarkdownAttachment({ markdownText, markdownPath:path, signal,
+				archive:{ zipReader:zip, tempDir, entryMap:this.buildArchiveEntryMap(zip), markdownEntryName:"" } });
+		} finally {
+			try { zip.close(); } catch (_) {}
+			await IOUtils.remove(tempDir, { recursive:true }).catch(() => {});
+		}
 	},
 
 	async readEPUBForMarkItDown(path, signal) {

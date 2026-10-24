@@ -825,5 +825,7 @@ var OCRFlowEnglish = {
   " ✓ 已保存": " ✓ Saved",
   "{0} / {1} 页": "{0} / {1} pages",
   "{0} / {1} 段": "{0} / {1} paragraphs",
-  "依据：": "Evidence: "
+  "依据：": "Evidence: ",
+  "EPUB 图片未找到：{0}（已检查书内图片资源）": "EPUB image not found: {0} (checked resources inside the book)",
+  "EPUB 需要 MarkItDown，请先在识别服务中配置。": "EPUB requires MarkItDown. Configure it under Recognition first."
 };

@@ -163,9 +163,10 @@ var DocFlowTaskQueue = {
 			}
 			setText(row.number, index + 1);
 			setText(row.title, task.title, true);
+			let settings = task.displaySettings || task.settings;
 			let mode = task.kind === "title" ? `翻译标题 · ${this.plugin.titleTranslationServiceLabel(task.settings)} → ${task.settings.targetLang}` : ({organize: "一键整理", parent: "建立条目", metadata: "补全条目", summary: "总结文献", outline: "生成大纲", translate: `翻译文献 → ${task.settings.translateLanguage || "中文"}`})[task.kind]
-				|| (task.settings.parserService === "marker" ? "Marker" : task.settings.parserService === "ai" ? "AI 视觉 OCR" : task.settings.parserService === "markitdown" ? "MarkItDown" : task.settings.parserService?.startsWith("paddle-") ? (task.settings.parserService === "paddle-local" ? "PaddleOCR 自部署 API" : "PaddleOCR 官方 API") : task.settings.apiMode === "local-v1" ? "本地 MinerU" : "MinerU 官方 API");
-			let ai = task.kind === "organize" ? null : task.settings.parserService === "ai" ? task.settings.llmSettings : task.kind !== "parse" ? task.settings : null;
+				|| (settings.parserService === "marker" ? "Marker" : settings.parserService === "ai" ? "AI 视觉 OCR" : settings.parserService === "markitdown" ? "MarkItDown" : settings.parserService?.startsWith("paddle-") ? (settings.parserService === "paddle-local" ? "PaddleOCR 自部署 API" : "PaddleOCR 官方 API") : settings.apiMode === "local-v1" ? "本地 MinerU" : "MinerU 官方 API");
+			let ai = task.kind === "organize" ? null : settings.parserService === "ai" ? settings.llmSettings : task.kind !== "parse" ? task.settings : null;
 			setText(row.mode, ocrflowText(mode) + (ai?.providerName ? ` · ${ai.providerName} + ${ai.model}` : ""));
 			setText(row.state, task.state==="running"&&task.phase==="Marker · queued" ? "服务端排队中" : this.labels[task.state]);
 			row.state.dataset.state = task.state;
@@ -174,7 +175,7 @@ var DocFlowTaskQueue = {
 			setText(row.error, task.error);
 			setText(row.retry, task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : task.state === "canceled" ? "重新处理" : "重试");
 			row.retry.disabled = !["failed", "wait_expired", "canceled", "waiting"].includes(task.state);
-			setText(row.cancel, task.cancelFailed ? "重试终止" : (task.cancelSettings||task.settings).markerSettings?.apiType==="cloud" ? "停止等待" : "终止");
+			setText(row.cancel, task.cancelFailed ? "重试终止" : ((task.cancelSettings||task.settings).parserService==="marker" && (task.cancelSettings||task.settings).markerSettings?.apiType==="cloud") ? "停止等待" : "终止");
 			row.cancel.disabled = !!task.saving || (!["queued", "running", "wait_expired"].includes(task.state) && !task.cancelFailed);
 		}
 		setText(document.getElementById("queue-summary"), this.plugin.parseQueue.length

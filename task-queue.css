@@ -15,7 +15,7 @@
 .number-column { width: 52px; }
 .file-column { width: 24%; }
 .state-column { width: 100px; }
-.action-column { width: 110px; }
+.action-column { width: 128px; }
 .queue-mode, .queue-job-id, .queue-help { font-size: 12px; color: GrayText; }
 .queue-detail, .queue-error { white-space: pre-wrap; }
 #queue-copy-status:empty { display: none; }
@@ -23,7 +23,7 @@
 .queue-state[data-state="completed"] { color: light-dark(#216a34, #80cf94); }
 .queue-state[data-state="failed"] { color: light-dark(#a12622, #ff9b94); }
 .queue-state[data-state="canceled"] { color: GrayText; }
-.queue-row-actions button { display: block; margin-bottom: 6px; }
+.queue-shell .queue-row-actions button { display: block; width: 100%; min-height: 32px; height: auto; max-height: none; line-height: 1.4; padding: 6px 10px; margin: 0 0 6px; }
 .queue-actions { display: flex; flex-shrink: 0; gap: 10px; justify-content: space-between; }
-.queue-shell button { font: inherit; padding: 6px 12px; cursor: pointer; }
-.queue-shell button:disabled { cursor: default; }
+.queue-shell button { appearance: none; box-sizing: border-box; height: auto; max-height: none; min-height: 32px; margin: 0; font: inherit; line-height: 1.4; white-space: normal; padding: 6px 10px; border: 1px solid color-mix(in srgb, GrayText 50%, transparent); border-radius: 5px; background: Canvas; color: CanvasText; cursor: pointer; }
+.queue-shell button:disabled { cursor: default; opacity: .5; }
