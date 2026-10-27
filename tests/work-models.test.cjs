@@ -10,7 +10,7 @@ function setup() {
   IOUtils:{read:async()=>new Uint8Array([1,2,3])},
   fetch:async(url,options)=>{const payload=JSON.parse(options.body);requests.push({url,payload,signal:options.signal});return {ok:true,json:async()=>({choices:[{message:{content:await reply(payload)},finish_reason:'stop'}]})};}
  };
- vm.createContext(ctx);for(const file of ['prompts.js','prefs.js','docflow.js','metadata.js','workflow.js'])vm.runInContext(fs.readFileSync(file,'utf8'),ctx);
+ vm.createContext(ctx);for(const file of ['prompts.js','prefs.js','docflow.js','metadata.js','workflow.js','attachment-naming.js'])vm.runInContext(fs.readFileSync(file,'utf8'),ctx);
  const plugin=ctx.DocFlow;
  const put=(name,value)=>prefs.set('extensions.docflow.'+name,value);
  put('llmProviders',JSON.stringify([{id:'text',llmProviderName:'文本',llmApiBaseURL:'https://text.example/v1',llmApiKey:'text-key',llmModel:'text-1',llmModel2:'text-2',llmModelConcurrency:'2',llmModelContext:'65536',llmModel2Concurrency:'2'},{id:'vision',llmProviderName:'视觉',llmApiBaseURL:'https://vision.example/v1',llmModel:'vision-1',llmModel2:'vision-2',llmModel2Concurrency:'2'}]));
@@ -72,7 +72,7 @@ test('parent queue concurrency is honored, snapshots stay stable and retry refre
 });
 test('parallel metadata merges publication pages before later chapters',async()=>{
  const a=setup(),p=a.plugin;let active=0,peak=0,captured;
- const parent={itemTypeID:1,loadAllData:async()=>{},getField:()=>'',getCreatorsJSON:()=>[],save:async()=>{}};
+ const parent={getAttachments:()=>[],itemTypeID:1,loadAllData:async()=>{},getField:()=>'',getCreatorsJSON:()=>[],save:async()=>{}};
  const attachment={id:100,getField:()=> 'file.pdf',attachmentFilename:'file.pdf'};
  a.ctx.Zotero.Items={get:()=>attachment};a.ctx.Zotero.ItemFields={isValidForType:()=>true};a.ctx.Zotero.DB={executeTransaction:async fn=>fn()};
  p.parentForDocument=()=>parent;p.findDocumentMarkdown=()=>({id:200});p.readSourceMarkdown=async()=>({markdown:'A'.repeat(40000)+'B'.repeat(40000)+'C'.repeat(1000)});p.refreshParseQueueDialog=()=>{};

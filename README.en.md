@@ -18,7 +18,7 @@ The same installer supports Chinese and English. OCRFlow follows Zotero's interf
 
 | Action | Result |
 | --- | --- |
-| Organize document | Recognize document → Create parent item → Complete item → Generate outline → Summarize → Translate |
+| Organize document | Recognize document → Create parent item → Complete item → Translate title → Summarize → Translate document → Generate outline |
 | Recognize document | OCR PDFs and images, or convert documents to Markdown; optionally generate HTML |
 | Create parent item | Create preliminary bibliographic metadata from the filename alone |
 | Complete item | Extract bibliographic metadata from the full text; store a Chinese translation of a non-Chinese title in Zotero’s Short Title field |
@@ -27,16 +27,19 @@ The same installer supports Chinese and English. OCRFlow follows Zotero's interf
 | Translate title | Translate the parent item’s original Title into Short Title using AI, DeepL, or DeepLX; no OCR or Markdown required |
 | Generate outline | Create a navigable reader outline for the associated PDF |
 
-Organize document reuses existing full text and parent items, filling missing metadata. It skips outline generation for non-PDF files. An outline or summary failure does not prevent subsequent stages from running; retries process only unfinished stages. Each action can also run independently.
+Organize document reuses existing full text and parent items, filling missing metadata. Title translation runs immediately after metadata completion using its separately configured service, language, and overwrite option. It skips outline generation for non-PDF files. An outline or summary failure does not prevent subsequent stages from running; retries process only unfinished stages. Each action can also run independently.
 
 ## Recognition and proofreading
 
-- Supports **MinerU local / cloud, PaddleOCR official / self-hosted APIs, Marker (self-hosted or Datalab hosted API), MarkItDown, and vision models**. Marker currently accepts PDFs; EPUB, Office, and other document formats use MarkItDown.
+- Supports **MinerU local / cloud, PaddleOCR official / self-hosted APIs, Marker (self-hosted or Datalab hosted API), MarkItDown, and vision models**. Marker currently accepts PDFs; EPUB uses MarkItDown. PDF, Office, HTML, and images have separate default services; MinerU cloud supports Office, HTML, and additional image formats.
 - Preserves raw responses, document structure, footnotes, captions, physical page references, and available coordinates. Cross-page joins retain their source fragments, and a change report records document processing changes.
 - Optional dual-engine recognition uses engine A as the base text and engine B for comparison. The same engine cannot occupy both slots. Optional AI proofreading uses the source images and automatically saves clear suggestions as a new edition, retaining the base text, evidence, and change history. Uncertain readings remain unchanged.
 - Stores up to five AI provider configurations, each with two models. Assign models, prompts, and request parameters independently to each task; configure context windows, output limits, and concurrency per model.
 - Shows execution steps and actual progress in the sidebar, with the complete queue in Settings. Supports cancellation, retries, translation recovery, and opening results. Marker reconnects to the existing job after a brief network interruption without uploading the document again.
-- Encrypts configuration locally and supports encrypted import/export and transport through Zotero file syncing. See the [configuration and sync guide (Chinese)](docs/CONFIGURATION-SYNC.zh-CN.md).
+- MinerU cloud processes up to five source documents at once. Long PDFs are split into parts of up to 200 pages and 200 MB; batches request at most 50 upload URLs. Completed parts are retained for retries during the current session.
+- OCR output shows one separator and source label per PDF page. Cross-page paragraphs remain single translation units; outlines verify chapter locations and can request recognition when page text is unavailable.
+- Metadata completion renames originals as `surname等_year_title`, OCR files with `OCRFlow_`, and translations with `翻译OCRFlow_`. Web snapshots produce Markdown without an additional HTML copy.
+- Encrypts configuration locally and supports encrypted import/export and transport through Zotero file syncing. Device names appear in backup filenames. Local backups and sync revisions each retain the latest ten per device by default; manual exports are not automatically deleted. See the [configuration and sync guide (Chinese)](docs/CONFIGURATION-SYNC.zh-CN.md).
 - Schedules independent documents concurrently across operations, services, and models. AI requests share each configured model’s concurrency limit; conflicting operations on the same bibliographic item wait. Server-side queues and resource limits still apply.
 
 ## Installation and quick start
@@ -82,3 +85,5 @@ Builds produce `dist/ocrflow-<version>.xpi`, a matching source archive, and `upd
 When you run an action, the relevant filename, full text, original file, or page images are sent to the service you selected. Viewing or selecting an item does not start a task. API keys and other settings are stored in a local encrypted vault and are not distributed with the source.
 
 This project retains its [MIT license](LICENSE), along with third-party notices and component licenses. OCRFlow was developed with assistance from LLMs. Check OCR and model-generated results against the source document; the user guide and validation notes describe the supported behavior and verification scope.
+
+Update notices appear in the sidebar. **Close** dismisses the current version permanently. **Do not remind me again** suppresses subsequent updates within the current major version (all 1.x.x releases, for example); a new major version is still announced.

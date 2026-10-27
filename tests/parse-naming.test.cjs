@@ -24,6 +24,7 @@ const context = {
 };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('docflow.js', 'utf8'), context);
+vm.runInContext(fs.readFileSync('attachment-naming.js','utf8'),context);
 const plugin = context.DocFlow;
 plugin.renderDocumentBody = text => '<p>' + text + '</p>';
 const attachment = {libraryID: 1, getFilePath: () => '/source/original.pdf', getField: () => 'PDF'};
@@ -58,16 +59,16 @@ async function run() {
     {creatorType: 'author', lastName: '程', firstName: '纯'},
     {creatorType: 'editor', name: '编辑名字'}
   ]);
-  for (const format of ['md', 'html']) await check(book, 'OCRFlow_艾周昌、程纯_早期殖民主义侵略史', format);
+  for (const format of ['md', 'html']) await check(book, 'OCRFlow_艾周昌等_年份不详_早期殖民主义侵略史', format);
   await check(parent('Orientalism', [{creatorType: 'author', firstName: 'Edward W.', lastName: 'Said'}]),
-    'OCRFlow_Edward W. Said_Orientalism', 'html');
+    'OCRFlow_Said_年份不详_Orientalism', 'html');
   await check(parent('历史研究', [{creatorType: 'author', name: '中国社会科学院'}]),
-    'OCRFlow_中国社会科学院_历史研究', 'md');
+    'OCRFlow_中国社会科学院_年份不详_历史研究', 'md');
   await check(parent('史料: 研究/选编?', [{creatorType: 'author', name: '作者'}]),
-    'OCRFlow_作者_史料_ 研究_选编_', 'html');
-  await check(parent('', []), 'OCRFlow_未知作者_original', 'md');
-  await check(undefined, 'OCRFlow_未知作者_original', 'html');
-  await check(undefined, 'OCRFlow_未知作者_扫描书', 'md', {libraryID: 1, getFilePath: () => false, getField: () => '扫描书.pdf'});
+    'OCRFlow_作者_年份不详_史料_ 研究_选编_', 'html');
+  await check(parent('', []), 'OCRFlow_未知作者_年份不详_original', 'md');
+  await check(undefined, 'OCRFlow_未知作者_年份不详_original', 'html');
+  await check(undefined, 'OCRFlow_未知作者_年份不详_扫描书', 'md', {libraryID: 1, getFilePath: () => false, getField: () => '扫描书.pdf'});
   console.log('PASS: metadata names, Chinese/Western/institutional authors, HTML/MD and companion names, explicit attachment titles and PDF fallbacks.');
 }
 run().catch(error => {console.error(error); process.exitCode = 1;});

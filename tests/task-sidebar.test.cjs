@@ -60,7 +60,7 @@ test('attachment selection scopes operations, full text and tasks to one file',(
  s.view.fileID=b.id;doc=s.sidebar.documentContext(s.view);assert.equal(doc.source,text);assert(s.sidebar.canPerform(doc,'translate'));
  s.plugin.parseQueue=[{id:7,attachment:a,state:'running'},{id:8,attachment:text,kind:'translate',state:'completed'}];
  assert.deepEqual(Array.from(s.sidebar.documentTasks(doc),t=>t.id),[8]);
- assert(!s.sidebar.canPerform(doc,'summary',true));
+ assert(s.sidebar.canPerform(doc,'summary',true));
 });
 test('source-less parents and multiple selections have no actionable document; standalone files can create parents',()=>{
  const s=documentSetup(),parent=s.item(1),file=s.item(2,'standalone.pdf');
@@ -143,12 +143,11 @@ test('opening a review reports pending state, ignores repeat clicks and releases
  reject(Error('missing original'));await assert.rejects(opening,/missing original/);
  assert.equal(view.reviewOpening,false);assert.deepEqual(states,[true,false]);
 });
-test('a raced busy action reports the existing task instead of silently ignoring the click',async()=>{
+test('a busy document still dispatches another action for queue deduplication',async()=>{
  const s=documentSetup(),parent=s.item(1),file=s.item(2,'file.pdf',1);s.select([parent]);
  s.plugin.parseQueue=[{id:1,attachment:file,state:'running'}];s.sidebar.render=()=>{};
  let calls=0;s.plugin.handleParseCommand=async()=>calls++;
- await s.sidebar.performDocumentAction(s.view,'ocr');assert.equal(calls,0);
- assert.match(s.view.error.message,/已有任务/);
+ await s.sidebar.performDocumentAction(s.view,'ocr');assert.equal(calls,1);assert.equal(s.view.error,null);
 });
 
 test('child notes operate on the parent document while standalone notes explain the restriction',async()=>{
@@ -186,7 +185,7 @@ test('selected Markdown is reused explicitly and is never its own original for r
 
 test('sidebar title translation works without source files and sends the selected parent directly',async()=>{
  const s=documentSetup(),parent=s.item(1);s.select([parent]);s.sidebar.render=()=>{};
- const context=s.sidebar.documentContext(s.view);assert(s.sidebar.canPerform(context,'title'));assert(!s.sidebar.canPerform(context,'title',true));
+ const context=s.sidebar.documentContext(s.view);assert(s.sidebar.canPerform(context,'title'));assert(s.sidebar.canPerform(context,'title',true));
  const calls=[];s.plugin.handleTitleTranslation=async options=>calls.push(options.selectedItems);
  await s.sidebar.performDocumentAction(s.view,'title');assert.equal(calls.length,1);assert.equal(calls[0][0],parent);assert.equal(s.view.launching.size,0);
  s.select([s.item(2,'standalone.pdf')]);assert.match(s.sidebar.actionUnavailableReason(s.sidebar.documentContext(s.view),'title'),/先建立条目/);

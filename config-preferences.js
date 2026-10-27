@@ -9,7 +9,7 @@ Object.assign(DocFlowPreferences,{
   this.$('ocrflow-config-sync-status').textContent=ocrflowText(config.error||config.syncStatus);
   this.$('ocrflow-config-setup').hidden=config.state!=='setup';this.$('ocrflow-config-unlock').hidden=config.state!=='locked';
   for(const name of ['export','lock','password','publish'])this.$('ocrflow-config-'+name).disabled=locked||!!config.busy;
-  for(const name of ['setup','unlock','import','check','apply','pass','confirm','remote'])this.$('ocrflow-config-'+name).disabled=!!config.busy;
+  for(const name of ['setup','unlock','import','check','apply','pass','confirm','remote','device-save','device-name','backup-limit'])this.$('ocrflow-config-'+name).disabled=!!config.busy;
   this.$('ocrflow-config-sync').disabled=locked||!!config.busy;if(!config.busy)this.$('ocrflow-config-sync').checked=!locked&&!!config.get(config.prefix+'syncEnabled');
   this.$('ocrflow-config-remember').disabled=!Services.logins||!!config.busy;
   try{if(!config.busy)this.$('ocrflow-config-remember').checked=!!config.savedLogin();}catch(_error){}
@@ -17,7 +17,7 @@ Object.assign(DocFlowPreferences,{
  async configFile(save){
   const {FilePicker}=ChromeUtils.importESModule('chrome://zotero/content/modules/filePicker.mjs');const picker=new FilePicker();
   picker.init(window,ocrflowText(save?'导出加密配置':'导入加密配置'),save?picker.modeSave:picker.modeOpen);picker.appendFilter(ocrflowText('OCRFlow 配置'),'*.ocrflow-config');
-  if(save)picker.defaultString='OCRFlow.ocrflow-config';return await picker.show()===picker.returnCancel?null:picker.file;
+  if(save)picker.defaultString=this.configStore().backupName();return await picker.show()===picker.returnCancel?null:picker.file;
  },
  async applyConfiguration(envelope,password,parents=[],syncPassword=false){
   const config=this.configStore(),preview=await config.inspect(envelope,password);
@@ -44,10 +44,12 @@ Object.assign(DocFlowPreferences,{
   bind('import',async()=>{const path=await this.configFile(false);if(path){const envelope=JSON.parse(await IOUtils.readUTF8(path));await this.applyConfiguration(envelope,password()||this.configStore().password);if(!this.initialized)resume();}});
   bind('publish',async()=>{const config=this.configStore();config.set(config.prefix+'syncEnabled',this.$('ocrflow-config-sync').checked);await config.flush();if(config.values[config.prefix+'syncEnabled'])await config.publish();else config.syncStatus='配置同步已关闭；已有云端配置包保留';});
   bind('check',async()=>{const config=this.configStore();this.remoteConfigurations=await config.remote(password()||config.password);const select=this.$('ocrflow-config-remote');select.replaceChildren();
-   for(const row of this.remoteConfigurations){const option=document.createElementNS('http://www.w3.org/1999/xhtml','option');option.value=row.record.id;option.textContent=ocrflowText(`${row.record.createdAt} · ${row.record.id===config.record?.id?'本机当前版本':'可应用版本'}`);select.appendChild(option);}
+   for(const row of this.remoteConfigurations){const option=document.createElementNS('http://www.w3.org/1999/xhtml','option');option.value=row.record.id;option.textContent=ocrflowText(`${row.record.deviceName||ocrflowText("未知来源")} · ${row.record.createdAt} · ${row.record.id===config.record?.id?'本机当前版本':'可应用版本'}`);select.appendChild(option);}
   });
   bind('apply',async()=>{const row=this.remoteConfigurations?.find(row=>row.record.id===this.$('ocrflow-config-remote').value);if(!row)throw Error('请先检查远端配置并选择一个版本');await this.applyConfiguration(row.envelope,password()||this.configStore().password,this.remoteConfigurations.map(row=>row.record.id),true);if(!this.initialized)resume();});
   this.$('ocrflow-config-remember').addEventListener('change',async()=>{if(this.configStore().state!=='unlocked'||this.configStore().busy)return;try{await this.configStore().remember(this.$('ocrflow-config-remember').checked);}catch(error){this.$('ocrflow-config-message').textContent=ocrflowText(error.message);}this.refreshConfig();});
+  const device=this.configStore().deviceInfo();this.$('ocrflow-config-device-name').value=device.name;this.$('ocrflow-config-backup-limit').value=device.limit;
+  bind('device-save',async()=>this.configStore().saveDevice(this.$('ocrflow-config-device-name').value,Number(this.$('ocrflow-config-backup-limit').value)));
   this.refreshConfig();
  }
 });

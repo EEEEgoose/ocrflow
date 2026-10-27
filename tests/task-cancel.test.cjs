@@ -15,8 +15,8 @@ function fixture({mode = 'local-v1', lateSubmit = false, uploadPending = false, 
   const complete = {status: 'completed', files: [{status: 'completed', output_files: {zip: {file_id: 'output'}}}]};
   const context = {
     setTimeout, clearTimeout, URL, Headers, Uint8Array, btoa,
-    PathUtils: {join: path.join, parent: path.dirname},
-    IOUtils: {read: async () => Uint8Array.from([1, 2]), exists: async key => files.has(key), readUTF8: async key => files.get(key), makeDirectory: async () => {}, writeUTF8: async (key, value) => files.set(key, value)},
+    PathUtils: {join: path.join, parent: path.dirname,tempDir:'/tmp'},
+    IOUtils: {write:async()=>{},remove:async()=>{},read: async () => Uint8Array.from([1, 2]), exists: async key => files.has(key), readUTF8: async key => files.get(key), makeDirectory: async () => {}, writeUTF8: async (key, value) => files.set(key, value)},
     Zotero: {getMainWindow: () => ({AbortController}), Prefs: {get: () => undefined, set: () => {}}, DataDirectory: {dir: '/data'}, Reader: {_readers: []}, debug: () => {}, logError: error => { throw error; }},
     fetch: async (url, options = {}) => {
       calls.push({url, options});
@@ -36,7 +36,7 @@ function fixture({mode = 'local-v1', lateSubmit = false, uploadPending = false, 
         reply = status === 200 ? {status: 'canceled'} : {error: 'Cancellation rejected'};
       }
       else if (url.endsWith('/v1/parse/jobs/job-1')) reply = remoteCanceled ? {status: 'canceled'} : complete;
-      else if (url.endsWith('/file-urls/batch')) reply = {code: 0, data: {batch_id: 'cloud-job', file_urls: ['https://upload.example/content']}};
+      else if (url.endsWith('/file-urls/batch')) reply = {code: 0, data: {batch_id: 'cloud-job', file_urls: JSON.parse(options.body).files.map(()=> 'https://upload.example/content')}};
       else if (url === 'https://upload.example/content') reply = {};
       else if (url.includes('/extract-results/batch/')) { reached.resolve(); return await pendingRequest(options.signal); }
       else if (url.endsWith('/chat/completions')) { reached.resolve(); return await pendingRequest(options.signal); }
@@ -46,7 +46,7 @@ function fixture({mode = 'local-v1', lateSubmit = false, uploadPending = false, 
   };
   vm.createContext(context);
   assert.equal(vm.runInContext('typeof AbortController', context), 'undefined');
-  for (const file of ['prompts.js','docflow.js', 'workflow.js', 'outline.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
+  for (const file of ['prompts.js','docflow.js', 'workflow.js', 'outline.js', 'recognition.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
   const plugin = context.DocFlow;
   plugin.openParseQueueDialog = () => {};
   plugin.getSettings = () => ({apiMode: mode, apiBaseURL: base, apiToken: 'test-token', modelVersion: mode === 'local-v1' ? 'advanced' : 'vlm', pollIntervalMS: 5000, timeoutMS: 60000, localJobTimeoutMS: 0});

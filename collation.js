@@ -139,6 +139,7 @@ Object.assign(DocFlow, {
 	},
 
 	sourceSettings(choice, settings) {
+		settings={...settings,explicitService:true,recognitionResolved:false};
 		if (choice === "marker" || /^marker-/.test(choice)) return {...settings, parserService:"marker", markerSettings:this.getMarkerSettings(choice === "marker" ? undefined : choice.slice(7)), collationEnabled:false};
 		if (/^mineru-/.test(choice)) return { ...settings, ...this.getSettings(choice === "mineru-local" ? "local-v1" : "cloud", false), parserService: "mineru", collationEnabled: false };
 		if (/^paddle-/.test(choice)) return { ...settings, parserService: choice, paddleSettings: this.getPaddleSettings(choice === "paddle-local" ? "local" : "cloud"), collationEnabled: false };
@@ -177,7 +178,7 @@ Object.assign(DocFlow, {
 			let settings = task.settings.readerB || this.sourceSettings(task.settings.collationB, task.settings);
 			task.displaySettings = task.cancelSettings = settings;
 			task.cancelJobID = null;
-			result.secondReader = await this.parseAttachmentWithMineru(task.attachment, settings, { signal: task.controller.signal,
+			result.secondReader = await this.parseAttachmentWithMineru(task.attachment, settings, { signal: task.controller.signal, cloudState:task.cloudStateB ||= {},
 				onStatus: status => { task.detail = "对照识别 B：" + (status.displayText || status.phase || "处理中"); if ("pageProgress" in status) task.progress = status.pageProgress; if ("jobID" in status) task.cancelJobID = status.jobID; if (status.phase) task.phase = status.phase; this.setTaskStep?.(task, "compare", "对照识别 B", task.detail); this.refreshParseQueueDialog(); } });
 			this.finalizeDocument(result.secondReader, settings.parserService);
 			result.collation = OCRFlowDocument.compare(result.document, result.secondReader.document);

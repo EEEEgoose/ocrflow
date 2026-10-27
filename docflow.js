@@ -225,9 +225,10 @@ DocFlow = {
 	getSettings(apiMode = this.getPref(this.PREF_BRANCH + "apiMode", true) || "cloud", capture = true) {
 		let profile = apiMode === "local-v1" ? "local" : "cloud";
 		let readAPIPref = name => {
-			let value = this.getPref(this.PREF_BRANCH + profile + "." + name, true);
-			return value === undefined || value === null
-				? this.getPref(this.PREF_BRANCH + name, true) : value;
+			let value=this.getPref(this.PREF_BRANCH+profile+"."+name,true);
+			if(value!==undefined&&value!==null)return value;
+			if(apiMode===(this.getPref(this.PREF_BRANCH+"apiMode",true)||"cloud"))return this.getPref(this.PREF_BRANCH+name,true);
+			return {apiBaseURL:apiMode==="local-v1"?"http://127.0.0.1:8000":"https://mineru.net/api/v4",apiToken:"",modelVersion:apiMode==="local-v1"?"basic":"pipeline",pollIntervalSec:5,timeoutSec:1200,enableFormula:true,enableTable:true}[name];
 		};
 		let apiBaseURL = (readAPIPref("apiBaseURL") || "").trim();
 		apiBaseURL = apiBaseURL.replace(/\/+$/, "");
@@ -261,12 +262,12 @@ DocFlow = {
 		if (apiMode === "local-v1") {
 			modelVersion = { pipeline: "basic", vlm: "advanced" }[modelVersion] || modelVersion;
 			if (!["flash", "basic", "standard", "advanced"].includes(modelVersion)) modelVersion = "basic";
-		} else if (!["pipeline", "vlm"].includes(modelVersion)) {
+		} else if (!["pipeline", "vlm", "MinerU-HTML"].includes(modelVersion)) {
 			modelVersion = "pipeline";
 		}
 		
 		let apiToken = (readAPIPref("apiToken") || "").trim();
-		if (!apiToken && this.getPref(this.PREF_BRANCH + profile + ".apiToken", true) === undefined) {
+		if (!apiToken && apiMode === "cloud" && (this.getPref(this.PREF_BRANCH+"apiMode",true)||"cloud") === "cloud" && this.getPref(this.PREF_BRANCH + profile + ".apiToken", true) === undefined) {
 			apiToken = (this.getPref(this.PREF_BRANCH + "apiKey", true) || "").trim();
 		}
 		apiToken = apiToken.replace(/^Bearer\s+/i, "");
@@ -276,6 +277,9 @@ DocFlow = {
 			apiMode,
 			apiToken,
 			modelVersion,
+			enableFormula: readAPIPref("enableFormula") !== false,
+			enableTable: readAPIPref("enableTable") !== false,
+			defaultServices: Object.fromEntries(["office", "html", "image"].map(kind => [kind, this.getPref(this.PREF_BRANCH + "defaultService." + kind, true) || ""])),
 			cloudLanguage: this.getPref(this.PREF_BRANCH + "cloudLanguage", true) || "auto",
 			pollIntervalMS: pollIntervalSec * 1000,
 			timeoutMS: timeoutSec * 1000,
@@ -293,6 +297,7 @@ DocFlow = {
 			collationB: this.getPref(this.PREF_BRANCH + "collationB", true) || "",
 			llmSettings: this.getLLMSettings("ocr")
 		};
+		if (capture) settings.mineruProfiles = Object.fromEntries([["mineru-cloud","cloud"],["mineru-local","local-v1"]].map(([key,mode])=>[key,this.getSettings(mode,false)]));
 		if (capture && this.captureOCRSettings) this.captureOCRSettings(settings);
 		return settings;
 	},
@@ -409,7 +414,7 @@ DocFlow = {
 
 	async cancelParseQueueTask(id) {
 		let task = this.parseQueue.find(row => row.id === id);
-		if (!task || task.saving || (!["queued", "running", "wait_expired"].includes(task.state) && !task.cancelFailed)) return;
+		if (!task || task.saving || (!["queued", "running", "wait_expired", "waiting_dependency"].includes(task.state) && !task.cancelFailed)) return;
 		task.cancelRequested = true;
 		task.state = "stopping";
 		task.detail = "正在终止任务";
@@ -515,7 +520,7 @@ DocFlow = {
 		if (["parse", "organize"].includes(task.kind)) reader = this.recognitionSettingsFor(task.attachment, reader);
 		let ai=reader.parserService==="ai" ? reader.llmSettings||{} : s;
 		let endpoint=reader.parserService==="marker" ? reader.markerSettings?.baseURL : reader.parserService?.startsWith("paddle-") ? reader.paddleSettings?.baseURL : reader.parserService==="markitdown" ? reader.markitdownBaseURL : ai.apiBaseURL;
-		let models=task.kind==="organize" ? [s.metadataSettings,s.outlineSettings,s.summarySettings,s.translationSettings].map(row=>[row?.apiBaseURL,row?.modelID,row?.model]) : [];
+		let models=task.kind==="organize" ? [s.metadataSettings,s.titleSettings?.aiSettings||s.titleSettings,s.outlineSettings,s.summarySettings,s.translationSettings].map(row=>[row?.apiBaseURL,row?.modelID,row?.model]) : [];
 		return JSON.stringify([task.kind,reader.parserService||"ai",endpoint?.replace(/\/+$/,""),ai.modelID,ai.model,reader.apiMode,reader.modelVersion||reader.markerSettings?.mode,models]);
 	},
 
@@ -527,11 +532,16 @@ DocFlow = {
 	dispatchParseQueue() {
 		if(this.parseQueueStopped)return;
 		for(let task of this.parseQueue) {
-			if(task.state!=="queued"||task.active)continue;
+			if(!["queued","waiting_dependency"].includes(task.state)||task.active)continue;
+			if (this.resolveTaskPrerequisites && !this.resolveTaskPrerequisites(task)) continue;
 			let active=this.parseQueue.filter(row=>row.active), document=this.parseQueueDocument(task), lane=this.parseQueueLane(task);
 			if(document!=null&&active.some(row=>this.parseQueueDocument(row)===document))continue;
-			let limit=["parent","metadata","summary","translate","outline","title"].includes(task.kind) ? task.settings.concurrency||1 : 1;
-			if(active.filter(row=>this.parseQueueLane(row)===lane).length>=limit)continue;
+			let reader = task.settings.readerA || task.settings;
+			if (["parse","organize"].includes(task.kind)) reader=this.recognitionSettingsFor(task.attachment,reader);
+			let cloud = ["parse","organize"].includes(task.kind) && reader.parserService === "mineru" && reader.apiMode !== "local-v1";
+			let limit=["parent","metadata","summary","translate","outline","title"].includes(task.kind) ? task.settings.concurrency||1 : cloud ? 5 : 1;
+			if (cloud && active.filter(row => row.cloudRecognizing).length >= 5) continue;
+			if(active.filter(row=>this.parseQueueLane(row)===lane&&(!cloud||row.cloudRecognizing)).length>=limit)continue;
 			let work=this.processParseQueueTask(task).finally(()=>{
 				this.parseQueueWork.delete(work);this.dispatchParseQueue();
 			});
@@ -593,6 +603,7 @@ DocFlow = {
 		catch (error) {
 			if (task.cancelRequested) await this.finishParseQueueCancellation(task, error);
 			else {
+				if(error.name === "OutlineNeedsRecognition") {task.needsRecognition=true;task.state="waiting";task.error=error.message;task.detail=error.message;return;}
 				task.state = ["MineruJobWaitTimeout","MarkerJobWaitTimeout","MarkerConnectionError"].includes(error.name) ? "wait_expired" : "failed";
 				task.detail = error.name === "MarkerConnectionError" ? "连接中断，原任务保留；可继续等待以重新连接" : task.state === "wait_expired" ? "服务端任务仍可能运行，可继续等待" : "处理失败，可重试";
 				task.error = error.message || String(error);
@@ -600,7 +611,7 @@ DocFlow = {
 			}
 		}
 		finally {
-			task.active = false; task.saving = false; task.controller = null;
+			task.active = false; task.cloudRecognizing = false; task.saving = false; task.controller = null;
 			this.finishTaskSteps?.(task);
 			this.refreshParseQueueDialog();
 		}
@@ -610,6 +621,7 @@ DocFlow = {
 	async runParseTask(task) {
 		task.settings = this.recognitionSettingsFor(task.attachment, task.settings);
 		if (!task.parsedResult) {
+			task.cloudRecognizing = task.settings.parserService === "mineru" && task.settings.apiMode !== "local-v1";
 			task.displaySettings = task.settings.collationEnabled && ["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(task.attachment)) ? task.settings.readerA || task.settings : task.settings;
 			task.cancelSettings = task.displaySettings;
 			task.cancelJobID = task.jobID;
@@ -617,17 +629,21 @@ DocFlow = {
 			task.progress = null;
 			task.parsedResult = await this.parseAttachmentWithMineru(task.attachment, task.settings, {
 				jobID: task.jobID,
+				cloudState: task.cloudState ||= {},
 				signal: task.controller.signal,
 				onStatus: status => {
 					task.phase = status.phase || task.phase;
 					if ("jobID" in status) task.cancelJobID = task.jobID = status.jobID;
 					if ("pageProgress" in status) task.progress = status.pageProgress;
+					if(status.parts)task.parts=status.parts;
 					this.setTaskStep?.(task, "extract", "识别文档", status.displayText || status.phase);
 					if (!task.cancelRequested) task.detail = status.displayText || status.phase || "处理中";
 					this.refreshParseQueueDialog();
 				}
 			});
 		}
+		task.cloudRecognizing = false;
+		this.dispatchParseQueue();
 		this.setTaskStep?.(task, "structure", "整理文档结构", "恢复脚注、图注与来源，保留原始数据");
 		if (this.finalizeDocument) this.finalizeDocument(task.parsedResult, task.settings.parserService);
 		this.setTaskStep?.(task, "structure", "整理文档结构", "结构与来源已整理", "completed");
@@ -679,6 +695,7 @@ DocFlow = {
 			progress: statusContext.progress ?? null,
 			pageProgress: statusContext.pageProgress || (statusContext.cloudProgress?.total_pages > 0 ? {completed:statusContext.cloudProgress.extracted_pages || 0, total:statusContext.cloudProgress.total_pages, unit:"页"} : null),
 			jobID: statusContext.jobID || null,
+			parts:statusContext.parts || null,
 			displayText: this.describeParseStatus(statusContext)
 		});
 		statusContext.signal?.throwIfAborted();
@@ -783,7 +800,7 @@ DocFlow = {
 				phase: "读取本地 PDF",
 				progress: 10
 			});
-			let filePath = attachment.getFilePath();
+			let filePath = await attachment.getFilePath();
 			if (!filePath) {
 				throw new Error("附件文件不存在或尚未下载到本地");
 			}
@@ -811,163 +828,8 @@ DocFlow = {
 		return this.pdfLibrary;
 	},
 
-	async parseAttachmentWithCloud(fileBytes, fileName, attachmentID, settings, statusContext) {
-		this.reportParseStatus(statusContext, { phase: "检查 PDF 页数", progress: 10 });
-		let { PDFDocument } = this.getPDFLibrary();
-		// Pass a primitive string across script scopes instead of a foreign typed array.
-		let source = await PDFDocument.load(this.bytesToBase64(fileBytes));
-		let pageCount = source.getPageCount();
-		if (pageCount <= 200) {
-			let result = await this.parseCloudPDFPart(fileBytes, fileName, attachmentID, settings, statusContext);
-			result.outlinePages = Array.from({ length: pageCount }, (_, i) => result.outlinePages?.[i] || "");
-			return result;
-		}
-		let totalParts = Math.ceil(pageCount / 199);
-		let markdownParts = [], embeddedImages = [], documents = [], rawFiles = [];
-		let outlinePages = Array(pageCount).fill(""), outlineHeadings = [];
-		for (let start = 0; start < pageCount; start += 199) {
-			let end = Math.min(start + 199, pageCount);
-			let partNumber = Math.floor(start / 199) + 1;
-			this.reportParseStatus(statusContext, {
-				cloudPartLabel: `第 ${partNumber}/${totalParts} 段（第 ${start + 1}～${end} 页）`,
-				phase: "拆分 PDF", mineruState: "", progress: 10
-			});
-			let part = await PDFDocument.create();
-			let indices = source.getPageIndices().slice(start, end);
-			for (let page of await part.copyPages(source, indices)) part.addPage(page);
-			let partBytes = await part.save();
-			let partName = `${fileName.replace(/\.pdf$/i, "")}-pages-${start + 1}-${end}.pdf`;
-			let result = await this.parseCloudPDFPart(partBytes, partName, attachmentID, settings, statusContext);
-			if (result.document) {
-				for (let page of result.document.pages) page.page += start;
-				for (let block of result.document.blocks) for (let fragment of block.fragments) fragment.page += start;
-				documents.push(result.document);
-			}
-			rawFiles.push(...(result.rawFiles || []).map(file => ({ ...file, name: `part-${partNumber}-${this.fileNameFromPath(file.name)}` })));
-			for (let i = 0; i < (result.outlinePages || []).length; i++) outlinePages[start + i] = result.outlinePages[i];
-			for (let heading of result.outlineHeadings || []) outlineHeadings.push({ ...heading, page: heading.page + start });
-			let markers = new Map();
-			for (let image of result.embeddedImages || []) {
-				let id = `img-${embeddedImages.length + 1}`;
-				let marker = `docflow-image://${id}`;
-				markers.set(image.marker, marker);
-				embeddedImages.push({ ...image, id, marker });
-			}
-			if (result.document) for (let block of result.document.blocks) {
-				block.text = block.text.replace(/docflow-image:\/\/img-\d+/g, marker => markers.get(marker) || marker);
-				block.rawText = block.rawText.replace(/docflow-image:\/\/img-\d+/g, marker => markers.get(marker) || marker);
-			}
-			markdownParts.push(result.markdownText.replace(/docflow-image:\/\/img-\d+/g, marker => markers.get(marker) || marker));
-		}
-		let markdownText = markdownParts.join("\n\n");
-		let document = null;
-		if (documents.length && typeof OCRFlowDocument !== "undefined") {
-			document = OCRFlowDocument.create("mineru");
-			for (let part of documents) {
-				document.pages.push(...part.pages);
-				for (let block of part.blocks) {
-					// Rebuild note numbering and cross-part joins from the retained raw blocks.
-					OCRFlowDocument.add(document, block.type, block.rawText, block.fragments[0].page, block.fragments[0].rect, { level: block.level });
-				}
-			}
-			OCRFlowDocument.prepare(document);
-			markdownText = OCRFlowDocument.render(document);
-		}
-		this.reportParseStatus(statusContext, { cloudPartLabel: "", phase: "合并分段结果", mineruState: "", progress: 95 });
-		let rendered = await this.markdownToHTML(markdownText);
-		return {
-			sourceKind: "markdown", markdownText, rawMarkdownText: markdownText,
-			contentHTML: rendered.html, embeddedImages, embeddedImageCount: embeddedImages.length,
-			outlinePages, outlineHeadings, document, rawFiles
-		};
-	},
-
-	async parseCloudPDFPart(fileBytes, fileName, attachmentID, settings, statusContext) {
-		let dataID = this.makeDataID(attachmentID);
-		let uploadPayload = {
-			model_version: settings.modelVersion,
-			...(settings.recognitionLanguage ? { language: settings.recognitionLanguage } : {}),
-			files: [
-				{
-					name: fileName,
-					data_id: dataID
-				}
-			]
-		};
-
-		this.reportParseStatus(statusContext, {
-			phase: "申请上传地址",
-			progress: 20
-		});
-		let applyUploadResult = await this.requestMineruJSON({
-			url: `${settings.apiBaseURL}/file-urls/batch`,
-			token: settings.apiToken,
-			method: "POST",
-			body: uploadPayload, signal: statusContext?.signal
-		});
-		if (applyUploadResult.code !== 0) {
-			throw new Error(`申请上传地址失败: ${applyUploadResult.msg || "unknown error"}`);
-		}
-
-		let batchID = applyUploadResult?.data?.batch_id;
-		let uploadURL = applyUploadResult?.data?.file_urls?.[0];
-		if (!batchID || !uploadURL) {
-			throw new Error("官方 API 未返回 batch_id 或 upload_url");
-		}
-
-		this.reportParseStatus(statusContext, {
-			phase: "上传 PDF",
-			progress: 35
-		});
-		let uploadResponse = await fetch(uploadURL, {
-			method: "PUT",
-			body: fileBytes, signal: statusContext?.signal
-		});
-		if (!uploadResponse.ok) {
-			let errText = await uploadResponse.text();
-			throw new Error(`上传 PDF 失败 ${uploadResponse.status}: ${errText.slice(0, 300)}`);
-		}
-
-		this.reportParseStatus(statusContext, {
-			phase: "等待 MinerU 解析",
-			progress: 55
-		});
-		let result = await this.pollMineruExtractResult({
-			apiBaseURL: settings.apiBaseURL,
-			token: settings.apiToken,
-			batchID,
-			dataID,
-			timeoutMS: settings.timeoutMS,
-			pollIntervalMS: settings.pollIntervalMS,
-			statusContext
-		});
-
-		let zipURL = result?.full_zip_url;
-		if (!zipURL) {
-			throw new Error("解析已完成，但未返回 full_zip_url");
-		}
-
-		this.reportParseStatus(statusContext, {
-			phase: "下载解析结果",
-			progress: 75
-		});
-		let zipBytes = await this.downloadParseResultZip({
-			zipURL,
-			apiBaseURL: settings.apiBaseURL,
-			token: settings.apiToken,
-			statusContext
-		});
-
-		this.reportParseStatus(statusContext, {
-			phase: "提取 Markdown",
-			progress: 90
-		});
-		let parsedResult = await this.extractNoteContentFromMineruZip(zipBytes, fileName);
-		this.reportParseStatus(statusContext, {
-			phase: "提取完成",
-			progress: 95
-		});
-		return parsedResult;
+	async parseAttachmentWithCloud(fileBytes, fileName, attachmentID, settings, statusContext = {}) {
+		return this.parseCloudDocument(fileBytes, fileName, attachmentID, settings, statusContext);
 	},
 
 	describeLocalJobProgress(job, elapsedMS) {
@@ -996,7 +858,7 @@ DocFlow = {
 		this.reportParseStatus(statusContext, { phase: "创建上传", progress: 20, jobID: null });
 		let upload = await this.requestMineruJSON({
 			url: `${baseURL}/v1/uploads`, token, method: "POST",
-			body: { filename: fileName, bytes: fileBytes.byteLength, mime_type: "application/pdf", purpose: "parse" }, signal: statusContext?.signal
+			body: { filename: fileName, bytes: fileBytes.byteLength, mime_type: /\.pdf$/i.test(fileName) ? "application/pdf" : /\.html?$/i.test(fileName) ? "text/html" : this.guessMimeType(fileName), purpose: "parse" }, signal: statusContext?.signal
 		});
 		let fileID = upload.file?.id;
 		if (upload.status === "pending") {
@@ -1215,39 +1077,7 @@ DocFlow = {
 		}
 	},
 	
-	async pollMineruExtractResult({ apiBaseURL, token, batchID, dataID, timeoutMS, pollIntervalMS, statusContext = null }) {
-		let startTime = Date.now();
-		let lastState = "";
-		while (Date.now() - startTime < timeoutMS) {
-			let statusResult = await this.requestMineruJSON({
-				url: `${apiBaseURL}/extract-results/batch/${encodeURIComponent(batchID)}`,
-				token, signal: statusContext?.signal
-			});
-			if (statusResult.code !== 0) {
-				throw new Error(`查询解析状态失败: ${statusResult.msg || "unknown error"}`);
-			}
-			
-			let extractResults = statusResult?.data?.extract_result || [];
-			let result = extractResults.find((x) => x?.data_id === dataID) || extractResults[0];
-			if (result?.state) {
-				lastState = result.state;
-				this.reportParseStatus(statusContext, {
-					mineruState: lastState, cloudProgress: result.extract_progress || null
-				});
-			}
-			
-			if (result?.state === "done") {
-				return result;
-			}
-			if (result?.state === "failed") {
-				throw new Error(result.err_msg || "MinerU 解析失败");
-			}
-			
-			await this.delayParsePoll(pollIntervalMS, statusContext);
-		}
-		throw new Error(`MinerU 解析超时，最后状态: ${lastState || "unknown"}`);
-	},
-	
+
 	async extractNoteContentFromMineruZip(zipBytes, originalFileName, options = {}) {
 		let includeImages = options.includeImages !== false;
 		let tempDir = PathUtils.join(PathUtils.tempDir, `docflow-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -2523,19 +2353,7 @@ DocFlow = {
 		let sourceTitle = attachment.getField("title");
 		this.normalizeResultImages?.(parsedResult);
 		try {
-			await parentItem?.loadDataType?.("creators");
-			let authors = (parentItem?.getCreatorsJSON?.() || []).filter(creator => creator.creatorType === "author").map(creator => {
-				if (creator.name) return creator.name.trim();
-				let firstName = (creator.firstName || "").trim();
-				let lastName = (creator.lastName || "").trim();
-				return /^[\u3400-\u9fff]+$/.test(firstName + lastName) ? lastName + firstName : [firstName, lastName].filter(Boolean).join(" ");
-			}).filter(Boolean).join("、") || "未知作者";
-			let bookTitle = String(parentItem?.getField?.("title") || "").trim();
-			if (!bookTitle) {
-				let filePath = await attachment.getFilePath();
-				bookTitle = filePath ? this.fileStemFromPath(filePath) : String(attachment.getField("title") || "PDF").replace(/\.pdf$/i, "").trim();
-			}
-			let title = this.sanitizeFileName(`OCRFlow_${authors}_${bookTitle || "文档"}${titleSuffix}`);
+			let title = this.sanitizeFileName(`OCRFlow_${await this.documentFileStem(parentItem,attachment)}${titleSuffix}`);
 			let imported = await this.saveDocumentAttachment({
 				libraryID: attachment.libraryID, parentItem,
 				title,
@@ -2947,18 +2765,21 @@ DocFlow = {
 		};
 		let companionMarkdown = keepMarkdown && format === "html" ? replaceImages(markdown, "folder") : null;
 		let source = replaceImages(markdown);
+		if (tag === "#DocFlow-Parse" && this.pageDisplayMarkdown) { source=this.pageDisplayMarkdown(source); if(companionMarkdown!==null)companionMarkdown=this.pageDisplayMarkdown(companionMarkdown); }
 		let content = notice ? `> ${notice}\n\n${source}` : source;
 		if (format === "html") {
-			let counts = { source: new Map(), target: new Map(), document: new Map() };
+			let counts = { source: new Map(), target: new Map(), document: new Map() }, seenPages=new Set();
 			let render = (text, namespace) => this.renderFootnotes ? this.renderFootnotes(text, namespace, counts[namespace]) : this.renderDocumentBody(text);
 			let body = pairs
-				? '<div class="bilingual"><div class="column-label">原文</div><div class="column-label">译文</div>' + pairs.map(pair =>
-					'<section data-block="' + this.escapeHTML(pair.id) + '" class="pair"><div>' + (pair.pages?.length ? '<small>PDF 第 ' + this.escapeHTML(pair.pages.join("、")) + ' 页</small>' : pair.page ? '<small>PDF 第 ' + pair.page + ' 页</small>' : '') + render(replaceImages(pair.source), "source") +
-					'</div><div>' + render(replaceImages(pair.translated), "target") + '</div></section>').join("") + '</div>'
+				? '<div class="bilingual"><div class="column-label">原文</div><div class="column-label">译文</div>' + pairs.map(pair => {
+					let labels=(pair.pages||[pair.page]).filter(page=>page&&!seenPages.has(page));for(let page of labels)seenPages.add(page);
+					let label=labels.length ? '<div class="page-label" style="grid-column:1/-1;border-top:1px solid #ddd;padding-top:12px">PDF 第 '+this.escapeHTML(labels.join("、"))+' 页</div>' : '';
+					return label+'<section data-block="'+this.escapeHTML(pair.id)+'" class="pair"><div>'+render(replaceImages(pair.source),"source")+'</div><div>'+render(replaceImages(pair.translated),"target")+'</div></section>';
+				}).join("") + '</div>'
 				: render(source, "document");
 			let metadata = JSON.stringify({ markdown: source }).replace(/</g, "\\u003c");
 			content = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-				'<title>' + this.escapeHTML(title) + '</title><style>body{font:16px/1.7 system-ui,sans-serif;max-width:1200px;margin:32px auto;padding:0 24px;color:#222}img{max-width:100%;height:auto}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid #bbb;padding:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f5f5;padding:12px}.bilingual,.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.pair{grid-column:1/-1;border-top:1px solid #ddd;padding:12px 0}.pair>div{min-width:0;overflow-wrap:anywhere}.column-label{font-weight:bold}</style></head><body>' +
+				'<title>' + this.escapeHTML(title) + '</title><style>body{font:16px/1.7 system-ui,sans-serif;max-width:1200px;margin:32px auto;padding:0 24px;color:#222}img{max-width:100%;height:auto}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid #bbb;padding:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f5f5;padding:12px}.bilingual,.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.pair{grid-column:1/-1;padding:12px 0}.pair>div{min-width:0;overflow-wrap:anywhere}.column-label{font-weight:bold}</style></head><body>' +
 				(notice ? '<p role="status">' + this.escapeHTML(notice) + '</p>' : '') + body + '<script type="application/json" id="mineru-source">' + metadata + '</script></body></html>';
 		}
 		let tempDir = PathUtils.join(PathUtils.tempDir, "docflow-output-" + Date.now() + "-" + Math.random().toString(36).slice(2));
@@ -3103,52 +2924,10 @@ DocFlow = {
 
 
 	collectTranslateTasks(selectedItems) {
-		let tasks = []
-		let seenParentIDs = new Set()
-		// An explicitly selected parse attachment takes priority over its parent selection.
-		let selectedSources = new Map()
-		for (let item of selectedItems) {
-			if (this.isMarkdownResult(item) && item.parentItemID) {
-				if (!selectedSources.has(item.parentItemID)) selectedSources.set(item.parentItemID, item)
-			}
-		}
-		for (let item of selectedItems) {
-			let parentItem = null
-			if (item.isNote()) {
-				let pid = item.parentItemID
-				parentItem = pid ? Zotero.Items.get(pid) : null
-			} else if (item.isRegularItem()) {
-				parentItem = item
-			} else if (item.isAttachment()) {
-				let pid = item.parentItemID
-				parentItem = pid ? Zotero.Items.get(pid) : null
-			}
-			if (!parentItem || !parentItem.isRegularItem()) continue
-			if (seenParentIDs.has(parentItem.id)) continue
-			seenParentIDs.add(parentItem.id)
-
-			let mineruSource = selectedSources.get(parentItem.id) || null
-
-			// Use the same full-text types as the document sidebar.
-			let attachmentIDs = parentItem.getAttachments()
-			for (let attachmentID of attachmentIDs) {
-				if (mineruSource) break
-				let attachmentItem = Zotero.Items.get(attachmentID)
-				if (!attachmentItem) continue
-				if (this.isMarkdownResult(attachmentItem)) {
-					mineruSource = attachmentItem
-					break
-				}
-			}
-
-			if (mineruSource) {
-				let hasTranslation = this.parentHasAttachmentWithTag(parentItem, "#DocFlow-Translation")
-				if (!hasTranslation) {
-					tasks.push({ parentItem, mineruSource })
-				}
-			}
-		}
-		return tasks
+		return this.collectDocumentTasks(selectedItems).filter(task => {
+			let parent = task.parentItem;
+			return (parent || this.hasPendingRecognition?.(task.attachment)) && (task.source || this.hasPendingRecognition?.(task.attachment)) && (!parent || !this.parentHasAttachmentWithTag(parent, "#DocFlow-Translation"));
+		}).map(task => ({...task,mineruSource:task.source}));
 	},
 
 	getTranslationSettings() {
@@ -3161,8 +2940,8 @@ DocFlow = {
 	async handleTranslateCommand({ window = null, selectedItems = null } = {}) {
 		let settings = this.getTranslationSettings();
 		let items = selectedItems || window?.ZoteroPane?.getSelectedItems?.() || [];
-		let tasks = this.collectTranslateTasks(items).map(task => ({ ...task, attachment: task.mineruSource,
-			title: task.parentItem.getField("title") || task.mineruSource.getField("title") }));
+		let tasks = this.collectTranslateTasks(items).map(task => ({ ...task, attachment: task.attachment || task.mineruSource,
+			title: task.parentItem?.getField("title") || (task.attachment || task.mineruSource).getField("title") }));
 		if (!tasks.length) throw new Error("请选择包含可翻译 Markdown 的条目或全文附件；已有完整译文的条目会被跳过。");
 		await this.enqueueDocumentTasks("translate", tasks, settings);
 	},
@@ -3419,7 +3198,7 @@ DocFlow = {
 	async saveTranslationAsMarkdownAttachment({ parentItem, sourceAttachment, translatedText, language, images, settings, pairs, translationData, partial = null }) {
 		let imported = await this.saveDocumentAttachment({
 			libraryID: parentItem.libraryID, parentItem,
-			title: `${partial ? `[未完成 ${partial.completed}/${partial.total}] ` : ""}Translation (${language}) - ${this.getItemFileStem(sourceAttachment, "document")}`,
+			title: `翻译OCRFlow_${await this.documentFileStem(parentItem,sourceAttachment)}${partial ? ` · 未完成 ${partial.completed}-${partial.total}` : ""}`,
 			markdown: translatedText, images, pairs,
 			format: settings.outputFormat, imageMode: settings.outputFormat === "html" ? "inline" : "folder", tag: partial ? "#DocFlow-Translation-Partial" : "#DocFlow-Translation",
 			notice: partial ? `未完成：已翻译 ${partial.completed}/${partial.total} 段；标注“未翻译”的位置保留原文。` : ""

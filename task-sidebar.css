@@ -62,3 +62,16 @@
 #ocrflow-task-sidebar .of-step[data-state="running"] .of-step-label { color:light-dark(#2463ba,#91b6ff); }
 #ocrflow-task-sidebar .of-step[data-state="pending"] .of-step-label, #ocrflow-task-sidebar .of-step[data-state="not_run"] .of-step-label { color:light-dark(#686872,#aaaab4); }
 #ocrflow-task-sidebar .of-step .of-tool { margin:10px 0 0; }
+
+#ocrflow-task-sidebar .of-update-notice { background:#fff6d5; background:light-dark(#fff6d5,#3d3521); border:1px solid #e4c66c; border-color:light-dark(#e4c66c,#8a7032); border-radius:8px; padding:15px 15px 12px; margin-bottom:24px; color:#57451e; color:light-dark(#57451e,#f5e2ab); }
+#ocrflow-task-sidebar .of-update-heading { display:flex; align-items:center; gap:8px; margin-bottom:11px; }
+#ocrflow-task-sidebar .of-update-heading>strong { flex:1; font-size:13px; font-weight:650; }
+#ocrflow-task-sidebar .of-update-icon { width:17px; height:17px; flex:none; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+#ocrflow-task-sidebar .of-update-version { padding:0 7px; border-radius:4px; background:light-dark(#f5e7b3,#55472a); font-size:11px; line-height:21px; font-variant-numeric:tabular-nums; }
+#ocrflow-task-sidebar .of-update-list { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
+#ocrflow-task-sidebar .of-update-list li { position:relative; padding-left:12px; color:light-dark(#7b683d,#d0b980); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
+#ocrflow-task-sidebar .of-update-list li:before { content:""; position:absolute; left:1px; top:.68em; width:3px; height:3px; border-radius:50%; background:currentColor; }
+#ocrflow-task-sidebar .of-update-list strong { color:light-dark(#57451e,#f5e2ab); font-weight:550; }
+#ocrflow-task-sidebar .of-update-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; padding-top:11px; border-top:1px solid light-dark(#e4c66c80,#8a703280); }
+#ocrflow-task-sidebar .of-update-actions button { border:1px solid light-dark(#e4c66c,#8a7032); border-radius:5px; background:light-dark(#fffaf0,#4b4028); color:light-dark(#57451e,#f5e2ab); padding:4px 11px; min-height:29px; font-size:12px; }
+#ocrflow-task-sidebar .of-update-actions button:hover { background:light-dark(#f7e8b8,#5e4e2d); }

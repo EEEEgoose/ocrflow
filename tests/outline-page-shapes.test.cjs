@@ -66,3 +66,7 @@ test('an outline response with invalid escapes is saved using the existing OCR p
   assert.equal(s.prompts.length,1);assert.equal(outline[0].page,1);
   assert.equal(JSON.parse(s.files.get(s.feature.path(s.attachment))).outline[0].summary,String.raw`解释 \sigma`);
 });
+test('an in-range model page is rejected when the title cannot be found; Arabic matching keeps diacritics in the displayed title',()=>{
+ const s=setup(),outline=[{title:'Unrelated title',page:1},{title:'الإِدَارَة الاسْتِعْمَارِيَّة',page:1}];s.feature.locatePages(outline,[s.titles[0]],[]);
+ assert.equal(outline[0].page,null);assert.equal(outline[1].page,1);assert.equal(outline[1].title,'الإِدَارَة الاسْتِعْمَارِيَّة');
+});

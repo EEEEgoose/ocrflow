@@ -7,7 +7,7 @@ const tick=async()=>{for(let i=0;i<8;i++)await Promise.resolve()};
 function setup(){
  const context={AbortController,URL,setTimeout,clearTimeout,Zotero:{debug(){},logError(){},getMainWindow:()=>({AbortController}),Prefs:{get:()=>undefined}}};
  vm.createContext(context);for(const name of ['prompts.js','docflow.js','workflow.js'])vm.runInContext(fs.readFileSync(name,'utf8'),context);
- const m=context.DocFlow;m.refreshParseQueueDialog=()=>{};m.openParseQueueDialog=()=>{};
+ const m=context.DocFlow;m.resolveTaskPrerequisites=()=>true;m.refreshParseQueueDialog=()=>{};m.openParseQueueDialog=()=>{};
  const task=(id,kind,settings={})=>({id,kind,state:'queued',title:'Fixture '+id,attachment:{id,getField:()=> 'Fixture '+id},settings:{apiBaseURL:'https://test.invalid/v1',model:'model-a',concurrency:1,...settings}});
  return {m,context,task};
 }

@@ -2,6 +2,8 @@
 
 [项目首页](../README.md) · [验证说明](../VALIDATION.md)
 
+待实施功能见 [识别与任务流程开发方案](RECOGNITION-WORKFLOW-DEVELOPMENT.zh-CN.md)，包括类型默认服务、MinerU 批量切片、页码与大纲、附件命名、任务排队、侧栏更新提示，以及配置备份的本机命名与数量管理。
+
 ## 环境
 
 使用 Node.js 24 或更新版本、Python 3.12 或更新版本。测试和构建使用标准库以及仓库内的 vendor 文件，无需安装 npm / pip 依赖。实际插件运行于 Zotero，不在 Node.js 中运行。
@@ -35,7 +37,9 @@ python3 build.py --output-dir ./dist
 | `docflow.js` | MinerU、任务队列、模型配置读取、保存、翻译和输出渲染 |
 | `config.js` / `config-preferences.js` | 加密配置仓库、导入导出、Zotero 同步附件与设置页入口 |
 | `datalab.js` | 在线 Convert API、轮询、签名结果下载与停止等待 |
-| `workflow.js` | 手动工作流、AI 请求、上下文预算、分段和服务选择 |
+| `workflow.js` | 手动工作流、按文件类型分派服务、AI 请求、前置条件与文档操作排队 |
+| `recognition.js` | MinerU 云端切片、共享批次、上传轮转、逐片进度与独立取消／重试 |
+| `attachment-naming.js` | 作者姓、年份、原标题组成附件名称；补全后的重命名与配套 Markdown 更新 |
 | `prompts.js` | 工作默认提示词、书目字段格式，供运行代码和设置页共同读取 |
 | `metadata.js` | 书目提取提示词、JSON 修复和 Zotero 字段映射 |
 | `markitdown.js` | REST / MCP 连接与文档转换 |

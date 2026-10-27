@@ -105,16 +105,16 @@
 				<html:h2>OCRFlow 设置</html:h2>
 				<html:p class="mineru-help">按需识别文档、整理条目与生成学术笔记</html:p>
 			</html:div>
-		</html:header><html:nav class="ocrflow-tabs" aria-label="OCRFlow 设置分类"><html:button id="ocrflow-tab-services" type="button" aria-pressed="false">识别服务</html:button><html:button id="ocrflow-tab-ai" type="button" aria-pressed="false">AI 服务商</html:button><html:button id="ocrflow-tab-work" type="button" aria-pressed="false">流程配置</html:button><html:button id="ocrflow-tab-collation" type="button" aria-pressed="false">勘校配置</html:button><html:button id="ocrflow-tab-output" type="button" aria-pressed="false">输出保存</html:button><html:button id="ocrflow-tab-tasks" type="button" aria-pressed="false">任务队列</html:button><html:button id="ocrflow-tab-config" type="button" aria-pressed="false">同步功能</html:button></html:nav><html:div id="ocrflow-panel-services"><html:div class="mineru-grid ocrflow-service-choice">
-			<html:label for="docflow-parser-service">PDF / 图片识别服务</html:label>
+		</html:header><html:nav class="ocrflow-tabs" aria-label="OCRFlow 设置分类"><html:button id="ocrflow-tab-services" type="button" aria-pressed="false">识别服务</html:button><html:button id="ocrflow-tab-ai" type="button" aria-pressed="false">AI 服务商</html:button><html:button id="ocrflow-tab-work" type="button" aria-pressed="false">流程配置</html:button><html:button id="ocrflow-tab-collation" type="button" aria-pressed="false">勘校配置</html:button><html:button id="ocrflow-tab-output" type="button" aria-pressed="false">输出保存</html:button><html:button id="ocrflow-tab-tasks" type="button" aria-pressed="false">任务队列</html:button><html:button id="ocrflow-tab-config" type="button" aria-pressed="false">同步功能</html:button></html:nav><html:div id="ocrflow-panel-services"><html:h3>默认服务设置</html:h3><html:div class="mineru-grid ocrflow-service-choice">
+			<html:label for="docflow-parser-service">PDF识别服务</html:label>
 			<menulist id="docflow-parser-service" native="true">
 				<menupopup>
-					<menuitem label="MinerU" value="mineru" /><menuitem label="PaddleOCR" value="paddle" />
+					<menuitem label="MinerU · 当前配置" value="mineru" /><menuitem label="MinerU · 官方云端" value="mineru-cloud" /><menuitem label="MinerU · 本地" value="mineru-local" /><menuitem label="PaddleOCR" value="paddle" />
 					<menuitem label="Marker" value="marker" /><menuitem label="MarkItDown" value="markitdown" />
 					<menuitem label="AI 视觉 OCR" value="ai" />
 				</menupopup>
-			</menulist>
-		</html:div><html:p class="mineru-help">EPUB、Office 和 HTML 等文档仍由 MarkItDown 转换。</html:p><html:nav class="ocrflow-tabs" aria-label="转换服务"><html:button id="ocrflow-service-tab-mineru" type="button" aria-pressed="false">MinerU</html:button><html:button id="ocrflow-service-tab-paddle" type="button" aria-pressed="false">PaddleOCR</html:button><html:button id="ocrflow-service-tab-marker" type="button" aria-pressed="false">Marker</html:button><html:button id="ocrflow-service-tab-markitdown" type="button" aria-pressed="false">MarkItDown</html:button><html:button id="ocrflow-service-tab-ai" type="button" aria-pressed="false">AI 视觉</html:button></html:nav><html:div id="ocrflow-service-panel-mineru"><html:section class="ocrflow-section" aria-labelledby="ocrflow-mineru-heading">
+			</menulist><html:label for="ocrflow-default-office">Office文档识别服务</html:label><menulist id="ocrflow-default-office" native="true"><menupopup><menuitem label="MinerU · 官方云端" value="mineru-cloud" /><menuitem label="MinerU · 本地" value="mineru-local" /><menuitem label="MarkItDown" value="markitdown" /></menupopup></menulist><html:label for="ocrflow-default-html">HTML识别服务</html:label><menulist id="ocrflow-default-html" native="true"><menupopup><menuitem label="MinerU · 官方云端" value="mineru-cloud" /><menuitem label="MinerU · 本地" value="mineru-local" /><menuitem label="MarkItDown" value="markitdown" /></menupopup></menulist><html:label for="ocrflow-default-image">图片识别服务</html:label><menulist id="ocrflow-default-image" native="true"><menupopup><menuitem label="MinerU · 官方云端" value="mineru-cloud" /><menuitem label="MinerU · 本地" value="mineru-local" /><menuitem label="PaddleOCR · 官方 API" value="paddle-cloud" /><menuitem label="PaddleOCR · 自部署 API" value="paddle-local" /><menuitem label="AI 视觉 OCR" value="ai" /></menupopup></menulist>
+		</html:div><html:p class="mineru-help">EPUB 需要 MarkItDown；Office、HTML 和图片使用各自的默认服务。</html:p><html:nav class="ocrflow-tabs" aria-label="转换服务"><html:button id="ocrflow-service-tab-mineru" type="button" aria-pressed="false">MinerU</html:button><html:button id="ocrflow-service-tab-paddle" type="button" aria-pressed="false">PaddleOCR</html:button><html:button id="ocrflow-service-tab-marker" type="button" aria-pressed="false">Marker</html:button><html:button id="ocrflow-service-tab-markitdown" type="button" aria-pressed="false">MarkItDown</html:button><html:button id="ocrflow-service-tab-ai" type="button" aria-pressed="false">AI 视觉</html:button></html:nav><html:div id="ocrflow-service-panel-mineru"><html:section class="ocrflow-section" aria-labelledby="ocrflow-mineru-heading">
 			<html:div class="ocrflow-section-heading">
 				<html:h3 id="ocrflow-mineru-heading">MinerU</html:h3>
 				<html:span class="mineru-help">PDF 与扫描文档识别</html:span>
@@ -142,7 +142,7 @@
 						<menuitem label="pipeline" value="pipeline" data-api-mode="cloud" />
 					</menupopup>
 				</menulist>
-				<html:label for="mineru-cloud-language">云端识别语言</html:label>
+				<html:label for="mineru-enable-formula">公式识别</html:label><html:input id="mineru-enable-formula" type="checkbox"/><html:label for="mineru-enable-table">表格识别</html:label><html:input id="mineru-enable-table" type="checkbox"/><html:p id="mineru-options-help" class="mineru-help ocrflow-language-help">VLM 公式开关仅影响行内公式；HTML 不使用这两个选项。</html:p><html:label for="mineru-cloud-language">云端识别语言</html:label>
 				<menulist id="mineru-cloud-language" native="true">
 					<menupopup>
 						<menuitem label="自动（读取父条目语言）" value="auto" />
@@ -514,7 +514,7 @@
 			</html:div>
 			<html:pre id="mineru-job-progress-output" class="mineru-test-output" />
 		</html:details></html:div><html:section id="ocrflow-panel-config" class="ocrflow-section" hidden="hidden">
-<html:h3>加密同步功能</html:h3><html:p id="ocrflow-config-state" role="status"/>
+<html:h3>加密同步功能</html:h3><html:div class="mineru-grid"><html:label for="ocrflow-config-device-name">本机名</html:label><html:input id="ocrflow-config-device-name" type="text"/><html:label for="ocrflow-config-backup-limit">每台机器最多保留备份数</html:label><html:input id="ocrflow-config-backup-limit" type="number" min="1" value="10"/></html:div><html:button id="ocrflow-config-device-save" type="button">保存本机设置</html:button><html:p class="mineru-help">自动备份和同步历史分别保留最新指定份数，默认 10 份；手动导出文件不自动清理。</html:p><html:p id="ocrflow-config-state" role="status"/>
 <html:p class="mineru-help">全部插件配置使用同一配置密码加密。密码不随导出或同步；遗失后无法解密。导入会整套替换，文献与任务记录不属于配置包。</html:p>
 <html:div class="mineru-grid"><html:label for="ocrflow-config-pass">配置密码 / 新密码</html:label><html:input id="ocrflow-config-pass" type="password" autocomplete="off"/>
 <html:label for="ocrflow-config-confirm">确认新密码</html:label><html:input id="ocrflow-config-confirm" type="password" autocomplete="off"/></html:div>

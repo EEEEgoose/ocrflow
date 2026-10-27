@@ -77,7 +77,7 @@ async function run() {
   context.Zotero.Reader._readers = [];
   prefs.set(owner.PREF_BRANCH + 'outlineUseAI', true);
   const scan = att(3, 'SCAN');
-  await assert.rejects(() => outlineFeature.generate(scan), /扫描 PDF 请重新使用 MinerU/);
+  await assert.rejects(() => outlineFeature.generate(scan), /识别后继续生成大纲/);
   assert.equal(apiCalls, 1);
   assert.throws(() => outlineFeature.parseAIOutline('not JSON'), /不是有效 JSON/);
   const native = att(4, 'NATIVE');
@@ -118,9 +118,9 @@ async function run() {
   context.Zotero.Reader._readers = [];
   context.Zotero.PDFWorker.getFullText = async () => ({text: '第一章\f研究方法', totalPages: 3});
   const mismatch = att(5, 'MISMATCH');
-  await assert.rejects(() => outlineFeature.generate(mismatch), /页码不能准确对应/);
+  await assert.rejects(() => outlineFeature.generate(mismatch), /识别后继续生成大纲/);
   assert.equal((await outlineFeature.load(mismatch)).pages.length, 0);
-  await assert.rejects(() => outlineFeature.generate(mismatch), /页码不能准确对应/);
+  await assert.rejects(() => outlineFeature.generate(mismatch), /识别后继续生成大纲/);
   assert.equal(apiCalls, 3);
   console.log('PASS: local/cloud page data, cache and PDF identity, AI and no-AI generation, bookmarks, contents-page exclusion and long-page chunking.');
 }

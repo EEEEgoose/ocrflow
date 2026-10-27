@@ -5,7 +5,7 @@ var DocFlowPreferences = {
 	setPref(key,value,global=true){const plugin=Zotero.getMainWindow?.()?.DocFlow;return plugin?.setPref ? plugin.setPref(key,value,global) : Zotero.Prefs.set(key,value,global);},
 	initialized: false,
 	loadedAPIMode: null,
-	API_FIELDS: ["apiBaseURL", "apiToken", "modelVersion", "pollIntervalSec", "timeoutSec"],
+	API_FIELDS: ["apiBaseURL", "apiToken", "modelVersion", "pollIntervalSec", "timeoutSec", "enableFormula", "enableTable"],
 	LLM_PROVIDER_LIMIT: 5,
 	LLM_PROVIDER_FIELDS: ["llmProviderName", "llmApiBaseURL", "llmApiKey", "llmModel", "llmModel2", "llmModelContext", "llmModelConcurrency", "llmModel2Context", "llmModel2Concurrency", "llmModelMaxOutput", "llmModel2MaxOutput"],
 	llmProviders: null,
@@ -15,6 +15,9 @@ var DocFlowPreferences = {
 	modelTests: {},
 
 	FIELDS: [
+		...["office", "html", "image"].map(kind => ({id:`ocrflow-default-${kind}`,pref:`defaultService.${kind}`,type:"string",defaultValue:kind === "image" ? "" : "markitdown"})),
+		{ id:"mineru-enable-formula", pref:"enableFormula", type:"bool", defaultValue:true },
+		{ id:"mineru-enable-table", pref:"enableTable", type:"bool", defaultValue:true },
 		{ id: "ocrflow-title-service", pref: "titleService", type: "string", defaultValue: "ai" },
 		{ id: "ocrflow-title-language", pref: "titleLanguage", type: "string", defaultValue: "ZH" },
 		{ id: "ocrflow-title-overwrite", pref: "titleOverwrite", type: "bool", defaultValue: false },
@@ -130,7 +133,8 @@ var DocFlowPreferences = {
 			let field = this.FIELDS.find(field => field.pref === name);
 			let value = name === "apiMode" ? apiMode : this.readAPIPref(name, apiMode);
 			if (name === "modelVersion") value = this.normalizeModelVersion(value, apiMode);
-			this.$(field.id).value = String(value ?? "");
+			if (field.type === "bool") this.$(field.id).checked = value !== false;
+			else this.$(field.id).value = String(value ?? "");
 		}
 	},
 
@@ -176,7 +180,7 @@ var DocFlowPreferences = {
 		}
 		return {
 			apiBaseURL: mode === "local-v1" ? "http://127.0.0.1:8000" : "https://mineru.net/api/v4",
-			apiToken: "", modelVersion: mode === "local-v1" ? "basic" : "pipeline", pollIntervalSec: 5, timeoutSec: 1200
+			enableFormula: true, enableTable: true, apiToken: "", modelVersion: mode === "local-v1" ? "basic" : "pipeline", pollIntervalSec: 5, timeoutSec: 1200
 		}[name];
 	},
 
@@ -195,6 +199,8 @@ var DocFlowPreferences = {
 		}
 		this.$("mineru-model-version-label").textContent = ocrflowText(apiMode === "local-v1" ? "解析档位" : "模型版本");
 		this.$("mineru-cloud-language").disabled = apiMode !== "cloud";
+		for (let id of ["mineru-enable-formula", "mineru-enable-table"]) this.$(id).disabled = apiMode !== "cloud" || input.value === "MinerU-HTML";
+		this.$("mineru-options-help").textContent = ocrflowText(apiMode === "cloud" ? "VLM 公式开关仅影响行内公式；HTML 不使用这两个选项。" : "本地 V1 当前接口未开放这两个开关；云端选择会保留。");
 		this.$("mineru-cloud-language-help").textContent = ocrflowText(apiMode === "cloud"
 			? "自动读取父条目语言；为空或无法识别时使用云端默认值。手动选择不会改写条目语言。"
 			: "识别语言仅适用于官方云端，本地 V1 不接收该参数。云端选择会保留。");
@@ -461,6 +467,7 @@ var DocFlowPreferences = {
 				value = "paddle";
 			}
 			if (field.pref === "modelVersion") value = this.normalizeModelVersion(value, apiMode);
+			if (field.pref === "defaultService.image" && !value) { let old=this.getPref(this.PREF_BRANCH+"parserService",true)||"mineru"; value=old==="mineru" ? (apiMode==="local-v1"?"mineru-local":"mineru-cloud") : old==="paddle" ? "paddle-"+(this.getPref(this.PREF_BRANCH+"paddleMode",true)||"cloud") : old; }
 			if (field.type === "bool") {
 				input.checked = !!value;
 			} else {
@@ -915,6 +922,7 @@ var DocFlowPreferences = {
 	},
 
 	showService(selected) {
+		if(selected.startsWith("mineru-"))selected="mineru";
 		for (let key of ["mineru", "paddle", "marker", "markitdown", "ai"]) {
 			let panel = this.$("ocrflow-service-panel-" + key);
 			if (panel) panel.hidden = key !== selected;
@@ -947,6 +955,8 @@ var DocFlowPreferences = {
 		this.$("ocrflow-go-ai")?.addEventListener("click", () => this.showSection("ai"));
 		this.$("ocrflow-go-ocr")?.addEventListener("click", () => { this.showSection("work"); this.showWork("ocr"); });
 		this.showService(this.$("docflow-parser-service").value);
+		this.$("mineru-model-version").addEventListener("command", () => this.syncParseOptions(this.loadedAPIMode));
+		this.$("mineru-model-version").addEventListener("change", () => this.syncParseOptions(this.loadedAPIMode));
 		this.showWork("parent");
 		this.syncPaddleMode();
 		this.syncMarkerMode();

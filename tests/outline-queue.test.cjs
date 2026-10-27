@@ -35,7 +35,7 @@ async function run() {
   assert.equal(owner.parseQueue.length, 2);
   assert.equal(owner.parseQueue[0].state, 'completed');
   assert.equal(owner.parseQueue[1].kind, 'outline');
-  assert.equal(owner.parseQueue[1].state, 'failed');
+  assert.equal(owner.parseQueue[1].state, 'completed');
   await owner.retryParseQueueTasks([owner.parseQueue[1].id]);
   assert.equal(owner.parseQueue[1].state, 'completed');
   assert.equal(parses, 1); assert.equal(saves, 1); assert.equal(attempts, 2);

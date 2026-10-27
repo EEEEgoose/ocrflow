@@ -4,15 +4,16 @@ Object.assign(DocFlow, {
 	},
 
 	translationParagraphs(markdown) {
-		let paragraphs = [], page = null, boundary = false;
+		if(this.stripPageDisplay)markdown=this.stripPageDisplay(markdown);
+		let paragraphs = [], page = null, pageUnit="page", boundary = false;
 		let join = (left, right) => left + (/\s$/.test(left) || /^\s/.test(right) || /[-\u00ad]$/.test(left) || /[\u3400-\u9fff]$/.test(left) && /^[\u3400-\u9fff]/.test(right) ? "" : " ") + right;
 		let prose = text => !/^(?:#{1,6}\s|\[\^[^\]]+\]:|[-*+]\s|\d+[.)、]\s|>|\||!\[|<|```|~~~|\$\$|\\\[|[-*_]{3,}\s*$)/.test(text);
 		for (let block of this.splitTranslationBlocks(markdown)) {
 			if (/^(?:```|~~~)/.test(block)) { paragraphs.push({text:block, page, pages:page ? [page] : []}); boundary = false; continue; }
 			let text = "", pages = [], startsAtBoundary = boundary;
-			for (let part of block.split(/(<!--ocrflow-page:\d+[\s\S]*?-->)/g)) {
-				let marker = part.match(/^<!--ocrflow-page:(\d+)[\s\S]*?-->$/);
-				if (marker) { page = Number(marker[1]); boundary = true; if (!text.trim()) startsAtBoundary = true; continue; }
+			for (let part of block.split(/(<!--ocrflow-(?:page|slide):\d+[\s\S]*?-->)/g)) {
+				let marker = part.match(/^<!--ocrflow-(page|slide):(\d+)[\s\S]*?-->$/);
+				if (marker) { pageUnit=marker[1];page = Number(marker[2]); boundary = true; if (!text.trim()) startsAtBoundary = true; continue; }
 				if (part.trim()) {
 					if (page && !pages.includes(page)) pages.push(page);
 					text = boundary && text.trim() ? join(text, part) : text + part;
@@ -25,14 +26,14 @@ Object.assign(DocFlow, {
 				!/[。！？.!?;；：:؟…]([”’"»」』）)]|\[\^[^\]]+\])*$/.test(previous.text)) {
 				previous.text = join(previous.text, text);
 				previous.pages = [...new Set([...previous.pages, ...pages])];
-			} else paragraphs.push({text, page:pages[0] || null, pages});
+			} else paragraphs.push({text, page:pages[0] || null, pages, pageUnit});
 		}
 		return paragraphs;
 	},
 
 	translationUnits(markdown, settings) {
 		let units = [];
-		for (let {text:block, page:startPage, pages} of this.translationParagraphs(markdown)) {
+		for (let {text:block, page:startPage, pages, pageUnit} of this.translationParagraphs(markdown)) {
 			let prefix = block.match(/^(?:\[\^[^\]]+\]:\s*|#{1,6}\s+)/)?.[0] || "";
 			let prepared = this.prepareTranslationText(block.slice(prefix.length)), protectedParts = [], text = prepared.parts.map(part => {
 				if (part.literal === undefined) return part.leading + prepared.texts[part.index] + part.trailing;
@@ -53,7 +54,7 @@ Object.assign(DocFlow, {
 			}
 			if (rest) fragments.push(rest);
 			let translated = fragments.map(fragment => fragment.replace(/⟦K\d+⟧/g, "").trim() ? null : fragment);
-			units.push({ id: `p${units.length + 1}`, source: block, prefix, text, page: startPage, pages, protectedParts, fragments, translated });
+			units.push({ id: `p${units.length + 1}`, source: block, prefix, text, page: startPage, pages, pageUnit, protectedParts, fragments, translated });
 		}
 		return units;
 	},
@@ -154,7 +155,7 @@ Object.assign(DocFlow, {
 		let pairs = units.map(unit => {
 			let complete = unit.translated.filter(Boolean).length === unit.fragments.length;
 			let translated = complete ? unit.prefix + unit.translated.join("").replace(/⟦K(\d+)⟧/g, (_m, index) => unit.protectedParts[Number(index)]) : "**未翻译**\n\n" + unit.source;
-			return { id: unit.id, source: unit.source, translated, page: unit.page, pages: unit.pages, complete };
+			return { id: unit.id, source: unit.source, translated, page: unit.page, pages: unit.pages, pageUnit:unit.pageUnit, complete };
 		});
 		let completed = pairs.filter(pair => pair.complete).length;
 		if (!completed) throw new Error("没有完整译段可保存");

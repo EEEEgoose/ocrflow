@@ -1,7 +1,7 @@
 // Encrypted configuration owned by the main plugin scope, never by a preferences window.
 var OCRFlowConfig = {
  prefix:'extensions.docflow.', state:'setup', values:null, password:null, dirty:false, serial:Promise.resolve(), syncStatus:'尚未启用配置同步',
- isRuntime(key){return ['lastLocalJobID'].includes(key.slice(this.prefix.length));},
+ isRuntime(key){return ['lastLocalJobID','deviceID','deviceName','backupLimit','noticeClosedVersion','noticeMutedMajor','noticeBaseline'].includes(key.slice(this.prefix.length));},
  async init(owner){
   this.owner=owner;this.path=PathUtils.join(Zotero.DataDirectory.dir,'ocrflow-config.enc');
   this.crypto=Zotero.getMainWindow()?.crypto||Services.appShell.hiddenDOMWindow.crypto;
@@ -55,7 +55,7 @@ var OCRFlowConfig = {
  async seal(record,password){
   const salt=this.crypto.getRandomValues(new Uint8Array(16)),iv=this.crypto.getRandomValues(new Uint8Array(12));
   const encrypted=await this.crypto.subtle.encrypt({name:'AES-GCM',iv},await this.key(password,salt),new TextEncoder().encode(JSON.stringify(record)));
-  return {format:'ocrflow-config',version:1,kdf:'PBKDF2-SHA256-600000',cipher:'AES-256-GCM',salt:this.base64(salt),iv:this.base64(iv),data:this.base64(new Uint8Array(encrypted))};
+  return {source:{deviceID:record.deviceID,deviceName:record.deviceName,id:record.id,createdAt:record.createdAt},format:'ocrflow-config',version:1,kdf:'PBKDF2-SHA256-600000',cipher:'AES-256-GCM',salt:this.base64(salt),iv:this.base64(iv),data:this.base64(new Uint8Array(encrypted))};
  },
  async open(envelope,password){
   if(envelope?.format!=='ocrflow-config'||envelope.version!==1||envelope.kdf!=='PBKDF2-SHA256-600000'||envelope.cipher!=='AES-256-GCM')throw Error('不支持的配置包格式或版本');
@@ -66,7 +66,7 @@ var OCRFlowConfig = {
   }catch(_error){throw Error('配置密码错误或配置包已损坏，当前配置未更改。');}
   if(!record.id||!Array.isArray(record.parents))throw Error('配置版本信息无效');this.validate(record.values);return record;
  },
- newRecord(values,parents=[]){return {id:this.crypto.randomUUID(),parents:[...new Set(parents.filter(Boolean))],createdAt:new Date().toISOString(),values:JSON.parse(JSON.stringify(values))};},
+ newRecord(values,parents=[]){return {deviceID:this.deviceInfo().id,deviceName:this.deviceInfo().name,id:this.crypto.randomUUID(),parents:[...new Set(parents.filter(Boolean))],createdAt:new Date().toISOString(),values:JSON.parse(JSON.stringify(values))};},
  async write(envelope){await IOUtils.writeUTF8(this.path,JSON.stringify(envelope),{tmpPath:this.path+'.tmp'});},
  async setup(password){
   if(this.state!=='setup')throw Error('配置密码已经设置');if(password.length<10)throw Error('配置密码至少 10 个字符');
@@ -106,11 +106,51 @@ var OCRFlowConfig = {
   const envelope=await this.seal(this.record,password);await this.write(envelope);const remembered=!!this.savedLogin();this.password=password;this.envelope=envelope;await this.remember(remembered);
   if(this.values[this.prefix+'syncEnabled']) {this.dirty=true;await this.flush();}
  },
+ deviceInfo(){
+  const read=name=>Zotero.Prefs?.get(this.prefix+name,true);
+  let id=read('deviceID');if(!id){id=this.crypto.randomUUID();Zotero.Prefs?.set(this.prefix+'deviceID',id,true);}
+  let name=String(read('deviceName')||'').trim();
+  if(!name)try{name=Cc['@mozilla.org/network/dns-service;1'].getService(Ci.nsIDNSService).myHostName;}catch(_){}
+  return {id,name:name||'本机',limit:Math.max(1,Number(read('backupLimit'))||10)};
+ },
+ backupName(record=this.record){
+  const device=this.deviceInfo(),name=(record?.deviceName||device.name).replace(/[\\/:*?"<>|\x00-\x1f]/g,'_');
+  return 'OCRFlow_'+name+'_'+(record?.createdAt||new Date().toISOString()).replace(/[-:]/g,'').replace(/T/,'-').replace(/\.\d+Z$/,'')+'_'+(record?.id||this.crypto.randomUUID())+'.ocrflow-config';
+ },
+ async saveDevice(name,limit){
+  if(!Number.isInteger(limit)||limit<1)throw Error('备份数量须为正整数');
+  Zotero.Prefs.set(this.prefix+'deviceName',String(name||'').trim(),true);Zotero.Prefs.set(this.prefix+'backupLimit',limit,true);
+  if(this.state==='unlocked'&&this.record.deviceName!==this.deviceInfo().name){this.dirty=true;await this.flush();}
+  await this.pruneLocal();if(this.state==='unlocked')await this.pruneSync();
+ },
+ async backupCurrent(){
+  const dir=PathUtils.join(Zotero.DataDirectory.dir,'ocrflow-config-backups');await IOUtils.makeDirectory(dir,{createAncestors:true});
+  const info=this.deviceInfo(),record={...this.record,deviceID:info.id,deviceName:info.name,id:this.crypto.randomUUID(),createdAt:new Date().toISOString()};
+  const envelope=await this.seal(record,this.password),path=PathUtils.join(dir,this.backupName(record));await IOUtils.writeUTF8(path,JSON.stringify(envelope));
+  try{await this.pruneLocal();}catch(error){this.syncStatus='备份已保存；旧备份清理失败：'+error.message;}
+ },
+ async pruneLocal(){
+  const dir=PathUtils.join(Zotero.DataDirectory.dir,'ocrflow-config-backups');if(!await IOUtils.exists(dir)||this.state!=='unlocked')return;
+  const rows=[],info=this.deviceInfo();for(const path of await IOUtils.getChildren(dir)){
+   if(!path.endsWith('.ocrflow-config'))continue;
+   try{const record=JSON.parse(await IOUtils.readUTF8(path)).source;if(record?.deviceID===info.id)rows.push({path,record});}catch(_){}
+  }
+  rows.sort((a,b)=>b.record.createdAt.localeCompare(a.record.createdAt)||b.record.id.localeCompare(a.record.id));
+  for(const row of rows.slice(info.limit))await IOUtils.remove(row.path);
+ },
+ async pruneSync(){
+  const rows=[],info=this.deviceInfo();for(const item of await this.syncItems()){
+   if(!item.isAttachment())continue;const path=await item.getFilePath();if(!path||!await IOUtils.exists(path))continue;
+   try{const record=JSON.parse(await IOUtils.readUTF8(path)).source;if(record?.deviceID===info.id)rows.push({item,record});}catch(_){}
+  }
+  rows.sort((a,b)=>b.record.createdAt.localeCompare(a.record.createdAt)||b.record.id.localeCompare(a.record.id));
+  for(const row of rows.slice(info.limit))await Zotero.Items.trashTx(row.item.id);
+ },
  async exportFile(path){if(this.state!=='unlocked')throw Error('请先解锁配置');await this.flush();await IOUtils.writeUTF8(path,JSON.stringify(this.envelope));},
  async inspect(envelope,password){const record=await this.open(envelope,password);return {record,count:Object.keys(record.values).length,providers:JSON.parse(record.values[this.prefix+'llmProviders']||'[]').length};},
  async apply(envelope,password,parents=[],syncPassword=false){
   const record=await this.open(envelope,password);if(this.state==='locked')throw Error('请先解锁本机配置，或在新设备首次导入配置。');
-  if(this.state==='unlocked'){await this.flush();await IOUtils.copy(this.path,this.path+'.backup',{noOverwrite:false});}
+  if(this.state==='unlocked'){await this.flush();await this.backupCurrent();}
   const remembered=!!this.savedLogin(),localPassword=syncPassword?password:this.password||password,merged=this.newRecord(record.values,[this.record?.id,record.id,...parents]);
   const sealed=await this.seal(merged,localPassword);await this.write(sealed);
   this.values=merged.values;this.record=merged;this.envelope=sealed;this.password=localPassword;this.state='unlocked';this.dirty=false;this.clearLegacy();
@@ -124,9 +164,10 @@ var OCRFlowConfig = {
   this.syncStatus='等待 Zotero 文件同步；本机保存成功不表示云端已完成';
   const items=await this.syncItems();let parent=items.find(item=>item.isRegularItem());
   if(!parent){parent=new Zotero.Item('computerProgram');parent.libraryID=Zotero.Libraries.userLibraryID;parent.setField('title','OCRFlow 配置同步');parent.addTag('#DocFlow-Config');await parent.saveTx();}
-  if(items.some(item=>item.isAttachment()&&item.attachmentFilename===record.id+'.ocrflow-config'))return;
-  const path=PathUtils.join(PathUtils.tempDir,record.id+'.ocrflow-config');await IOUtils.writeUTF8(path,JSON.stringify(envelope));
-  try{const attachment=await Zotero.Attachments.importFromFile({file:path,parentItemID:parent.id,title:'OCRFlow 加密配置 · '+record.createdAt,contentType:'application/octet-stream'});attachment.addTag('#DocFlow-Config');await attachment.saveTx();}finally{await IOUtils.remove(path,{ignoreAbsent:true});}
+  if(items.some(item=>item.isAttachment()&&item.attachmentFilename?.endsWith(record.id+'.ocrflow-config')))return;
+  const path=PathUtils.join(PathUtils.tempDir,this.backupName(record));await IOUtils.writeUTF8(path,JSON.stringify(envelope));
+  try{const attachment=await Zotero.Attachments.importFromFile({file:path,parentItemID:parent.id,title:'OCRFlow 加密配置 · '+(record.deviceName||'本机')+' · '+record.createdAt,contentType:'application/octet-stream'});attachment.addTag('#DocFlow-Config');await attachment.saveTx();}finally{await IOUtils.remove(path,{ignoreAbsent:true});}
+  try{await this.pruneSync();}catch(error){this.syncStatus='配置已保存；旧备份清理失败：'+error.message;}
  },
  async remote(password=this.password){
   if(!password)throw Error('请先输入远端配置的解密密码');

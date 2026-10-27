@@ -36,11 +36,13 @@ const context = {
 vm.createContext(context);
 vm.runInContext(fs.readFileSync("prompts.js", "utf8"), context);
 vm.runInContext(fs.readFileSync("docflow.js", "utf8"), context);
+vm.runInContext(fs.readFileSync('attachment-naming.js','utf8'),context);
 vm.runInContext(fs.readFileSync("workflow.js", "utf8"), context);
 vm.runInContext(fs.readFileSync("preferences.js", "utf8"), context);
 const m = context.DocFlow, panel = context.DocFlowPreferences;
 panel.syncParseOptions = () => {}; // Parse-tier controls are covered by api-profiles.test.cjs.
 panel.loadLLMProviders = () => {}; panel.saveLLMProvider = () => {};
+m.resolveTaskPrerequisites=()=>true;
 m.mathRenderer = require("../vendor/katex/katex.min.js");
 m.withTimeout = fn => fn();
 const image = {marker:"docflow-image://img-1", mimeType:"image/png", fileName:"a.png",
@@ -264,13 +266,13 @@ async function run() {
  assert.equal(originalConfirm.call(m,null,{title:'T',failures:[failure],completed:0,total:2}),'discard');assert.equal(promptArgs[6],null);
  button=1;assert.equal(originalConfirm.call(m,null,{title:'T',failures:[failure],completed:1}),'discard');
  // Partial tags do not count as completed translations.
- const source={attachmentFilename:'source.md',isAttachment:()=>true,getTags:()=>[{tag:'#DocFlow-Parse'}]};
+ const source={id:1,parentItemID:9,attachmentFilename:'source.md',isAttachment:()=>true,getTags:()=>[{tag:'#DocFlow-Parse'}]};
  const partial={isAttachment:()=>true,getTags:()=>[{tag:'#DocFlow-Translation-Partial'}]};
  const parentForCollection={id:9,isNote:()=>false,isRegularItem:()=>true,getAttachments:()=>[1,2]};
- context.Zotero.Items={get:id=>id===1?source:partial};
+ context.Zotero.Items={get:id=>id===9?parentForCollection:id===1?source:partial};
  assert.equal(originalCollect.call(m,[parentForCollection]).length,1);
  // Explicitly selected parse attachment wins even when the parent is selected first.
- const chosen={attachmentFilename:'chosen.md',parentItemID:9,isNote:()=>false,isRegularItem:()=>false,isAttachment:()=>true,getTags:()=>[{tag:'#DocFlow-Parse'}]};
+ const chosen={id:3,attachmentFilename:'chosen.md',parentItemID:9,isNote:()=>false,isRegularItem:()=>false,isAttachment:()=>true,getTags:()=>[{tag:'#DocFlow-Parse'}]};
  context.Zotero.Items.get=id=>id===9?parentForCollection:id===1?source:partial;
  assert.equal(originalCollect.call(m,[parentForCollection,chosen])[0].mineruSource,chosen);
  // Document actions read sibling Markdown instead of HTML or embedded source metadata.

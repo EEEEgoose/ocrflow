@@ -80,7 +80,7 @@ function setup({mcp=false,reading=false}={}) {
     }
   };
   vm.createContext(context);
-  for (const filename of ['prompts.js','docflow.js','markitdown.js','metadata.js','workflow.js']) vm.runInContext(fs.readFileSync(filename,'utf8'),context);
+  for (const filename of ['prompts.js','docflow.js','markitdown.js','metadata.js','workflow.js','attachment-naming.js','translation-services.js','title-translation.js']) vm.runInContext(fs.readFileSync(filename,'utf8'),context);
   const plugin = context.DocFlow;
   if(!reading)plugin.runOrganizeReadingStages=async task=>{task.state='completed';task.detail='core metadata fixture completed';};
   plugin.openParseQueueDialog = () => {}; plugin.refreshParseQueueDialog = () => {};
@@ -106,13 +106,13 @@ function fullFlow() {
  s.setReply(payload=>payload.response_format ? JSON.stringify({itemType:'book',title:'Full flow book',creators:[{lastName:'Author',creatorType:'author'}]}) : payload.messages[1].content.startsWith('[') ? JSON.stringify(JSON.parse(payload.messages[1].content).map(row=>({...row,text:'译文 '+row.text}))) : '学术总结');
  return s;
 }
-test('one-click completes all six stages and saves summary and paragraph-aligned translation',async()=>{
+test('one-click completes all seven stages and saves summary and paragraph-aligned translation',async()=>{
  const s=fullFlow(),pdf=s.file('full.pdf');let outlines=0;s.plugin.outline.generate=async()=>{outlines++};
  await s.plugin.handleOrganizeCommand({selectedItems:[pdf]});const task=s.plugin.parseQueue[0];
  assert.equal(task.state,'completed',task.error);assert.equal(outlines,1);assert.equal(s.uploads.length,1);
- assert.deepEqual(Array.from(task.steps,row=>row.id),['extract','parent','metadata','outline','summary','translate']);
+ assert.deepEqual(Array.from(task.steps,row=>row.id),['extract','parent','metadata','title','summary','translate','outline']);
  assert(task.steps.every(row=>row.state==='completed'));assert(task.organizeResults.summary.isNote());assert(task.organizeResults.translate.hasTag('#DocFlow-Translation'));
- assert.equal(task.resultAttachment,task.source);assert.equal(task.cancelJobID,null);assert.equal(task.cancelSettings.workKind,'translate');
+ assert.equal(task.resultAttachment,task.source);assert.equal(task.cancelJobID,null);assert.equal(task.cancelSettings.workKind,'outline');
 });
 test('one-click continues independent work after outline failure and retries only the failed stage',async()=>{
  const s=fullFlow(),pdf=s.file('retry.pdf');let outlines=0;s.plugin.outline.generate=async()=>{if(++outlines===1)throw Error('controlled outline failure')};
@@ -127,7 +127,7 @@ test('one-click skips a non-PDF outline but still saves summary and translation'
  await s.plugin.handleOrganizeCommand({selectedItems:[epub]});const task=s.plugin.parseQueue[0];
  assert.equal(task.state,'completed',task.error);assert.equal(task.organizeStages.outline.state,'skipped');assert(task.organizeResults.summary);assert(task.organizeResults.translate);
 });
-test('canceling one-click summary prevents translation and retry preserves completed OCR and outline',async()=>{
+test('canceling one-click summary prevents translation and outline; retry preserves completed OCR',async()=>{
  const s=fullFlow(),pdf=s.file('cancel.pdf');let start,release,outlines=0,translations=0;
  const started=new Promise(resolve=>start=resolve),gate=new Promise(resolve=>release=resolve);
  const summary=s.plugin.runDocumentTask.bind(s.plugin);s.plugin.outline.generate=async()=>{outlines++};
@@ -135,7 +135,7 @@ test('canceling one-click summary prevents translation and retry preserves compl
  const translate=s.plugin.runTranslationTask.bind(s.plugin);s.plugin.runTranslationTask=async task=>{translations++;return translate(task)};
  const running=s.plugin.handleOrganizeCommand({selectedItems:[pdf]});await started;let task=s.plugin.parseQueue[0];
  assert.equal(task.cancelJobID,null);assert.equal(task.cancelSettings.workKind,'summary');await s.plugin.cancelParseQueueTask(task.id);release();await running;
- assert.equal(task.state,'canceled');assert.equal(translations,0);assert.equal(task.organizeStages.outline.state,'completed');
+ assert.equal(task.state,'canceled');assert.equal(translations,0);assert.equal(task.organizeStages.outline,undefined);
  await s.plugin.retryParseQueueTasks([task.id]);assert.equal(task.state,'completed',task.error);assert.equal(outlines,1);assert.equal(s.uploads.length,1);assert.equal(translations,1);
 });
 test('translation decisions in one-click remain visible and retry updates the child model',async()=>{
@@ -164,7 +164,7 @@ test('translation accepts ordinary Markdown and keeps an explicitly selected ful
  const html=s.file('ocr.html',parent);html.addTag('#DocFlow-Parse');
  assert.equal(s.plugin.collectTranslateTasks([html])[0].mineruSource,html);
  const unprocessedHTML=s.file('web.html',parent);
- assert.notEqual(s.plugin.collectTranslateTasks([unprocessedHTML])[0].mineruSource,unprocessedHTML);
+ assert.equal(s.plugin.collectTranslateTasks([unprocessedHTML]).length,0);
  const standalone=s.file('standalone.md');assert.equal(s.plugin.collectTranslateTasks([standalone]).length,0);
  const translation=s.file('translated.html',parent);translation.addTag('#DocFlow-Translation');
  assert.equal(s.plugin.collectTranslateTasks([plain]).length,0);
@@ -701,4 +701,36 @@ test('images converted to PDF also receive the parent document cloud language',a
 test('EPUB tasks snapshot the actual MarkItDown service instead of the default OCR and unrelated cloud profile',async()=>{
  const s=setup(),original=s.file('book.epub');s.prefs.set('extensions.docflow.parserService','mineru');s.prefs.set('extensions.docflow.apiMode','cloud');s.prefs.set('extensions.docflow.marker.apiType','cloud');
  await s.plugin.handleParseCommand({selectedItems:[original]});const task=s.plugin.parseQueue[0];assert.equal(task.state,'completed');assert.equal(task.settings.parserService,'markitdown');assert.equal(task.displaySettings.parserService,'markitdown');assert.equal(task.cancelSettings.parserService,'markitdown');assert.equal(s.prefs.get('extensions.docflow.parserService'),'mineru');assert.equal(s.uploads.length,1);
+});
+
+test('one-click translates the original title after metadata with its own service and target language',async()=>{
+ const s=fullFlow(),pdf=s.file('title-flow.pdf'),seen=[];
+ s.prefs.set('extensions.docflow.titleService','deeplx');s.prefs.set('extensions.docflow.titleLanguage','FR');
+ s.setReply(payload=>payload.response_format ? JSON.stringify({itemType:'book',title:'Original title',shortTitle:'Metadata Chinese title',creators:[]}) : payload.messages[1].content.startsWith('[') ? JSON.stringify(JSON.parse(payload.messages[1].content).map(row=>({...row,text:'译文'}))) : 'Summary');
+ s.plugin.translateTitleText=async(text,settings)=>{seen.push(['title',text,settings.service,settings.targetLang]);return 'Titre français';};
+ const summary=s.plugin.runDocumentTask.bind(s.plugin);s.plugin.runDocumentTask=async task=>{seen.push(['summary']);return summary(task);};
+ await s.plugin.handleOrganizeCommand({selectedItems:[pdf]});const task=s.plugin.parseQueue[0],parent=s.items.get(pdf.parentID);
+ assert.equal(task.state,'completed',task.error);assert.deepEqual(seen[0],['title','Original title','deeplx','FR']);assert.equal(seen[1][0],'summary');
+ assert.equal(parent.getField('title'),'Original title');assert.equal(parent.getField('shortTitle'),'Titre français');assert.equal(task.titleTranslation.text,'Titre français');
+ assert.equal(task.organizeStages.title.state,'completed');assert.deepEqual(Array.from(task.steps,row=>row.id),['extract','parent','metadata','title','summary','translate','outline']);
+});
+
+test('a failed title stage preserves data, permits later stages and retries without repeating successful stages',async()=>{
+ const s=fullFlow(),pdf=s.file('retry-title.pdf');let attempts=0;
+ s.plugin.translateTitleText=async()=>{if(++attempts===1)throw Error('Title service unavailable');return 'Recovered title';};
+ await s.plugin.handleOrganizeCommand({selectedItems:[pdf]});const task=s.plugin.parseQueue[0],parent=s.items.get(pdf.parentID);
+ assert.equal(task.state,'failed');assert.equal(parent.getField('shortTitle'),'');assert.equal(task.organizeStages.title.state,'failed');assert.match(task.error,/翻译标题.*Title service unavailable/);
+ assert(task.organizeResults.summary);assert(task.organizeResults.translate);const summary=task.organizeResults.summary,translation=task.organizeResults.translate,calls=s.requests.length;
+ await s.plugin.retryParseQueueTasks([task.id]);assert.equal(task.state,'completed',task.error);assert.equal(attempts,2);assert.equal(parent.getField('shortTitle'),'Recovered title');
+ assert.equal(s.uploads.length,1);assert.equal(s.requests.length,calls);assert.equal(task.organizeResults.summary,summary);assert.equal(task.organizeResults.translate,translation);
+});
+
+test('one-click respects existing short titles and the configured overwrite option',async()=>{
+ for(const overwrite of [false,true]) {
+  const s=fullFlow(),parent=new s.Item('book');parent.setField('title','Original title');parent.setField('shortTitle','Existing short title');
+  const pdf=s.file('existing-title.pdf',parent);s.prefs.set('extensions.docflow.titleOverwrite',overwrite);let calls=0;
+  s.plugin.translateTitleText=async text=>{calls++;assert.equal(text,'Original title');return 'New short title';};
+  await s.plugin.handleOrganizeCommand({selectedItems:[pdf]});const task=s.plugin.parseQueue[0];assert.equal(task.state,'completed',task.error);
+  assert.equal(calls,overwrite?1:0);assert.equal(parent.getField('shortTitle'),overwrite?'New short title':'Existing short title');assert.equal(task.organizeStages.title.state,overwrite?'completed':'skipped');
+ }
 });

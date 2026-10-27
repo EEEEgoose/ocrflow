@@ -38,6 +38,8 @@ async function startup({ id, version, rootURI }) {
 	Services.scriptloader.loadSubScript(rootURI + 'ocr-sources.js');
 	Services.scriptloader.loadSubScript(rootURI + 'translation.js');
 	Services.scriptloader.loadSubScript(rootURI + 'collation.js');
+	Services.scriptloader.loadSubScript(rootURI + 'recognition.js');
+	Services.scriptloader.loadSubScript(rootURI + 'attachment-naming.js');
 	Services.scriptloader.loadSubScript(rootURI + "task-sidebar.js");
 	OCRFlowTaskSidebar.init(DocFlow);
 	DocFlow.sidebar = OCRFlowTaskSidebar;

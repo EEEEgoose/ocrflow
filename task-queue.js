@@ -2,7 +2,7 @@ var ocrflowText = typeof ocrflowText === "function" ? ocrflowText : value => Str
 var DocFlowTaskQueue = {
 	plugin: window.arguments?.[0]?.plugin || null,
 	rows: new Map(),
-	labels: { queued: "排队中", running: "处理中", stopping: "终止中", canceled: "已终止", completed: "已完成", failed: "失败", wait_expired: "等待已结束", waiting: "待补充" },
+	labels: { waiting_dependency:"等待前置条件", queued: "排队中", running: "处理中", stopping: "终止中", canceled: "已终止", completed: "已完成", failed: "失败", wait_expired: "等待已结束", waiting: "待补充" },
 
 	init(plugin = window.arguments[0].plugin) {
 		if (this.initialized) return;
@@ -149,7 +149,7 @@ var DocFlowTaskQueue = {
 				mode.className = "queue-mode"; state.className = "queue-state";
 				detail.className = "queue-detail"; job.className = "queue-job-id"; error.className = "queue-error";
 				retry.type = "button";
-				retry.addEventListener("click", () => this.retry([task.id]));
+				retry.addEventListener("click", () => task.needsRecognition ? this.plugin.recognizeThenOutline(task) : this.retry([task.id]));
 				cancel.type = "button";
 				cancel.addEventListener("click", () => this.cancel(task.id));
 				copy.type = "button";
@@ -173,10 +173,10 @@ var DocFlowTaskQueue = {
 			setText(row.detail, task.detail);
 			setText(row.job, task.jobID ? `任务 ID: ${task.jobID}` : "");
 			setText(row.error, task.error);
-			setText(row.retry, task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : task.state === "canceled" ? "重新处理" : "重试");
+			setText(row.retry, task.needsRecognition ? "识别后继续生成大纲" : task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : task.state === "canceled" ? "重新处理" : "重试");
 			row.retry.disabled = !["failed", "wait_expired", "canceled", "waiting"].includes(task.state);
 			setText(row.cancel, task.cancelFailed ? "重试终止" : ((task.cancelSettings||task.settings).parserService==="marker" && (task.cancelSettings||task.settings).markerSettings?.apiType==="cloud") ? "停止等待" : "终止");
-			row.cancel.disabled = !!task.saving || (!["queued", "running", "wait_expired"].includes(task.state) && !task.cancelFailed);
+			row.cancel.disabled = !!task.saving || (!["queued", "running", "wait_expired", "waiting_dependency"].includes(task.state) && !task.cancelFailed);
 		}
 		setText(document.getElementById("queue-summary"), this.plugin.parseQueue.length
 			? Object.entries(counts).map(([state, count]) => `${ocrflowText(this.labels[state])} ${count}`).join("　") : "暂无任务");

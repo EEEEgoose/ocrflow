@@ -42,7 +42,7 @@ Object.assign(DocFlow, {
 		let files = this.collectSourceFiles(items);
 		if (parserService === "marker") return files.filter(file => this.documentExtension(file) === "pdf");
 		return ["mineru", "ai", "paddle-cloud", "paddle-local"].includes(parserService)
-			? files.filter(file => ["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(file))) : files;
+			? files.filter(file => ["pdf", "png", "jpg", "jpeg", ...(parserService === "mineru" ? ["doc","docx","ppt","pptx","xls","xlsx","html","htm","jp2","webp","gif","bmp"] : [])].includes(this.documentExtension(file))) : files;
 	},
 
 	getOCRMenuDefinitions() {
@@ -85,7 +85,7 @@ Object.assign(DocFlow, {
 		let files = new Map();
 		let add = item => {
 			if (!item?.isAttachment?.() || item.deleted || item.getTags().some(tag => tag.tag.startsWith("#DocFlow-"))) return;
-			if (["pdf", "epub", "docx", "pptx", "xlsx", "html", "htm", "txt", "md", "markdown", "csv", "jpg", "jpeg", "png"].includes(this.documentExtension(item))) files.set(item.id, item);
+			if (["pdf", "epub", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "jp2", "webp", "gif", "bmp", "html", "htm", "txt", "md", "markdown", "csv", "jpg", "jpeg", "png"].includes(this.documentExtension(item))) files.set(item.id, item);
 		};
 		for (let item of items) {
 			if (item.isRegularItem?.()) for (let id of item.getAttachments()) add(Zotero.Items.get(id));
@@ -113,6 +113,7 @@ Object.assign(DocFlow, {
 	},
 
 	collectDocumentTasks(items) {
+		let explicitParents=new Set(items.filter(item=>this.isMarkdownResult(item)).map(item=>item.parentItemID||item.parentID).filter(Boolean));
 		let tasks = new Map();
 		let add = item => {
 			let source = this.findDocumentMarkdown(item);
@@ -122,6 +123,7 @@ Object.assign(DocFlow, {
 			if (!tasks.has(key)) tasks.set(key, { attachment, source, explicitSource: this.isMarkdownResult(item), parentItem: this.parentForDocument(attachment) });
 		};
 		for (let item of items) {
+			if(item.isRegularItem?.() && explicitParents.has(item.id))continue;
 			if (item.isRegularItem?.() || item.isNote?.()) {
 				let parent = this.parentForDocument(item);
 				if (!parent) continue;
@@ -151,7 +153,7 @@ Object.assign(DocFlow, {
 
 	async handleParseCommand({ window = null, selectedItems = null, parserService, apiMode } = {}) {
 		let settings = this.getSettings(apiMode);
-		if (parserService) settings.parserService = parserService;
+		if (parserService) { settings.parserService = parserService; settings.explicitService = true; }
 		let items = selectedItems || window?.ZoteroPane?.getSelectedItems?.() || [];
 		let tasks = this.getOCRSourceFiles(items, parserService).map(attachment => ({ attachment, parentItem: this.parentForDocument(attachment) }));
 		if (!tasks.length) throw new Error("请选择需要识别文档的原始文件。");
@@ -190,7 +192,7 @@ Object.assign(DocFlow, {
 
 	getOrganizeSettings(apiMode) {
 		return { ...this.getSettings(apiMode), metadataSettings: this.getLLMSettings("metadata"),
-			outlineSettings:this.getLLMSettings("outline"), summarySettings:this.getLLMSettings("summary"), translationSettings:this.getLLMSettings("translate") };
+			outlineSettings:this.getLLMSettings("outline"), summarySettings:this.getLLMSettings("summary"), translationSettings:this.getLLMSettings("translate"), titleSettings:this.getTitleTranslationSettings() };
 	},
 
 	async handleOrganizeCommand({ window = null, selectedItems = null } = {}) {
@@ -276,6 +278,8 @@ Object.assign(DocFlow, {
 			let parent = this.parentForDocument(attachment);
 			let current = parent ? await this.readDocumentMetadata(parent) : {};
 			let metadata = await this.extractDocumentMetadata(task, text, current, settings);
+			// The following title stage owns shortTitle and its separately configured target language.
+			delete metadata.shortTitle;
 			signal.throwIfAborted();
 			task.saving = true;
 			// Zotero or another plugin may have supplied a parent during extraction.
@@ -297,6 +301,7 @@ Object.assign(DocFlow, {
 		}
 		if (!hadParent) this.setTaskStep?.(task,"parent","建立条目","父条目已建立","completed");
 		this.setTaskStep?.(task,"metadata","补全条目","缺失条目信息已补全","completed");
+		if (!task.renameCompleted) { await this.renameDocumentAttachments(this.parentForDocument(attachment)); task.renameCompleted = true; }
 		await this.runOrganizeReadingStages(task);
 	},
 
@@ -304,8 +309,9 @@ Object.assign(DocFlow, {
 		let source = task.source, stages = task.organizeStages ||= {}, signal = task.controller.signal;
 		let parent = this.parentForDocument(source) || this.parentForDocument(task.attachment);
 		if (!parent) throw new Error("建立条目未完成，无法继续全流程。");
-		for (let [kind,label,settings] of [["outline","生成大纲",task.settings.outlineSettings],["summary","总结文献",task.settings.summarySettings],["translate","翻译文献",task.settings.translationSettings]]) {
+		for (let [kind,label,settings] of [["title","翻译标题",task.settings.titleSettings],["summary","总结文献",task.settings.summarySettings],["translate","翻译文献",task.settings.translationSettings],["outline","生成大纲",task.settings.outlineSettings]]) {
 			signal.throwIfAborted(); task.saving = false; task.progress = null;
+			let completedDetail="已完成";
 			if (["completed","skipped"].includes(stages[kind]?.state)) { this.setTaskStep?.(task,kind,label,stages[kind].detail,stages[kind].state); continue; }
 			this.setTaskStep?.(task,kind,label,"准备执行");
 			task.displaySettings=settings;task.cancelSettings=settings;task.cancelJobID=null;task.jobID=null;
@@ -319,7 +325,12 @@ Object.assign(DocFlow, {
 					let child = stages[kind]?.task || {kind,attachment:task.attachment,source,explicitSource:true,mineruSource:source,parentItem:parent,parentTask:task,organizeStage:kind};
 					stages[kind] = {state:"running",task:child}; child.settings={...settings};child.controller=task.controller;
 					for (let name of ["detail","progress","saving"]) Object.defineProperty(child,name,{configurable:true,get:()=>task[name],set:value=>{task[name]=value;}});
-					if (kind === "summary") await this.runDocumentTask(child);
+					if (kind === "title") {
+						child.attachment=parent;
+						completedDetail=await this.runTitleTranslation(child);
+						if (!child.titleTranslation) { stages[kind]={state:"skipped",detail:completedDetail};this.setTaskStep?.(task,kind,label,completedDetail,"skipped");continue; }
+						task.titleTranslation=child.titleTranslation;
+					} else if (kind === "summary") await this.runDocumentTask(child);
 					else {
 						child.partial=false;if(child.translation)child.translation.partial=false;
 						child.settings.translateRequestParams=this.parseOptionalJSONObject(child.settings.translateRequestJSON,"翻译请求参数");await this.runTranslationTask(child);
@@ -327,20 +338,59 @@ Object.assign(DocFlow, {
 					if (child.resultAttachment) (task.organizeResults ||= {})[kind]=child.resultAttachment;
 					if (child.partial) { stages[kind]={state:"failed",task:child,detail:"已保存部分译文，仍有未完成段落"};this.setTaskStep?.(task,kind,label,stages[kind].detail,"failed");continue; }
 				}
-				signal.throwIfAborted(); stages[kind]={state:"completed",detail:"已完成"};this.setTaskStep?.(task,kind,label,"已完成","completed");
+				signal.throwIfAborted(); stages[kind]={state:"completed",detail:completedDetail};this.setTaskStep?.(task,kind,label,completedDetail,"completed");
 			} catch (error) {
 				signal.throwIfAborted(); stages[kind]={...stages[kind],state:"failed",detail:error.message};this.setTaskStep?.(task,kind,label,error.message,"failed");
 			} finally { task.saving=false; }
 		}
 		let failed=Object.entries(stages).filter(([,stage])=>stage.state==="failed");
 		task.state=failed.length ? "failed" : "completed";
-		task.error=failed.map(([kind,stage])=>`${({outline:"生成大纲",summary:"总结文献",translate:"翻译文献"})[kind]}：${stage.detail}`).join("；");
+		task.error=failed.map(([kind,stage])=>`${({title:"翻译标题",outline:"生成大纲",summary:"总结文献",translate:"翻译文献"})[kind]}：${stage.detail}`).join("；");
 		task.detail=failed.length ? "全流程已执行，部分步骤失败；重试只处理未完成步骤" : ["全流程整理完成",task.parseWarning].filter(Boolean).join("；");
+	},
+
+	async recognizeThenOutline(task) {
+		task.state="waiting_dependency";task.needsRecognition=false;
+		let settings=this.getSettings(),existing=this.parseQueue.find(row=>row.kind==="parse"&&row.attachment.id===task.attachment.id&&["queued","running"].includes(row.state)),id=existing?.id||this.parseQueueNextID;
+		task.requiredParseID=id;
+		if(existing){this.refreshParseQueueDialog();return;}
+		await this.enqueueDocumentTasks("parse",[{attachment:task.attachment}],settings);
+		let prerequisite=this.parseQueue.find(row=>row.kind==="parse"&&row.attachment.id===task.attachment.id&&row.id>=id)||this.parseQueue.find(row=>row.kind==="parse"&&row.attachment.id===task.attachment.id&&["queued","running"].includes(row.state));
+		if(prerequisite)task.requiredParseID=prerequisite.id;
+		this.dispatchParseQueue();
+	},
+
+	hasPendingRecognition(attachment) {
+		let parent=this.parentForDocument(attachment), id=parent?.id||attachment.id;
+		return this.parseQueue.some(task=>["parse","organize"].includes(task.kind)&&["queued","running","waiting","wait_expired","waiting_dependency"].includes(task.state)&&
+			(this.parentForDocument(task.attachment)?.id||task.attachment.id)===id);
+	},
+
+	resolveTaskPrerequisites(task) {
+		if(task.kind === "outline" && task.requiredParseID) {
+			let prerequisite=this.parseQueue.find(row=>row.id===task.requiredParseID);
+			if(prerequisite?.state!=="completed") {task.state="waiting_dependency";task.detail="等待前置识别完成";return false;}
+			delete task.requiredParseID;task.state="queued";task.force=true;task.needsRecognition=false;
+		}
+		if (!["summary","metadata","translate"].includes(task.kind)) return true;
+		let attachment=Zotero.Items?.get?.(task.attachment.id)||task.attachment;
+		let source=task.explicitSource ? task.source : this.findDocumentMarkdown(attachment);
+		source ||= !task.source ? task.mineruSource : null;
+		let parent=this.parentForDocument(attachment)||this.parentForDocument(source)||task.parentItem;
+		if (!source || !parent) {
+			task.waitingForSource ||= this.hasPendingRecognition(attachment);
+			if(!task.waitingForSource)return true;
+			task.state="waiting_dependency";task.detail=!source ? "等待前置识别完成；识别失败后请重试识别任务" : "等待建立条目完成";
+			return false;
+		}
+		task.source=source;task.mineruSource=source;task.parentItem=parent;
+		if(task.state==="waiting_dependency")task.state="queued";
+		return true;
 	},
 
 	async enqueueDocumentTasks(kind, tasks, settings) {
 		for (let task of tasks) {
-			if (this.parseQueue.some(row => row.kind === kind && row.attachment.id === task.attachment.id && ["queued", "running", "stopping"].includes(row.state))) continue;
+			if (this.parseQueue.some(row => row.kind === kind && row.attachment.id === task.attachment.id && ["queued", "running", "stopping", "waiting_dependency"].includes(row.state) && JSON.stringify(row.settings) === JSON.stringify(kind === "parse" ? this.recognitionSettingsFor(task.attachment, settings) : settings) && (!task.explicitSource || row.source?.id === task.source?.id))) continue;
 			this.parseQueue.push({ ...task, kind, settings: { ...(kind === "parse" ? this.recognitionSettingsFor(task.attachment, settings) : settings) }, id: this.parseQueueNextID++, state: "queued",
 				title: task.title || task.attachment.getField("title") || task.attachment.attachmentFilename,
 				detail: "等待处理", error: "", jobID: null, parsedResult: null });
@@ -451,6 +501,7 @@ Object.assign(DocFlow, {
 		let text = this.removeLocalImageReferences(markdown);
 		if (!text.trim()) throw new Error("Markdown 内容为空。");
 		if (task.kind === "metadata") {
+			if (task.metadataCompleted) { await this.renameDocumentAttachments(parent); task.resultAttachment=parent; return; }
 			let current = await this.readDocumentMetadata(parent);
 			let metadata = await this.extractDocumentMetadata(task, text, current, settings);
 			signal.throwIfAborted();
@@ -459,6 +510,8 @@ Object.assign(DocFlow, {
 				this.applyMetadata(parent, metadata);
 				await parent.save({ notifierData: { skipRenameFile: true } });
 			});
+			task.metadataCompleted=true;
+			await this.renameDocumentAttachments(parent);
 			task.resultAttachment = parent;
 		} else {
 			let summary = await this.summarizeDocument(text, settings, signal, detail => {
@@ -727,16 +780,52 @@ Object.assign(DocFlow, {
 		finally { signal?.removeEventListener("abort",abort); }
 	},
 
-	recognitionSettingsFor(attachment, settings) {
-		let ext = this.documentExtension(attachment);
-		return settings.parserService !== "marker" && ext && !["pdf", "png", "jpg", "jpeg", "txt", "md", "markdown", "csv"].includes(ext)
-			? { ...settings, parserService: "markitdown" } : settings;
+	recognitionSupports(service, ext) {
+		if(["txt","md","markdown","csv"].includes(ext))return true;
+		if(service==="mineru")return ["pdf","png","jpg","jpeg","jp2","webp","gif","bmp","doc","docx","ppt","pptx","xls","xlsx","html","htm"].includes(ext);
+		if(service==="marker")return ext==="pdf";
+		if(service==="ai"||service?.startsWith("paddle-"))return ["pdf","png","jpg","jpeg"].includes(ext);
+		return service==="markitdown";
 	},
+
+	recognitionSettingsFor(attachment, settings) {
+		if (settings.recognitionResolved) return settings;
+		let ext = this.documentExtension(attachment), category = ["html","htm"].includes(ext) ? "html" :
+			["doc","docx","ppt","pptx","xls","xlsx"].includes(ext) ? "office" :
+			["png","jpg","jpeg","jp2","webp","gif","bmp"].includes(ext) ? "image" : ext === "pdf" || !ext ? "pdf" : "other";
+		let choice = settings.explicitService ? settings.parserService : category === "pdf" ? settings.parserService : settings.defaultServices?.[category];
+		choice ||= category === "image" || category === "pdf" ? settings.parserService || "mineru" : "markitdown";
+		if (ext === "epub") choice = "markitdown";
+		let result = {...settings, recognitionResolved:true};
+		if (["mineru-cloud","mineru-local"].includes(choice)) {
+			Object.assign(result, settings.mineruProfiles?.[choice] || this.getSettings(choice === "mineru-local" ? "local-v1" : "cloud", false));
+			result.parserService = "mineru";
+		} else result.parserService = choice === "paddle" ? "paddle-" + (settings.paddleMode || "cloud") : choice;
+		result.defaultServices = settings.defaultServices;
+		if(ext && !this.recognitionSupports(result.parserService,ext))throw Error("所选识别服务不支持此文件格式："+ext+"；请选择其他服务。");
+		if (category === "html" && result.parserService === "mineru" && result.apiMode !== "local-v1") result.modelVersion = "MinerU-HTML";
+		if (category !== "pdf" && category !== "image" && result.parserService === "mineru" && result.apiMode === "local-v1") result.modelVersion = "flash";
+		return result;
+	},
+
 
 	async parseAttachmentWithMineru(attachment, settings, options = {}) {
 		let ext = this.documentExtension(attachment);
+		settings=this.recognitionSettingsFor(attachment,settings);
 		let image = ["png", "jpg", "jpeg"].includes(ext);
 		if (settings.parserService === "marker") return this.parseWithMarker(attachment, settings, options);
+		if (settings.parserService === "mineru" && !["pdf","txt","md","markdown","csv"].includes(ext)) {
+			if (settings.apiMode !== "local-v1" && !settings.apiToken) throw Error("请先填写 MinerU 官方 API Token。");
+			let path = await attachment.getFilePath(), bytes = await IOUtils.read(path);
+			if(["html","htm"].includes(ext)) {
+				let inline=await this.inlineStoredImagesInMarkdownAttachment({markdownText:new TextDecoder().decode(bytes),markdownPath:path,signal:options.signal});
+				let html=inline.markdownText;
+				for(let image of inline.embeddedImages)html=html.split(image.marker).join("data:"+image.mimeType+";base64,"+this.bytesToBase64(image.bytes));
+				bytes=new TextEncoder().encode(html);
+			}
+			return settings.apiMode === "local-v1" ? this.parseAttachmentWithLocalV1(bytes,this.fileNameFromPath(path),settings,options) :
+				this.parseAttachmentWithCloud(bytes,this.fileNameFromPath(path).replace(/\.htm$/i,".html"),attachment.id,{...settings,recognitionLanguage:this.cloudRecognitionLanguage(attachment,settings.cloudLanguage)},options);
+		}
 		if (ext !== "pdf" && !image) settings.outputFormat = "md";
 		if (["txt", "md", "markdown", "csv"].includes(ext)) {
 			let bytes = await IOUtils.read(await attachment.getFilePath());

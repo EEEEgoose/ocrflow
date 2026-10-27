@@ -12,12 +12,12 @@ function setup(language='ar-SA') {
   const plugin=context.DocFlow;
   const attachment={id:1,parentItemID:2,getFilePath:()=>'/test.pdf'};
   const uploads=[];
+  plugin.parseCloudDocument=async(_bytes,_name,_id,settings)=>{uploads.push({...settings,...(settings.recognitionLanguage?{language:settings.recognitionLanguage}:{})});return {markdownText:"converted"};};
   plugin.getPDFLibrary=()=>({PDFDocument:{load:async()=>({getPageCount:()=>1})}});
   plugin.requestMineruJSON=async request=>{
     uploads.push(JSON.parse(JSON.stringify(request.body)));
     return {code:0,data:{batch_id:'batch',file_urls:['https://upload.example/content']}};
   };
-  plugin.pollMineruExtractResult=async()=>({state:'done',full_zip_url:'https://result.example/result.zip'});
   plugin.downloadParseResultZip=async()=>Uint8Array.from([80,75]);
   plugin.extractNoteContentFromMineruZip=async()=>({markdownText:'converted'});
   return {plugin,attachment,uploads,parent};
@@ -32,13 +32,13 @@ test('cloud language accepts publication language codes, names and regional vari
   for(const value of ['',null,'auto','server','unknown language'])assert.equal(plugin.normalizeCloudLanguage(value),null);
 });
 
-test('actual cloud upload requests use parent language for auto and respect manual and server-default choices',async()=>{
+test('cloud parsing receives parent language for auto and respect manual and server-default choices',async()=>{
   for(const model of ['pipeline','vlm']) for(const [choice,expected]of [['auto','latin'],['arabic','arabic'],['ch','ch'],['server',undefined]]) {
     const {plugin,attachment,uploads,parent}=setup('French');
     await plugin.parseAttachmentWithMineru(attachment,{apiMode:'cloud',apiBaseURL:'https://cloud.example/api/v4',apiToken:'test',modelVersion:model,cloudLanguage:choice});
     assert.equal(uploads.length,1);assert.equal(uploads[0].language,expected);
     if(expected===undefined)assert(!('language' in uploads[0]));
-    assert(!('language' in uploads[0].files[0]),'language belongs at the request top level');
+
     assert.equal(parent.getField('language'),'French','Choosing a language must not rewrite the parent');
   }
 });

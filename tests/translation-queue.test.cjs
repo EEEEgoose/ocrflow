@@ -16,6 +16,7 @@ function setup(texts=['A\n\nB']){
     }};
   vm.createContext(context);for(const file of ['prompts.js','docflow.js','workflow.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
   const plugin=context.DocFlow;
+  plugin.findDocumentMarkdown=source=>source;
   plugin.getLLMSettings=()=>({...settings});
   plugin.collectTranslateTasks=items=>items.map(source=>({mineruSource:source,parentItem:{id:source.id,libraryID:1,getField:()=>`Book ${source.id}`}}));
   plugin.readSourceMarkdown=async source=>{reads.push(source.id);return {filePath:`/doc-${source.id}.md`,markdown:source.text};};

@@ -100,7 +100,7 @@ var OCRFlowDocument = {
 	fromMarkdown(markdown, engine, split) {
 		let doc = this.create(engine), page = null;
 		for (let text of split(markdown)) {
-			text = text.replace(/^<!--\s*第\s*(\d+)\s*页\s*-->/, (_m, value) => { page = Number(value); return ""; }).trim();
+			text = text.replace(/^<!--(?:ocrflow-page:|\s*第\s*)(\d+)(?:\s*页\s*)?[^>]*-->/, (_m, value) => { page = Number(value); return ""; }).trim();
 			if (!text) continue;
 			let notes = [];
 			if (!/^(?:```|~~~)/.test(text)) text = text.replace(/^\[\^([^\]]+)\]:\s*(.*(?:\n(?: {4}|\t).*)*)/gm, (raw, label, body) => { notes.push({ raw, label, body }); return ""; }).trim();
@@ -180,17 +180,20 @@ var OCRFlowDocument = {
 		return block.text;
 	},
 	render(doc) {
-		let body = [], notes = [], page = null;
+		let body = [], notes = [], page = 0;
+		let mark = number => { let printed=doc.pages.find(p=>p.page===number)?.printed;body.push(`<!--ocrflow-page:${number}${printed ? " printed:"+printed : ""}-->`);page=number; };
 		for (let block of this.visible(doc)) {
 			if (block.type === "footnote") { notes.push(this.blockMarkdown(block)); continue; }
-			if (block.fragments[0]?.page && block.fragments[0].page !== page) {
-				page = block.fragments[0].page;
-				let printed = doc.pages.find(p => p.page === page)?.printed;
-				body.push(`<!--ocrflow-page:${page}${printed ? " printed:" + printed : ""}-->`);
-			}
+			let start=block.fragments[0]?.page;
+			for(let source of doc.pages.filter(p=>p.page>page&&p.page<=start))mark(source.page);
+			if(start && start>page)mark(start);
 			body.push(this.blockMarkdown(block));
+			page=Math.max(page,...block.fragments.map(f=>f.page||0));
 		}
-		return [...body, ...notes].join("\n\n");
+		for(let source of doc.pages.filter(p=>p.page>page))mark(source.page);
+		let text=[...body, ...notes].join("\n\n");
+		if(doc.pageUnit)text=text.replace(/<!--ocrflow-page:(\d+)([^>]*?)-->/g,(_m,n,suffix)=>doc.pageUnit==="slide"?`<!--ocrflow-slide:${n}${suffix}-->`:"");
+		return text;
 	},
 
 	// A bounded diff keeps the unchanged prefix/suffix as context; nothing is stripped.
@@ -226,6 +229,18 @@ var OCRFlowDocument = {
 };
 
 Object.assign(DocFlow, {
+	stripPageDisplay(markdown) {
+		return String(markdown||"").replace(/(<!--ocrflow-(?:page|slide):(\d+)[^>]*-->)\s*\n---\s*\n(?:PDF 第 \2 页|幻灯片第 \2 张)\s*\n/g,"$1\n");
+	},
+
+	pageDisplayMarkdown(markdown) {
+		let seen=new Set();
+		return this.stripPageDisplay(markdown).replace(/<!--ocrflow-(page|slide):(\d+)([^>]*?)-->/g,(marker,kind,page)=>{
+			if(seen.has(page))return "";seen.add(page);
+			return marker+"\n\n---\n"+(kind==="slide"?"幻灯片第 "+page+" 张":"PDF 第 "+page+" 页")+"\n\n";
+		});
+	},
+
 	normalizeResultImages(result) {
 		let images = result.embeddedImages || [];
 		let normalize = value => { try { return decodeURIComponent(value).replace(/\\/g, "/").replace(/^(?:\.\/|\/)+/, ""); } catch (_) { return value; } };
@@ -287,7 +302,7 @@ Object.assign(DocFlow, {
 		let literals = [];
 		let source = markdown.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`/g, value => { literals.push(value); return `OCRFLOWLITERAL${literals.length - 1}END`; });
 		let notes = [];
-		source = source.replace(/<!--ocrflow-page:[\s\S]*?-->/g, "").replace(/^\[\^([^\]]+)\]:\s*(.*(?:\n(?: {4}|\t).*)*)/gm, (_match, id, text) => { notes.push({ id, text }); return ""; });
+		source = source.replace(/<!--ocrflow-(?:page|slide):[\s\S]*?-->/g, "").replace(/^\[\^([^\]]+)\]:\s*(.*(?:\n(?: {4}|\t).*)*)/gm, (_match, id, text) => { notes.push({ id, text }); return ""; });
 		let restore = value => value.replace(/OCRFLOWLITERAL(\d+)END/g, (_m, index) => literals[Number(index)]);
 		source = restore(source);
 		let token = id => encodeURIComponent(id).replace(/%/g, "_");

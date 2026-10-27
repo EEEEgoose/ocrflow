@@ -161,7 +161,7 @@ var DocFlowOutline = {
 	},
 
 	locatePages(outline, pages, headings) {
-		let normalize = value => String(value || "").replace(/\s+/g, "").toLowerCase();
+		let normalize = value => String(value || "").normalize("NFKC").replace(/[\u064B-\u065F\u0670\u0640]/g, "").replace(/[٠-٩۰-۹]/g,c=>String(c.charCodeAt(0)-(c>="۰"?0x6f0:0x660))).replace(/\s+/g, "").toLowerCase();
 		let contents = new Set();
 		pages.forEach((text, i) => { if (/^\s*(?:目\s*录|目\s*次|contents)\s*$/im.test(text)) contents.add(i); });
 		let cursor = 0;
@@ -171,7 +171,6 @@ var DocFlowOutline = {
 			let suggested = Number(entry.page) - 1;
 			let suggestedMatches = suggested >= cursor && suggested < pages.length && !contents.has(suggested) && normalize(pages[suggested]).includes(key);
 			let index = heading ? heading.page - 1 : suggestedMatches ? suggested : pages.findIndex((text, i) => i >= cursor && !contents.has(i) && normalize(text).includes(key));
-			if (index < 0 && Number.isInteger(suggested) && suggested >= cursor && suggested < pages.length && !contents.has(suggested)) index = suggested;
 			entry.page = index >= 0 ? index + 1 : null;
 			if (index >= 0) cursor = index;
 		}
@@ -218,6 +217,8 @@ var DocFlowOutline = {
 
 	async generate(attachment, { settings, force = false, onStatus = () => {}, onReady = () => {}, signal } = {}) {
 		let data = await this.load(attachment);
+		// Do not replace a valid cached outline on a failed generation.
+		data={...data,pages:[...data.pages],headings:[...data.headings]};
 		signal?.throwIfAborted();
 		if (!force && data.outline.length) { onStatus("已读取缓存大纲"); onReady(data); await this.save(attachment, data); return data.outline; }
 		let reader = (Zotero.Reader._readers || []).find(r => r._item?.id === attachment.id);
@@ -248,17 +249,28 @@ var DocFlowOutline = {
 					let result = await Zotero.PDFWorker.getFullText(attachment.id, null);
 					let pages = (result.text || "").split("\f");
 					if (result.totalPages && pages.length !== result.totalPages) {
-						throw new Error("PDF 全文页码不能准确对应，请打开 PDF 后生成大纲，或先使用 MinerU 解析。");
+						pages=[];
+						for(let i=0;i<result.totalPages;i++) {
+							signal?.throwIfAborted();onStatus(`后台读取 PDF 第 ${i+1}/${result.totalPages} 页`);
+							let page=await Zotero.PDFWorker.getFullText(attachment.id,[i]);
+							if(page.extractedPages!==1)throw Object.assign(Error("无法获取可靠逐页文字，请识别后继续生成大纲。"),{name:"OutlineNeedsRecognition"});
+							pages.push(page.text||"");
+						}
 					}
 					data.pages = pages;
 				}
 			}
 			settings = settings || this.owner.getLLMSettings("outline");
 			let chunks = this.pageChunks(data.pages, settings);
-			if (!chunks.length) throw new Error("没有可定位页码的文字。扫描 PDF 请重新使用 MinerU 解析后生成大纲。");
+			if (!chunks.length) throw Object.assign(new Error("没有可定位页码的文字，请识别后继续生成大纲。"),{name:"OutlineNeedsRecognition"});
 			if (!settings.apiBaseURL || !settings.model) throw new Error("请在 MinerU 设置中填写 LLM API 地址和模型，用于生成大纲与章节摘要。");
 			let prompt = OCRFlowPrompts.get("outline", settings.workPrompt);
+			data.chunkResults ||= {};
 			for (let [index, chunk] of chunks.entries()) {
+				if(!force && data.chunkResults[index]?.source===chunk){outline.push(...data.chunkResults[index].outline);continue;}
+				let lastError;
+				for(let attempt=0;attempt<2;attempt++) {
+				try {
 				signal?.throwIfAborted();
 				onStatus(`生成大纲：第 ${index + 1}/${chunks.length} 块`);
 				let payload = this.owner.mergeRequestPayload({model: settings.model, messages: [{role: "system", content: prompt}, {role: "user", content: chunk}]},
@@ -273,12 +285,18 @@ var DocFlowOutline = {
 					return response.json();
 				});
 				if (result.choices?.[0]?.finish_reason === "length") throw this.owner.aiOutputLimitError(payload, result);
-				outline.push(...this.parseAIOutline(result.choices?.[0]?.message?.content || ""));
+				let entries=this.parseAIOutline(result.choices?.[0]?.message?.content||"");
+				if(!entries.length)throw Error("LLM 未返回有效章节目录。");
+				data.chunkResults[index]={source:chunk,outline:entries};outline.push(...entries);
+				await this.save(attachment,data);lastError=null;break;
+				}catch(error){signal?.throwIfAborted();lastError=error;}
+				}
+				if(lastError && !data.headings.length)throw lastError;
 			}
 			this.locatePages(outline, data.pages, data.headings);
 			let seen = new Set();
 			outline = outline.filter(entry => { let key = `${entry.page}:${entry.title}`; if (seen.has(key)) return false; seen.add(key); return true; });
-			if (!outline.length) throw new Error("LLM 未返回有效章节目录。");
+			if (!outline.length) {outline=data.headings.map(h=>({...h}));if(!outline.length)throw new Error("LLM 未返回有效章节目录。");onStatus("使用识别标题生成基础大纲");}
 		}
 		signal?.throwIfAborted();
 		data.outline = outline;

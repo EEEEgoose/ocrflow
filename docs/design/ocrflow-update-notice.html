@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OCRFlow · 更新提示草图</title>
+<style>
+:root{color-scheme:light;--canvas:#eeedf0;--panel:#fafafa;--text:#27272c;--muted:#77777e;--line:#dedee3;--field:#f0f0f4;--blue:#2e64b5;--note:#fff6d5;--note-line:#e4c66c;--note-text:#57451e;--note-muted:#7b683d;--button:#fffaf0;--button-hover:#f7e8b8;--chip:#f5e7b3}
+html[data-theme=dark]{color-scheme:dark;--canvas:#1c1c1f;--panel:#28282b;--text:#ebebee;--muted:#aaaaaf;--line:#434348;--field:#333337;--blue:#9ebdf0;--note:#3d3521;--note-line:#8a7032;--note-text:#f5e2ab;--note-muted:#d0b980;--button:#4b4028;--button-hover:#5e4e2d;--chip:#55472a}
+*{box-sizing:border-box}body{margin:0;padding:30px 20px 42px;background:var(--canvas);color:var(--text);font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}
+button{font:inherit;cursor:pointer;transition:background .15s,transform .1s}button:active{transform:translateY(1px)}button:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+.preview{max-width:460px;margin:auto}.preview-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.preview-label{font-size:12px;color:var(--muted)}.preview-tools div{display:flex;gap:6px}.preview-tools button{padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);font-size:12px}
+.window{border:1px solid var(--line);border-radius:11px;background:var(--panel);overflow:hidden;box-shadow:0 7px 26px #00000008}.panel-header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding:14px 18px}.brand{font-size:17px;letter-spacing:-.4px;font-weight:650}.collapse{border:1px solid var(--line);border-radius:5px;background:var(--panel);padding:4px 10px;color:var(--text)}.content{padding:18px}
+.update{background:var(--note);border:1px solid var(--note-line);border-radius:8px;padding:15px 15px 12px;margin-bottom:24px;color:var(--note-text)}.update-heading{display:flex;align-items:center;gap:8px;margin-bottom:11px}.update-icon{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}.update-title{font-size:13px;font-weight:650;flex:1}.version{font-size:11px;line-height:21px;padding:0 7px;border-radius:4px;background:var(--chip);font-variant-numeric:tabular-nums;color:var(--note-text)}
+.updates{list-style:none;margin:0;padding:0;display:grid;gap:8px}.updates li{position:relative;padding-left:12px;color:var(--note-muted);font-size:12px;line-height:1.65;overflow-wrap:anywhere}.updates li:before{content:"";position:absolute;left:1px;top:.68em;width:3px;height:3px;border-radius:50%;background:var(--note-muted)}.updates strong{color:var(--note-text);font-weight:550}.update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;padding-top:11px;border-top:1px solid color-mix(in srgb,var(--note-line) 52%,transparent)}.update-actions button{border:1px solid var(--note-line);border-radius:5px;background:var(--button);color:var(--note-text);padding:4px 11px;min-height:29px;font-size:12px}.update-actions button:hover{background:var(--button-hover)}
+.caption{color:var(--muted);font-size:11px;margin:0 0 7px}.document-title{font-size:15px;line-height:1.55;font-weight:600;margin:0 0 7px}.muted{color:var(--muted);margin:0;font-size:12px}.file{display:flex;gap:14px;align-items:center;justify-content:space-between;background:var(--field);border-radius:6px;padding:11px 12px;margin:15px 0 10px}.file span{overflow-wrap:anywhere;font-size:12px}.text-button{border:0;padding:0;background:transparent;color:var(--blue);white-space:nowrap}.source{display:flex;gap:12px;align-items:center;font-size:12px;margin-bottom:24px}.section-title{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:11px;margin:0 0 11px}.primary{width:100%;border:0;background:var(--blue);color:#fff;padding:11px 13px;border-radius:6px;text-align:left;font-weight:550}.primary small{display:block;font-weight:400;font-size:11px;opacity:.85;margin-top:3px}html[data-theme=dark] .primary{color:#172943}.secondary-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}.secondary-actions button{border:1px solid var(--line);border-radius:5px;background:transparent;color:var(--text);padding:8px;text-align:left;font-size:12px}.preview-footer{font-size:11px;color:var(--muted);margin:13px 0 0;min-height:18px}.window button:disabled{cursor:default}.preview-note{padding-top:14px;margin-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}.preview-note b{font-weight:500;color:var(--text)}
+@media(max-width:390px){body{padding:14px 10px 25px}.content{padding:14px}.update{padding:12px}.updates{gap:7px}}
+@media(prefers-reduced-motion:reduce){button{transition:none}}
+</style>
+</head>
+<body>
+<main class="preview">
+<div class="preview-tools"><span class="preview-label">OCRFlow · 更新提示草图</span><div><button id="theme" type="button">暗色预览</button><button id="reset" type="button">恢复提示</button></div></div>
+<section class="window" aria-label="OCRFlow 右侧栏设计预览">
+<header class="panel-header"><span class="brand">OCRFlow</span><button class="collapse" type="button" disabled>收起</button></header>
+<div class="content">
+<aside class="update" id="update" aria-label="本次更新">
+<div class="update-heading"><svg class="update-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.6 8a6.7 6.7 0 0 0-11-3.1L3 7.5m0-4v4h4M3.4 12a6.7 6.7 0 0 0 11 3.1l2.6-2.6m0 4v-4h-4"/></svg><span class="update-title">本次更新</span><span class="version">v1.5.6</span></div>
+<ul class="updates">
+<li><strong>识别服务</strong>：按 PDF、Office、HTML、图片分别设置</li>
+<li><strong>批量识别</strong>：长文档自动切片，最多 5 份并行</li>
+<li><strong>任务流程</strong>：优化页码、大纲与操作排队</li>
+<li><strong>配置备份</strong>：支持本机命名与保留数量管理</li>
+</ul>
+<div class="update-actions"><button id="close" type="button" title="关闭当前版本的提示，重启后仍有效">关闭</button><button id="mute" type="button" title="不再提醒 1.x.x 更新；升级到 2.0.0 时仍提醒">不再提醒</button></div>
+</aside>
+<p class="caption">当前选中文献</p>
+<h1 class="document-title">殖民地社会的制度与变迁</h1>
+<p class="muted">已有父条目</p>
+<div class="file"><span>Smith等_2024_殖民地社会的制度与变迁.pdf</span><span class="text-button">打开</span></div>
+<div class="source"><span class="muted">✓ 已有全文</span><span class="text-button">查看全文</span></div>
+<div class="section-title"><span>文献操作</span><span class="text-button">服务与模型设置</span></div>
+<button class="primary" type="button" disabled>一键整理<small>识别、建条、补全、总结、翻译、大纲</small></button>
+<div class="secondary-actions"><button type="button" disabled>识别文档</button><button type="button" disabled>补全条目</button><button type="button" disabled>总结文献</button><button type="button" disabled>翻译文献</button></div>
+</div>
+</section>
+<p class="preview-footer" id="status" role="status">交互草图 · 可切换明暗主题，体验关闭提示。</p>
+<div class="preview-note"><b>设计重点</b>：整块淡黄底色与细描边；更新内容集中在框内，与下方文献操作明确分开。</div>
+</main>
+<script>
+const notice=document.getElementById('update'),status=document.getElementById('status');
+document.getElementById('close').addEventListener('click',()=>{notice.hidden=true;status.textContent='预览：当前版本提示已关闭。';});
+document.getElementById('mute').addEventListener('click',()=>{notice.hidden=true;status.textContent='预览：1.x.x 更新不再提醒，2.0.0 仍会提醒。';});
+document.getElementById('reset').addEventListener('click',()=>{notice.hidden=false;status.textContent='交互草图 · 可切换明暗主题，体验关闭提示。';});
+document.getElementById('theme').addEventListener('click',event=>{const dark=document.documentElement.dataset.theme!=='dark';document.documentElement.dataset.theme=dark?'dark':'light';event.currentTarget.textContent=dark?'亮色预览':'暗色预览';});
+</script>
+</body>
+</html>

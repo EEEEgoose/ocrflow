@@ -67,3 +67,9 @@ pref("extensions.docflow.deeplPlan", "free");
 pref("extensions.docflow.deeplApiKey", "");
 pref("extensions.docflow.deeplxEndpoint", "http://127.0.0.1:1188/translate");
 pref("extensions.docflow.deeplxToken", "");
+
+pref("extensions.docflow.defaultService.office", "markitdown");
+pref("extensions.docflow.defaultService.html", "markitdown");
+pref("extensions.docflow.defaultService.image", "");
+pref("extensions.docflow.cloud.enableFormula", true);
+pref("extensions.docflow.cloud.enableTable", true);

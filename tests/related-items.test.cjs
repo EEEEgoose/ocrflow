@@ -7,7 +7,7 @@ const snapshot = new Map(db); active=true;
 try {await fn();} catch(e) {db.clear(); for(const [k,v] of snapshot) db.set(k,v); throw e;} finally {active=false;}
 }}}};
 vm.createContext(ctx);
-for(const f of ['prompts.js','docflow.js','preferences.js']) vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
+for(const f of ['prompts.js','docflow.js','attachment-naming.js','preferences.js']) vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
 const m=ctx.DocFlow,p=ctx.DocFlowPreferences;
 p.syncParseOptions=()=>{}; // This fixture only supplies the related-item checkbox.
 p.loadLLMProviders=()=>{};p.saveLLMProvider=()=>{};

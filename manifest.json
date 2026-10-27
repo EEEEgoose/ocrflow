@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "OCRFlow",
-  "version": "1.5.2",
+  "version": "1.5.6",
   "description": "Manual document workflows: parent items, OCR, Markdown, metadata and academic summaries",
   "author": "Egooose",
   "homepage_url": "https://github.com/EEEEgoose/ocrflow#readme",
