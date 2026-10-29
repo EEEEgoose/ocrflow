@@ -34,9 +34,9 @@ OCRFlowDatalab.install=function(owner){Object.assign(owner,{
   try {
    if(jobID){job=await read(base+'/convert/'+encodeURIComponent(jobID));if(['failed','error','canceled'].includes(job.status))jobID=null;}
    if(!jobID) {
-    const bytes=await IOUtils.read(await attachment.getFilePath());signal?.throwIfAborted();const {PDFDocument}=this.getPDFLibrary();total=(await PDFDocument.load(this.bytesToBase64(bytes))).getPageCount();
+    const prepared=await this.loadPDFForParsing(await IOUtils.read(await attachment.getFilePath()),options),bytes=prepared.bytes;total=prepared.pdf.getPageCount();
     const win=Zotero.getMainWindow(),form=new win.FormData();form.append('file',new win.Blob([bytes],{type:'application/pdf'}),attachment.attachmentFilename||'document.pdf');
-    for(const [key,value]of Object.entries({output_format:'markdown',mode:config.mode,paginate:'true',disable_image_captions:'true'}))form.append(key,value);
+    for(const [key,value]of Object.entries({output_format:settings.outputFormat==='html'&&settings.htmlLayout!=='markdown'?'markdown,json':'markdown',mode:config.mode,paginate:'true',disable_image_captions:'true'}))form.append(key,value);
     options.onStatus?.({phase:'提交 Datalab 任务',jobID:null,displayText:`正在上传整份 PDF（${total} 页）到 Datalab`,pageProgress:null});
     job=await request(base+'/convert',{method:'POST',body:form},this.createAbortController());jobID=job.request_id;if(!jobID)throw Error('Datalab 未返回任务 ID');
    }
@@ -58,6 +58,7 @@ OCRFlowDatalab.install=function(owner){Object.assign(owner,{
     const binary=atob(String(value).replace(/^data:[^,]+;base64,/,''));result.embeddedImages.push({marker:`docflow-image://img-${result.embeddedImages.length+1}`,entryName:name,fileName:this.fileNameFromPath(name),mimeType:this.guessMimeType(name),bytes:Uint8Array.from(binary,ch=>ch.charCodeAt(0))});
    }
    this.normalizeResultImages(result);result.document=OCRFlowDocument.fromMarkdown(result.markdownText,'datalab',text=>this.splitTranslationBlocks(text));
+   if(job.json)result.document.layout=OCRFlowLayout.marker(job.json,this);
    for(let page=1;page<=(job.page_count||completed.page_count||total);page++)if(!result.document.pages.some(row=>row.page===page))result.document.pages.push({page,printed:null});
    result.document.pages.sort((a,b)=>a.page-b.page);result.markdownText=OCRFlowDocument.render(result.document);return result;
   }finally{signal?.removeEventListener('abort',abort);}

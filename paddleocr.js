@@ -42,7 +42,8 @@ Object.assign(DocFlow, {
 			// Split real PDF uploads into 100-page parts; the image path remains a single upload.
 			let parts = [{ bytes, name: attachment.attachmentFilename || "document.pdf", count: 1 }];
 			if (this.documentExtension(attachment) === "pdf") {
-				let pdf = await this.getPDFLibrary().PDFDocument.load(this.bytesToBase64(bytes));
+				let prepared=await this.loadPDFForParsing(bytes,options), pdf=prepared.pdf;
+				bytes=prepared.bytes;parts[0].bytes=bytes;
 				parts[0].count = pdf.getPageCount();
 				if (pdf.getPageCount() > 100 || bytes.length > 45 * 1024 * 1024) {
 					parts = [];

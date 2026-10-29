@@ -3,12 +3,26 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 function setup(){
- const plugin={parseQueue:[],refreshParseQueueDialog(){},confirmRetryFailedChunks:()=> 'save'};
+ const plugin={parseQueue:[],parentForDocument:()=>null,refreshParseQueueDialog(){},confirmRetryFailedChunks:()=> 'save'};
  const context={DocFlow:plugin,Zotero:{getMainWindow:()=>({})}};
  vm.createContext(context);vm.runInContext(fs.readFileSync('task-sidebar.js','utf8'),context);
  const sidebar=context.OCRFlowTaskSidebar;sidebar.init(plugin);plugin.sidebar=sidebar;
  return {plugin,sidebar,context};
 }
+test('sidebar stylesheet uses the installed version so an upgrade requests a fresh asset',()=>{
+ const s=setup();s.sidebar.render=()=>{};
+ const node=()=>({appendChild(){},append(){},insertBefore(){},querySelector:()=>null,addEventListener(){},setAttribute(){},classList:{toggle(){}}});
+ const makeWindow=()=>{
+  const nodes=new Map(['zotero-item-pane','zotero-view-item-sidenav','zotero-item-pane-content'].map(id=>[id,node()]));
+  return {document:{documentElement:node(),getElementById:id=>nodes.get(id),createElementNS:()=>node(),addEventListener(){}},
+   ZoteroPane:{getSelectedItems:()=>[]},addEventListener(){},MutationObserver:class{observe(){}}};
+ };
+ s.plugin.version='1.5.7';const oldWindow=makeWindow();s.sidebar.mount(oldWindow);
+ s.plugin.version='1.5.8';const newWindow=makeWindow();s.sidebar.mount(newWindow);
+ const oldURL=s.sidebar.views.get(oldWindow).style.href,newURL=s.sidebar.views.get(newWindow).style.href;
+ assert.notEqual(newURL,oldURL);assert.equal(new URL(newURL).searchParams.get('v'),'1.5.8');
+ assert.equal(new URL(newURL).pathname,'/content/task-sidebar.css');
+});
 test('timeline records real stages and retains failed comparison after successful source saving',()=>{
  const {plugin,sidebar}=setup();const task={kind:'parse',settings:{collationEnabled:true}};
  plugin.initializeTaskSteps(task);
@@ -61,6 +75,42 @@ test('attachment selection scopes operations, full text and tasks to one file',(
  s.plugin.parseQueue=[{id:7,attachment:a,state:'running'},{id:8,attachment:text,kind:'translate',state:'completed'}];
  assert.deepEqual(Array.from(s.sidebar.documentTasks(doc),t=>t.id),[8]);
  assert(s.sidebar.canPerform(doc,'summary',true));
+});
+
+test('existing translations are matched to their exact recognized source and exclude partial or Markdown results',()=>{
+ const s=documentSetup(),parent=s.item(1),a=s.item(2,'a.pdf',1),b=s.item(3,'b.pdf',1),
+  sourceA=s.item(4,'a.html',1,['#DocFlow-Parse']),sourceB=s.item(5,'b.html',1,['#DocFlow-Parse']);
+ sourceA.relatedItems=[a.key];a.relatedItems=[sourceA.key];sourceB.relatedItems=[b.key];b.relatedItems=[sourceB.key];
+ const other=s.item(6,'a-translated.html',1,['#DocFlow-Translation']);other.relatedItems=[sourceA.key];
+ const correct=s.item(7,'b-translated.html',1,['#DocFlow-Translation']);correct.relatedItems=[sourceB.key];
+ s.item(8,'partial.html',1,['#DocFlow-Translation-Partial']).relatedItems=[sourceB.key];
+ s.item(9,'translation.md',1,['#DocFlow-Translation']).relatedItems=[sourceB.key];
+ s.select([b]);assert.equal(s.sidebar.documentContext(s.view).translation,correct);
+ s.select([a]);assert.equal(s.sidebar.documentContext(s.view).translation,other);
+ s.context.Zotero.Reader={getByTabID:()=>({itemID:correct.id})};
+ s.view.window.Zotero_Tabs={selectedType:'reader',selectedID:'reader-b'};
+ const context=s.sidebar.documentContext(s.view);assert.equal(context.item,correct);assert.equal(context.source,sourceB);assert.equal(context.file,b);
+});
+
+test('older translated HTML resolves its source from saved translation metadata without guessing another attachment',async()=>{
+ const s=documentSetup(),parent=s.item(1),a=s.item(2,'a.pdf',1),b=s.item(3,'b.pdf',1),sourceA=s.item(4,'a.html',1,['#DocFlow-Parse']),sourceB=s.item(5,'b.html',1,['#DocFlow-Parse']),translated=s.item(6,'legacy.html',1,['#DocFlow-Translation']);
+ sourceA.relatedItems=[a.key];sourceB.relatedItems=[b.key];translated.getFilePath=async()=>'/legacy/result.html';
+ sourceA.getFilePath=async()=>'/a/result.html';sourceB.getFilePath=async()=>'/b/result.html';
+ s.context.PathUtils={parent:require('node:path').posix.dirname,join:require('node:path').posix.join};
+ s.context.IOUtils={exists:async path=>path==='/legacy/_ocrflow/translation.json',readUTF8:async()=>JSON.stringify({sourceKey:sourceB.key})};
+ s.sidebar.render=()=>{};s.sidebar.views.set(s.view.window,s.view);
+ s.select([translated]);assert.equal(s.sidebar.documentContext(s.view).source,null);
+ await s.sidebar.loadTranslationContext(s.view,translated);assert.equal(s.sidebar.documentContext(s.view).source,sourceB);
+ await s.sidebar.loadSourceActions(s.view,sourceB);assert.equal(s.view.sourceActions.translation,translated);
+ await s.sidebar.loadSourceActions(s.view,sourceA);assert.equal(s.view.sourceActions.translation,null);
+});
+
+test('opening generated HTML uses the built-in reader and shows the OCRFlow sidebar without submitting recognition',async()=>{
+ const s=documentSetup(),html=s.item(1,'recognized.html',null,['#DocFlow-Parse']);let opened,placed=0,toggled=0;
+ s.context.Zotero.Reader={open:async id=>opened=id};s.sidebar.place=()=>placed++;
+ s.sidebar.toggle=(_view,open,manual)=>{assert(open&&manual);toggled++;};
+ s.plugin.handleParseCommand=()=>{throw Error('opening a result must not submit OCR');};
+ await s.sidebar.openDocument(s.view,html);assert.equal(opened,html.id);assert.equal(placed,1);assert.equal(toggled,1);
 });
 test('source-less parents and multiple selections have no actionable document; standalone files can create parents',()=>{
  const s=documentSetup(),parent=s.item(1),file=s.item(2,'standalone.pdf');
@@ -195,4 +245,17 @@ test('parent title tasks remain visible when either of its attachments is select
  s.plugin.parseQueue=[{id:1,kind:'title',attachment:parent,state:'running'},{id:2,kind:'title',attachment:other,state:'running'},{id:3,kind:'parse',attachment:a,state:'running'}];
  s.select([b]);assert.deepEqual(Array.from(s.sidebar.documentTasks(s.sidebar.documentContext(s.view)),t=>t.id),[1]);
  s.select([a]);assert.deepEqual(Array.from(s.sidebar.documentTasks(s.sidebar.documentContext(s.view)),t=>t.id),[1,3]);
+});
+
+test('sidebar layout conversion uses the selected recognized file and opens the new attachment without OCR',async()=>{
+ const s=documentSetup(),parent=s.item(1),file=s.item(2,'source.pdf',1),source=s.item(3,'existing.html',1,['#DocFlow-Parse']),converted=s.item(4,'new_MD布局.html',1,['#DocFlow-Parse']);
+ source.relatedItems=[file.key];file.relatedItems=[source.key];s.select([source]);s.sidebar.render=()=>{};
+ const calls=[];s.plugin.convertDocumentLayout=async options=>{calls.push(options);assert(s.view.layoutConverting);return converted;};
+ s.sidebar.openDocument=async(view,item)=>{assert.equal(view,s.view);assert.equal(item,converted);};
+ await s.sidebar.convertDocumentLayout(s.view,'markdown');
+ assert.equal(calls.length,1);assert.equal(calls[0].source,source);assert.equal(calls[0].original,file);assert.equal(calls[0].htmlLayout,'markdown');
+ assert.equal(s.view.layoutConverting,false);assert.equal(s.view.launching.size,0);
+ s.plugin.convertDocumentLayout=async()=>{throw Error('missing geometry');};
+ await assert.rejects(s.sidebar.convertDocumentLayout(s.view,'original'),/missing geometry/);
+ assert.equal(s.view.layoutConverting,false);assert.equal(s.view.launching.size,0);
 });

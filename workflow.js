@@ -48,17 +48,18 @@ Object.assign(DocFlow, {
 	getOCRMenuDefinitions() {
 		return [
 			{ id: "default", label: "使用设置中的服务" },
-			{ id: "mineru-local", label: "MinerU（本地服务）", parserService: "mineru", apiMode: "local-v1" },
-			{ id: "mineru-cloud", label: "MinerU（官方云端）", parserService: "mineru", apiMode: "cloud" },
-			{ id: "markitdown", label: "MarkItDown", parserService: "markitdown" },
-			{ id: "paddle-cloud", label: "PaddleOCR（官方 API）", parserService: "paddle-cloud" },
+			{ id: "mineru-local", label: "MinerU（自部署 API）", parserService: "mineru", apiMode: "local-v1" },
+			{ id: "mineru-cloud", label: "MinerU（在线 API）", parserService: "mineru", apiMode: "cloud" },
+			{ id: "markitdown", label: "MarkItDown（自部署 API）", parserService: "markitdown" },
+			{ id: "paddle-cloud", label: "PaddleOCR（在线 API）", parserService: "paddle-cloud" },
 			{ id: "paddle-local", label: "PaddleOCR（自部署 API）", parserService: "paddle-local" },
-			{ id: "marker", label: "Marker（在线 / 自部署）", parserService: "marker" },
+			{ id: "marker-cloud", label: "Marker（在线 API）", parserService: "marker", markerAPIType: "cloud" },
+			{ id: "marker-local", label: "Marker（自部署 API）", parserService: "marker", markerAPIType: "local" },
 			{ id: "ai", label: "AI 视觉 OCR", parserService: "ai" }
 		].map(choice => ({
 			id: `docflow-ocr-${choice.id}`, label: choice.label, l10nID: `docflow-menu-ocr-${choice.id}`,
 			getTasks: items => this.getOCRSourceFiles(items, choice.parserService),
-			run: options => this.handleParseCommand({ ...options, parserService: choice.parserService, apiMode: choice.apiMode }),
+			run: options => this.handleParseCommand({ ...options, parserService: choice.parserService, apiMode: choice.apiMode, markerAPIType: choice.markerAPIType }),
 			errorPrefix: "全文提取失败"
 		}));
 	},
@@ -79,6 +80,18 @@ Object.assign(DocFlow, {
 		let ext = this.documentExtension(item);
 		return ["md", "markdown"].includes(ext) ||
 			(["html", "htm"].includes(ext) && item.getTags().some(tag => tag.tag === "#DocFlow-Parse"));
+	},
+
+	isTranslationResult(item) {
+		return item?.isAttachment?.() && !item.deleted && item.getTags().some(tag => ["#DocFlow-Translation", "#DocFlow-Translation-Partial"].includes(tag.tag));
+	},
+
+	findDocumentTranslation(source) {
+		let parent = this.parentForDocument(source);
+		if (!parent) return null;
+		return parent.getAttachments().map(id => Zotero.Items.get(id)).filter(item => this.isTranslationResult(item) &&
+			["html", "htm"].includes(this.documentExtension(item)) && item.getTags().some(tag => tag.tag === "#DocFlow-Translation") &&
+			(item.relatedItems || []).includes(source.key)).sort((a,b) => String(a.dateAdded || "").localeCompare(String(b.dateAdded || "")) || a.id-b.id).at(-1) || null;
 	},
 
 	collectSourceFiles(items) {
@@ -151,9 +164,10 @@ Object.assign(DocFlow, {
 		await this.enqueueDocumentTasks(kind, tasks, settings);
 	},
 
-	async handleParseCommand({ window = null, selectedItems = null, parserService, apiMode } = {}) {
+	async handleParseCommand({ window = null, selectedItems = null, parserService, apiMode, markerAPIType } = {}) {
 		let settings = this.getSettings(apiMode);
 		if (parserService) { settings.parserService = parserService; settings.explicitService = true; }
+		if (parserService === "marker" && markerAPIType) settings.markerSettings = this.getMarkerSettings(markerAPIType);
 		let items = selectedItems || window?.ZoteroPane?.getSelectedItems?.() || [];
 		let tasks = this.getOCRSourceFiles(items, parserService).map(attachment => ({ attachment, parentItem: this.parentForDocument(attachment) }));
 		if (!tasks.length) throw new Error("请选择需要识别文档的原始文件。");
@@ -519,7 +533,7 @@ Object.assign(DocFlow, {
 			});
 			signal.throwIfAborted();
 			task.saving = true;
-			task.resultAttachment = await this.saveDocumentSummary(parent, attachment, summary);
+			task.resultAttachment = await this.saveDocumentSummary(parent, attachment, summary, settings);
 		}
 	},
 
@@ -682,7 +696,7 @@ Object.assign(DocFlow, {
 			{ role: "user", content: (level ? "请整合以下分段摘要，保留不同章节的重要信息：\n\n" : "请总结以下文档：\n\n") + chunks[0] }], settings, signal);
 	},
 
-	async saveDocumentSummary(parent, attachment, summary) {
+	async saveDocumentSummary(parent, attachment, summary, settings) {
 		let title = `学术总结｜${attachment.getField("title") || attachment.attachmentFilename}`;
 		let note = parent.getNotes().map(id => Zotero.Items.get(id)).find(item => !item.deleted &&
 			item.hasTag("#DocFlow-Summary") && (item.relatedItems || []).includes(attachment.key));
@@ -691,7 +705,8 @@ Object.assign(DocFlow, {
 			note.libraryID = parent.libraryID;
 			note.parentID = parent.id;
 		}
-		note.setNote(this.ensureNoteTitleInHTML(this.convertMarkdownToBasicHTML(summary), title));
+		let attribution = `<p class="ocrflow-summary-attribution">OCRFlow生成 · ${this.escapeHTML(settings.model)}驱动</p>`;
+		note.setNote(this.ensureNoteTitleInHTML(attribution + this.convertMarkdownToBasicHTML(summary), title));
 		note.addTag("#DocFlow-Summary", 0);
 		note.addRelatedItem(attachment);
 		await note.saveTx();
@@ -736,10 +751,11 @@ Object.assign(DocFlow, {
 			if (!jobID) {
 				options.onStatus?.({phase:"读取 Marker PDF", displayText:"读取整份 PDF，准备一次上传"});
 				let bytes = await IOUtils.read(await attachment.getFilePath()); signal?.throwIfAborted();
-				let {PDFDocument} = this.getPDFLibrary(), source = await PDFDocument.load(this.bytesToBase64(bytes)); total = source.getPageCount(); signal?.throwIfAborted();
+				let prepared=await this.loadPDFForParsing(bytes,options);bytes=prepared.bytes;total=prepared.pdf.getPageCount();signal?.throwIfAborted();
 				let win = Zotero.getMainWindow(), form = new win.FormData();
 				form.append("file", new win.Blob([bytes], {type:"application/pdf"}), attachment.attachmentFilename || "document.pdf");
 				for (let [name, value] of Object.entries({output_format:"markdown", paginate_output:"true", force_ocr:String(config.forceOCR), mode:config.mode})) form.append(name, value);
+				if (settings.outputFormat === "html" && settings.htmlLayout !== "markdown") form.append("include_layout", "true");
 				options.onStatus?.({phase:"提交 Marker 任务",jobID:null,displayText:`正在上传整份 PDF（${total} 页）`,pageProgress:{completed:0,total,unit:"页"}});
 				// Collect the task ID even if cancellation is requested during submission, then cancel that exact server job.
 				job = await request("/v1/parse/jobs", {method:"POST",body:form}, this.createAbortController());
@@ -771,6 +787,7 @@ Object.assign(DocFlow, {
 			}
 			this.normalizeResultImages(result);
 			result.document = OCRFlowDocument.fromMarkdown(result.markdownText,"marker",text=>this.splitTranslationBlocks(text));
+			if (response.layout) result.document.layout = OCRFlowLayout.marker(response.layout, this);
 			let pages = job.progress?.total || total;
 			for (let page=1;page<=pages;page++) if (!result.document.pages.some(row=>row.page===page)) result.document.pages.push({page,printed:null});
 			result.document.pages.sort((a,b)=>a.page-b.page);result.markdownText=OCRFlowDocument.render(result.document);
@@ -906,7 +923,7 @@ Object.assign(DocFlow, {
 	async convertPDFInParts(bytes, connection, options) {
 		options.onStatus?.({ phase: "MarkItDown 分页转换", displayText: "正在拆分 PDF，避免上传消息过大" });
 		let { PDFDocument } = this.getPDFLibrary();
-		let source = await PDFDocument.load(this.bytesToBase64(bytes));
+		let source = (await this.loadPDFForParsing(bytes,options)).pdf;
 		let count = source.getPageCount(), markdown = [], hasEmptyParts = false;
 		let convert = async (start, end) => {
 			connection.signal?.throwIfAborted();

@@ -129,6 +129,16 @@ test('footer save persists optional output behavior and invalid fields do not pa
   assert.equal(JSON.stringify([...s.prefs]),before);
 });
 
+test('HTML layout selection is saved, captured for queued work and disabled with HTML output',()=>{
+ const s=setup();assert.equal(s.elements.get('mineru-parseHTMLLayout').value,'original');
+ s.value('mineru-parseHTMLLayout','markdown');assert.equal(s.elements.get('mineru-save-button').click(),true);
+ const captured=s.plugin.getSettings();assert.equal(captured.htmlLayout,'markdown');
+ s.value('mineru-parseHTMLLayout','original');s.elements.get('mineru-save-button').click();
+ assert.equal(s.plugin.getSettings().htmlLayout,'original');assert.equal(captured.htmlLayout,'markdown');
+ s.elements.get('mineru-parseGenerateHTML').checked=false;s.elements.get('mineru-parseGenerateHTML').listeners.change();
+ assert(s.elements.get('mineru-parseHTMLLayout').disabled);
+});
+
 test('cloud language saves within MinerU settings and remains selected but disabled in local mode',async()=>{
   const s=setup();
   assert.equal(s.elements.get('mineru-cloud-language').value,'auto');

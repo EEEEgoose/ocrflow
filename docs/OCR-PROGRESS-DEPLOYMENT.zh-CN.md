@@ -57,9 +57,11 @@ curl -fsS http://127.0.0.1:18501/openapi.json
 | --- | --- |
 | `POST /v1/parse/jobs` | multipart 上传整份 PDF，返回 202 与 `job_id` |
 | `GET /v1/parse/jobs/{job_id}` | 查询排队、运行、完成、失败或取消状态 |
-| `GET /v1/parse/jobs/{job_id}/result` | 完成后获取完整 Markdown、图片和 metadata；未完成返回 409 |
+| `GET /v1/parse/jobs/{job_id}/result` | 完成后获取完整 Markdown、图片和 metadata；提交时指定 `include_layout=true` 则同时返回 `layout`；未完成返回 409 |
 | `DELETE /v1/parse/jobs/{job_id}` | 取消排队任务，或终止当前文档的转换进程 |
 | `POST /marker/upload` | 同步上传入口；连接断开时取消它创建的任务 |
+
+原文布局 HTML 会在上传时附带 `include_layout=true`。任务 API 对同一份转换后的文档分别导出 Markdown 和 JSON 布局，不重复执行识别。使用此功能前需更新 `marker_jobs.py` 并在当前任务结束后重启任务 API；旧任务结果不会补出布局。只升级 Zotero 插件时，旧服务仍可返回 Markdown，HTML 保留原页外观，但缺少坐标的页面无法叠加识别文字。
 
 用测试 PDF 验证整文件上传，将返回的任务 ID 填入后续命令：
 

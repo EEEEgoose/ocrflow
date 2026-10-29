@@ -31,13 +31,13 @@ test('installation entrypoint loads all modules and registers DocFlow menus with
       PreferencePanes:{register:async options=>{await Promise.resolve();panes.push(options);paneRegistered=true;}},
       MenuManager:{registerMenu:options=>{assert(paneRegistered,'Startup must await preference pane registration');registered.push(options);},unregisterMenu:()=>{}},
       Reader:{_readers:[],registerEventListener:(...args)=>listeners.push(args),unregisterEventListener:()=>{}},
-      Notifier:{registerObserver:()=>{throw new Error('Import observers must not be installed');}}
+      Notifier:{registerObserver:(_observer,types)=>{assert.deepEqual(Array.from(types),['tab'],'Only tab UI events may be observed');return 'sidebar-tabs';},unregisterObserver(){}}
     },
     fetch:()=>{throw new Error('Startup must not call services');}
   };
   vm.createContext(context);vm.runInContext(fs.readFileSync('bootstrap.js','utf8'),context);
   await context.startup({id:manifest.applications.zotero.id,version:manifest.version,rootURI:''});
-  assert.deepEqual(loaded,['locale/en-US/ui.js','localization.js','prompts.js','docflow.js','config.js','markitdown.js','marker.js','datalab.js','metadata.js','workflow.js','translation-services.js','title-translation.js','document.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','recognition.js','attachment-naming.js','task-sidebar.js','outline.js']);
+  assert.deepEqual(loaded,['locale/en-US/ui.js','localization.js','prompts.js','docflow.js','config.js','markitdown.js','marker.js','datalab.js','metadata.js','workflow.js','translation-services.js','title-translation.js','document.js','layout.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','recognition.js','attachment-naming.js','task-sidebar.js','outline.js']);
   assert.equal(panes[0].label,'OCRFlow');assert.equal(registered[0].menus[0].label,'OCRFlow');
   assert.equal(panes[0].id,'ocrflow-preferences');
   for(const uri of [panes[0].src,panes[0].image,...panes[0].scripts,...(panes[0].stylesheets || [])]) {

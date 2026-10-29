@@ -25,7 +25,7 @@ const context = {
       files.set(p, files.get(options.file));
       return { ...options, isAttachment: () => true, attachmentContentType: options.contentType,
         getTags: () => [{tag:"#DocFlow-Parse"}], getFilePath: async () => p,
-        addTag: () => {}, saveTx: async () => {}, eraseTx: async () => { erased++; } };
+        addTag: () => {}, addRelatedItem: () => {}, saveTx: async () => {}, eraseTx: async () => { erased++; } };
     } }
   },
   fetch: async (_u, options) => {

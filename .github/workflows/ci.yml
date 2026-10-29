@@ -43,13 +43,17 @@ jobs:
         run: |
           if [ "$RELEASE_BUILD" = "true" ]; then
             gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' > "$RUNNER_TEMP/ocrflow-release-tags"
-            version=$(python3 -c 'import json,re,sys; from pathlib import Path; base=json.load(open("manifest.json"))["version"]; prefix,patch=base.rsplit(".",1); tags=Path(sys.argv[1]).read_text().splitlines(); numbers=[int(patch)-1]+[int(m.group(1)) for tag in tags if (m:=re.fullmatch("v?"+re.escape(prefix)+r"\.(\d+)",tag))]; print(prefix+"."+str(max(numbers)+1))' "$RUNNER_TEMP/ocrflow-release-tags")
+            version=$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')
             python3 build.py --version "$version"
-            previous=$(python3 -c 'from pathlib import Path; import sys; tags=Path(sys.argv[1]).read_text().splitlines(); print(max(tags,key=lambda tag:tuple(map(int,tag.lstrip("v").split(".")))) if tags else "")' "$RUNNER_TEMP/ocrflow-release-tags")
-            python3 release_notes.py --version "$version" ${previous:+--previous-ref "$previous"} --output dist/release-notes.md
+            if [ -f "docs/releases/v$version.md" ]; then
+              cp "docs/releases/v$version.md" dist/release-notes.md
+            else
+              previous=$(python3 -c 'from pathlib import Path; import sys; tags=[tag for tag in Path(sys.argv[1]).read_text().splitlines() if tag.lstrip("v") != sys.argv[2]]; print(max(tags,key=lambda tag:tuple(map(int,tag.lstrip("v").split(".")))) if tags else "")' "$RUNNER_TEMP/ocrflow-release-tags" "$version")
+              python3 release_notes.py --version "$version" ${previous:+--previous-ref "$previous"} --output dist/release-notes.md
+            fi
             echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
           else
-            python3 build.py
+            python3 build.py --version "$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
           fi
       - name: Publish Release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

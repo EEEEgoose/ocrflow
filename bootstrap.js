@@ -34,6 +34,7 @@ async function startup({ id, version, rootURI }) {
 	Services.scriptloader.loadSubScript(rootURI + 'translation-services.js');
 	Services.scriptloader.loadSubScript(rootURI + 'title-translation.js');
 	Services.scriptloader.loadSubScript(rootURI + 'document.js');
+	Services.scriptloader.loadSubScript(rootURI + 'layout.js');
 	Services.scriptloader.loadSubScript(rootURI + 'paddleocr.js');
 	Services.scriptloader.loadSubScript(rootURI + 'ocr-sources.js');
 	Services.scriptloader.loadSubScript(rootURI + 'translation.js');

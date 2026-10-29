@@ -9,7 +9,7 @@ function setup(){
   Zotero:{Prefs:{get:()=>undefined},getMainWindow:()=>({AbortController,FormData,Blob}),debug(){}},IOUtils:{read:async()=>pdf},
   fetch:async(url,options)=>{calls.push({url,options});if(url.endsWith('/health'))return response({status:'ok'});if(options.method==='POST')return response(initial);return response(states.shift()||final)}
  };
- vm.createContext(context);for(const file of ['prompts.js','docflow.js','marker.js','workflow.js','document.js','datalab.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
+ vm.createContext(context);for(const file of ['prompts.js','docflow.js','marker.js','workflow.js','document.js','layout.js','datalab.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
  const m=context.DocFlow;context.OCRFlowDatalab.install(m);m.getPDFLibrary=()=>({PDFDocument});m.delayParsePoll=async()=>{};m.refreshParseQueueDialog=()=>{};
  const settings={parserService:'marker',markerSettings:{apiType:'cloud',baseURL:'https://datalab.test/api/v1',token:'cloud-secret',mode:'accurate'},timeoutMS:1000};
  return {m,context,calls,statuses,settings,initial,final,states,response,attachment:{id:1,attachmentFilename:'scan.pdf',getFilePath:async()=>'/scan.pdf'}};
@@ -21,6 +21,17 @@ test('Datalab submits a whole PDF once through Convert, polls the returned URL a
 });
 test('completed cloud jobs resume without reading or uploading the source document',async()=>{
  const s=setup();s.states.splice(0,s.states.length,s.final);s.context.IOUtils.read=()=>{throw Error('must not read PDF')};await s.m.parseWithDatalab(s.attachment,s.settings,{jobID:'cloud1'});assert(!s.calls.some(c=>c.options.method==='POST'));
+});
+test('original-layout HTML requests Markdown and JSON together without a second cloud conversion',async()=>{
+ const s=setup();
+ s.final.json={children:[{bbox:[0,0,600,800],children:[{block_type:'Text',html:'<p>Body</p>',bbox:[10,20,400,50]}]}]};
+ const result=await s.m.parseWithDatalab(s.attachment,{...s.settings,outputFormat:'html'});
+ const uploads=s.calls.filter(c=>c.options.method==='POST');assert.equal(uploads.length,1);assert.equal(uploads[0].options.body.get('output_format'),'markdown,json');
+ assert(result.markdownText.includes('Body'));assert.equal(result.document.layout[0].regions[0].text,'Body');assert(JSON.parse(result.rawFiles[0].text).json);
+});
+test('Markdown-layout HTML requests only Markdown from Datalab',async()=>{
+ const s=setup();await s.m.parseWithDatalab(s.attachment,{...s.settings,outputFormat:'html',htmlLayout:'markdown'});
+ assert.equal(s.calls.find(c=>c.options.method==='POST').options.body.get('output_format'),'markdown');
 });
 test('signed result downloads do not receive the Datalab API key',async()=>{
  const s=setup(),fetch=s.context.fetch;s.states.splice(0,s.states.length,{status:'complete',result_url:'https://files.example/result?signature=fixture'});

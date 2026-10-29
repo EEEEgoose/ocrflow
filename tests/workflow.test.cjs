@@ -82,6 +82,9 @@ function setup({mcp=false,reading=false}={}) {
   vm.createContext(context);
   for (const filename of ['prompts.js','docflow.js','markitdown.js','metadata.js','workflow.js','attachment-naming.js','translation-services.js','title-translation.js']) vm.runInContext(fs.readFileSync(filename,'utf8'),context);
   const plugin = context.DocFlow;
+  vm.runInContext(fs.readFileSync('layout.js','utf8'),context);
+  plugin.prepareOriginalLayout=()=>[]; // Layout rendering is exercised in original-layout.test.cjs.
+  plugin.renderOriginalLayout=()=>({body:'',style:'',script:''});
   if(!reading)plugin.runOrganizeReadingStages=async task=>{task.state='completed';task.detail='core metadata fixture completed';};
   plugin.openParseQueueDialog = () => {}; plugin.refreshParseQueueDialog = () => {};
   plugin.mathRenderer = require('../vendor/katex/katex.min.js');
@@ -113,6 +116,20 @@ test('one-click completes all seven stages and saves summary and paragraph-align
  assert.deepEqual(Array.from(task.steps,row=>row.id),['extract','parent','metadata','title','summary','translate','outline']);
  assert(task.steps.every(row=>row.state==='completed'));assert(task.organizeResults.summary.isNote());assert(task.organizeResults.translate.hasTag('#DocFlow-Translation'));
  assert.equal(task.resultAttachment,task.source);assert.equal(task.cancelJobID,null);assert.equal(task.cancelSettings.workKind,'outline');
+});
+
+test('explicit sidebar retranslation creates a fresh HTML result despite an existing complete translation',async()=>{
+ const s=fullFlow(),pdf=s.file('retranslate.pdf');s.prefs.set('extensions.docflow.translateOutputFormat','html');
+ await s.plugin.handleOrganizeCommand({selectedItems:[pdf]});const originalTask=s.plugin.parseQueue[0];
+ assert.equal(originalTask.state,'completed',originalTask.error);
+ const first=originalTask.organizeResults.translate,source=originalTask.source;
+ assert(first.relatedItems.includes(source.key));assert.equal(s.plugin.collectTranslateTasks([source]).length,0);
+ const sidebar=s.context.OCRFlowTaskSidebar;sidebar.init(s.plugin);sidebar.render=()=>{};
+ sidebar.documentContext=()=>({key:'explicit',item:source,file:pdf,source,parent:s.plugin.parentForDocument(source),files:[pdf]});
+ const before=s.requests.length;await sidebar.performDocumentAction({window:{},launching:new Set()},'translate');
+ const rerun=s.plugin.parseQueue.at(-1);assert.equal(rerun.kind,'translate');assert.equal(rerun.state,'completed',rerun.error);
+ assert.notEqual(rerun.resultAttachment.id,first.id);assert(rerun.resultAttachment.relatedItems.includes(source.key));
+ assert(s.requests.length>before);assert(!first.deleted);
 });
 test('one-click continues independent work after outline failure and retries only the failed stage',async()=>{
  const s=fullFlow(),pdf=s.file('retry.pdf');let outlines=0;s.plugin.outline.generate=async()=>{if(++outlines===1)throw Error('controlled outline failure')};
@@ -504,6 +521,19 @@ test('long document summaries include the tail and reruns update only the matchi
   s.setReply(() => 'UPDATED SUMMARY'); await s.plugin.handleDocumentCommand('summary',{selectedItems:[a,b]});
   assert.equal(parent.getNotes().length,2); assert(firstNote.note.includes('UPDATED SUMMARY'));
   assert(s.items.get(parent.getNotes()[1]).relatedItems.includes(b.key));
+});
+
+test('summary notes credit OCRFlow and the captured request model, while the default prompt handles different document types',async()=>{
+ const s=setup(),parent=new s.Item('book'),original=s.file('novel.pdf',parent);s.parsed(original,'A fictional story.');
+ s.prefs.set('extensions.docflow.llmModel','selected-model');
+ s.setReply(()=>{s.prefs.set('extensions.docflow.llmModel','later-model');return 'Faithful summary.';});
+ await s.plugin.handleDocumentCommand('summary',{selectedItems:[original]});
+ assert.equal(s.requests[0].payload.model,'selected-model');
+ const note=s.items.get(parent.getNotes()[0]);assert(note.note.includes('OCRFlow生成 · selected-model驱动'));assert(!note.note.includes('later-model驱动'));
+ const prompt=s.requests[0].payload.messages[0].content;
+ for(const phrase of ['研究类书籍','创新点和局限性','虚构性文学作品','人物关系','档案、新闻、报道','总结务必简练、明晰、准确'])assert(prompt.includes(phrase));
+ assert(!prompt.includes('{{language}}'));assert(prompt.includes('请用中文'));
+ assert.equal(s.context.OCRFlowPrompts.get('summary','My custom {{language}} prompt','English'),'My custom English prompt');
 });
 
 function virtualClock(s) {

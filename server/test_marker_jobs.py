@@ -3,6 +3,7 @@ import io
 import json
 import multiprocessing
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -48,6 +49,40 @@ class JobTests(unittest.TestCase):
         self.assertEqual(self.client.get('/v1/parse/jobs/' + state['job_id']).json()['status'], 'queued')
         self.assertEqual(self.client.get('/v1/parse/jobs/' + state['job_id'] + '/result').status_code, 409)
         self.assertEqual(json.loads((directory / 'request.json').read_text())['paginate_output'], True)
+
+    def test_layout_request_is_saved_with_the_original_job(self):
+        response = self.client.post('/v1/parse/jobs', files={'file': ('book.pdf', b'PDF')},
+                                    data={'include_layout': 'true'})
+        self.assertEqual(response.status_code, 202)
+        request = json.loads((jobs.directory(response.json()['job_id']) / 'request.json').read_text())
+        self.assertTrue(request['include_layout'])
+        self.assertEqual(request['output_format'], 'markdown')
+
+    def test_layout_and_markdown_render_the_same_document_after_one_conversion(self):
+        document = NS(pages=[1, 2])
+        calls = []
+        class JSONRenderer:
+            pass
+        class Converter:
+            renderer = 'markdown'
+            def build_document(self, filepath):
+                calls.append(('build', filepath))
+                return document
+            def resolve_dependencies(self, renderer):
+                def render(value):
+                    self_test.assertIs(value, document)
+                    calls.append(('render', renderer))
+                    return 'markdown output' if renderer == 'markdown' else NS(model_dump=lambda **kwargs: {'children': []})
+                return render
+        self_test = self
+        converter = Converter()
+        with patch.dict(sys.modules, {'marker.renderers.json': NS(JSONRenderer=JSONRenderer)}):
+            rendered, layout = jobs.render_document(converter, 'book.pdf', True)
+        self.assertEqual(rendered, 'markdown output')
+        self.assertEqual(layout, {'children': []})
+        self.assertEqual(calls, [('build', 'book.pdf'), ('render', 'markdown'), ('render', JSONRenderer)])
+        self.assertEqual(converter.page_count, 2)
+        self.assertEqual(jobs.render_document(lambda path: path, 'book.pdf', False), ('book.pdf', None))
 
     def test_result_and_cancel_queued(self):
         state = self.submit()
@@ -109,7 +144,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
             other = await jobs.submit(UploadFile(io.BytesIO(b'other'), filename='other.pdf'), 'balanced', False, 'markdown', True)
             async def disconnected(): return True
             with self.assertRaises(HTTPException) as caught:
-                await jobs.official_upload(NS(is_disconnected=disconnected), UploadFile(io.BytesIO(b'pdf'), filename='sync.pdf'), 'balanced', False, 'markdown', True)
+                await jobs.official_upload(NS(is_disconnected=disconnected), UploadFile(io.BytesIO(b'pdf'), filename='sync.pdf'), 'balanced', False, 'markdown', True, False)
             self.assertEqual(caught.exception.status_code, 499)
             states = [json.loads(p.read_text()) for p in Path(folder).glob('*/status.json')]
             self.assertEqual(sorted(s['status'] for s in states), ['canceled', 'queued'])
@@ -127,7 +162,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
                 return True
             try:
                 with self.assertRaises(HTTPException):
-                    await jobs.official_upload(NS(is_disconnected=disconnected), UploadFile(io.BytesIO(b'pdf'), filename='sync.pdf'), 'balanced', False, 'markdown', True)
+                    await jobs.official_upload(NS(is_disconnected=disconnected), UploadFile(io.BytesIO(b'pdf'), filename='sync.pdf'), 'balanced', False, 'markdown', True, False)
                 self.assertFalse(process.is_alive())
                 self.assertEqual(json.loads(next(Path(folder).glob('*/status.json')).read_text())['status'], 'canceled')
             finally:
@@ -140,7 +175,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
             jobs.queue = asyncio.Queue()
             async def interrupted(): raise asyncio.CancelledError()
             with self.assertRaises(asyncio.CancelledError):
-                await jobs.official_upload(NS(is_disconnected=interrupted), UploadFile(io.BytesIO(b'pdf'), filename='sync.pdf'), 'balanced', False, 'markdown', True)
+                await jobs.official_upload(NS(is_disconnected=interrupted), UploadFile(io.BytesIO(b'pdf'), filename='sync.pdf'), 'balanced', False, 'markdown', True, False)
             self.assertEqual(json.loads(next(Path(folder).glob('*/status.json')).read_text())['status'], 'canceled')
 
     async def test_restart_keeps_results_and_marks_interrupted_jobs(self):

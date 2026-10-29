@@ -2,10 +2,10 @@
 var OCRFlowSources = {
 	choices(providers) {
 		return [
-			{ value: "marker-cloud", label: "Marker（Datalab 在线 API）" },
+			{ value: "marker-cloud", label: "Marker（在线 API）" },
 			{ value: "marker-local", label: "Marker（自部署 API）" },
-			{ value: "mineru-local", label: "MinerU（本地）" }, { value: "mineru-cloud", label: "MinerU（云端）" },
-			{ value: "paddle-cloud", label: "PaddleOCR（官方 API）" }, { value: "paddle-local", label: "PaddleOCR（自部署 API）" },
+			{ value: "mineru-local", label: "MinerU（自部署 API）" }, { value: "mineru-cloud", label: "MinerU（在线 API）" },
+			{ value: "paddle-cloud", label: "PaddleOCR（在线 API）" }, { value: "paddle-local", label: "PaddleOCR（自部署 API）" },
 			...providers.flatMap(provider => [1, 2].filter(slot => provider[slot === 1 ? "llmModel" : "llmModel2"]?.trim()).map(slot => ({
 				value: `ai:${provider.id}:${slot}`, label: `${provider.llmProviderName || "服务商"} · ${provider[slot === 1 ? "llmModel" : "llmModel2"]}`
 			})))

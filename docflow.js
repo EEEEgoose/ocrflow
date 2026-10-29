@@ -385,10 +385,13 @@ DocFlow = {
 		for (let task of this.parseQueue) {
 			if (!ids.includes(task.id) || !["failed", "wait_expired", "canceled", "waiting"].includes(task.state)) continue;
 			let parserService = task.settings.parserService;
+			let markerAPIType = task.settings.markerSettings?.apiType, explicitService = task.settings.explicitService;
 			task.settings = task.kind === "organize" ? this.getOrganizeSettings(task.jobID ? task.settings.apiMode : undefined) : task.kind === "translate" ? this.getTranslationSettings()
 				: task.kind === "title" ? this.getTitleTranslationSettings({service:task.settings.service,targetLang:task.settings.targetLang,overwrite:task.settings.overwrite,modelID:task.settings.modelID})
 				: ["outline", "parent", "metadata", "summary"].includes(task.kind) ? this.getLLMSettings(task.kind) : this.getSettings(task.settings.apiMode);
 			if (task.kind === "parse" && parserService) task.settings.parserService = parserService;
+			if (task.kind === "parse" && explicitService) task.settings.explicitService = true;
+			if (task.kind === "parse" && parserService === "marker" && markerAPIType) task.settings.markerSettings = this.getMarkerSettings(markerAPIType);
 			if (task.kind === "organize" && task.jobID) task.settings.parserService = parserService;
 			task.state = "queued";
 			task.detail = task.jobID ? "等待继续查询原任务" : "等待重试";
@@ -826,6 +829,31 @@ DocFlow = {
 			this.pdfLibrary = scope.PDFLib;
 		}
 		return this.pdfLibrary;
+	},
+
+	async loadPDFForParsing(bytes, context = {}) {
+		let {PDFDocument} = this.getPDFLibrary();
+		context.signal?.throwIfAborted();
+		try { return {pdf:await PDFDocument.load(this.bytesToBase64(bytes)), bytes}; }
+		catch (error) {
+			if (!error.message.startsWith("Input document to `PDFDocument.load` is encrypted.")) throw error;
+		}
+		this.reportParseStatus(context, {phase:"处理加密 PDF", displayText:"正在生成供识别使用的临时 PDF 副本，原附件保持不变"});
+		let worker=Zotero.PDFWorker, buf=new Uint8Array(bytes).buffer, result;
+		try {
+			result=await worker._enqueue(() => {
+				context.signal?.throwIfAborted();
+				return worker._query("pdf.writeAnnotations", {buf,annotations:[]}, [buf]);
+			});
+		} catch(error) {
+			let detail;
+			try {detail=JSON.parse(error.message);} catch(_error) {throw error;}
+			if (detail.name === "PasswordException") throw new Error("PDF 需要打开密码，请使用已解锁的 PDF 副本后重试。");
+			throw error;
+		}
+		context.signal?.throwIfAborted();
+		let prepared=new Uint8Array(result.buf);
+		return {pdf:await PDFDocument.load(this.bytesToBase64(prepared)), bytes:prepared};
 	},
 
 	async parseAttachmentWithCloud(fileBytes, fileName, attachmentID, settings, statusContext = {}) {
@@ -2353,13 +2381,16 @@ DocFlow = {
 		let sourceTitle = attachment.getField("title");
 		this.normalizeResultImages?.(parsedResult);
 		try {
-			let title = this.sanitizeFileName(`OCRFlow_${await this.documentFileStem(parentItem,attachment)}${titleSuffix}`);
+			let layoutPrefix = settings.outputFormat === "html" ? settings.htmlLayout === "markdown" ? "MD布局_" : "原文布局_" : "";
+			let title = this.sanitizeFileName(`OCRFlow_${layoutPrefix}${await this.documentFileStem(parentItem,attachment)}${titleSuffix}`);
+			let layout = settings.outputFormat === "html" && settings.htmlLayout !== "markdown" ? this.prepareOriginalLayout(parsedResult) : null;
+			if(layout?.length && attachment.isPDFAttachment?.())await this.applyOriginalTypography(attachment,layout);
 			let imported = await this.saveDocumentAttachment({
 				libraryID: attachment.libraryID, parentItem,
 				title,
 				markdown: parsedResult.markdownText,
 				images: parsedResult.embeddedImages || [],
-				format: settings.outputFormat, imageMode: settings.imageMode, tag: "#DocFlow-Parse", keepMarkdown: true
+				format: settings.outputFormat, imageMode: settings.imageMode, tag: "#DocFlow-Parse", keepMarkdown: true, layout
 			});
 			if (parsedResult.document && this.saveDocumentData) {
 				parsedResult.document.source = { libraryID: attachment.libraryID, key: attachment.key };
@@ -2638,6 +2669,7 @@ DocFlow = {
 		let outputFormat = (prefix === "parse" ? read("GenerateHTML") === true : read("OutputFormat") === "html") ? "html" : "md";
 		return {
 			outputFormat,
+			...(prefix === "parse" ? {htmlLayout:read("HTMLLayout") === "markdown" ? "markdown" : "original"} : {}),
 			imageMode: prefix === "translate" ? (outputFormat === "html" ? "inline" : "folder") : (read("ImageMode") === "inline" ? "inline" : "folder"),
 			translationMode: outputFormat === "html" && read("Mode") === "bilingual" ? "bilingual" : "translation"
 		};
@@ -2737,7 +2769,7 @@ DocFlow = {
 		});
 	},
 
-	async saveDocumentAttachment({ libraryID, parentItem, title, markdown, images = [], format = "md", imageMode = "folder", tag, pairs = null, keepMarkdown = false, notice = "" }) {
+	async saveDocumentAttachment({ libraryID, parentItem, title, markdown, images = [], format = "md", imageMode = "folder", tag, pairs = null, keepMarkdown = false, notice = "", layout = null }) {
 		if (format === "md") imageMode = "folder";
 		let fileMap = new Map();
 		let replaceImages = (text, mode = imageMode) => {
@@ -2770,17 +2802,19 @@ DocFlow = {
 		if (format === "html") {
 			let counts = { source: new Map(), target: new Map(), document: new Map() }, seenPages=new Set();
 			let render = (text, namespace) => this.renderFootnotes ? this.renderFootnotes(text, namespace, counts[namespace]) : this.renderDocumentBody(text);
-			let body = pairs
+			let body = layout ? "" : pairs
 				? '<div class="bilingual"><div class="column-label">原文</div><div class="column-label">译文</div>' + pairs.map(pair => {
 					let labels=(pair.pages||[pair.page]).filter(page=>page&&!seenPages.has(page));for(let page of labels)seenPages.add(page);
 					let label=labels.length ? '<div class="page-label" style="grid-column:1/-1;border-top:1px solid #ddd;padding-top:12px">PDF 第 '+this.escapeHTML(labels.join("、"))+' 页</div>' : '';
 					return label+'<section data-block="'+this.escapeHTML(pair.id)+'" class="pair"><div>'+render(replaceImages(pair.source),"source")+'</div><div>'+render(replaceImages(pair.translated),"target")+'</div></section>';
 				}).join("") + '</div>'
 				: render(source, "document");
+			let original = layout ? await this.renderOriginalLayout(layout, text => this.renderDocumentBody(replaceImages(text))) : null;
+			if (original) body = original.body;
 			let metadata = JSON.stringify({ markdown: source }).replace(/</g, "\\u003c");
 			content = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-				'<title>' + this.escapeHTML(title) + '</title><style>body{font:16px/1.7 system-ui,sans-serif;max-width:1200px;margin:32px auto;padding:0 24px;color:#222}img{max-width:100%;height:auto}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid #bbb;padding:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f5f5;padding:12px}.bilingual,.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.pair{grid-column:1/-1;padding:12px 0}.pair>div{min-width:0;overflow-wrap:anywhere}.column-label{font-weight:bold}</style></head><body>' +
-				(notice ? '<p role="status">' + this.escapeHTML(notice) + '</p>' : '') + body + '<script type="application/json" id="mineru-source">' + metadata + '</script></body></html>';
+				'<title>' + this.escapeHTML(title) + '</title><style>'+(original ? original.style : 'body{font:16px/1.7 system-ui,sans-serif;max-width:1200px;margin:32px auto;padding:0 24px;color:#222}img{max-width:100%;height:auto}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid #bbb;padding:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f5f5;padding:12px}.bilingual,.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.pair{grid-column:1/-1;padding:12px 0}.pair>div{min-width:0;overflow-wrap:anywhere}.column-label{font-weight:bold}')+'</style></head><body>' +
+				(notice ? '<p role="status">' + this.escapeHTML(notice) + '</p>' : '') + body + '<script type="application/json" id="mineru-source">' + metadata + '</script>'+(original ? original.script : '')+'</body></html>';
 		}
 		let tempDir = PathUtils.join(PathUtils.tempDir, "docflow-output-" + Date.now() + "-" + Math.random().toString(36).slice(2));
 		await IOUtils.makeDirectory(tempDir, { createAncestors: true });
@@ -2923,10 +2957,10 @@ DocFlow = {
 	},
 
 
-	collectTranslateTasks(selectedItems) {
+	collectTranslateTasks(selectedItems, force = false) {
 		return this.collectDocumentTasks(selectedItems).filter(task => {
 			let parent = task.parentItem;
-			return (parent || this.hasPendingRecognition?.(task.attachment)) && (task.source || this.hasPendingRecognition?.(task.attachment)) && (!parent || !this.parentHasAttachmentWithTag(parent, "#DocFlow-Translation"));
+			return (parent || this.hasPendingRecognition?.(task.attachment)) && (task.source || this.hasPendingRecognition?.(task.attachment)) && (force || !parent || !this.parentHasAttachmentWithTag(parent, "#DocFlow-Translation"));
 		}).map(task => ({...task,mineruSource:task.source}));
 	},
 
@@ -2937,10 +2971,10 @@ DocFlow = {
 		return settings;
 	},
 
-	async handleTranslateCommand({ window = null, selectedItems = null } = {}) {
+	async handleTranslateCommand({ window = null, selectedItems = null, force = false } = {}) {
 		let settings = this.getTranslationSettings();
 		let items = selectedItems || window?.ZoteroPane?.getSelectedItems?.() || [];
-		let tasks = this.collectTranslateTasks(items).map(task => ({ ...task, attachment: task.attachment || task.mineruSource,
+		let tasks = this.collectTranslateTasks(items, force).map(task => ({ ...task, attachment: task.attachment || task.mineruSource,
 			title: task.parentItem?.getField("title") || (task.attachment || task.mineruSource).getField("title") }));
 		if (!tasks.length) throw new Error("请选择包含可翻译 Markdown 的条目或全文附件；已有完整译文的条目会被跳过。");
 		await this.enqueueDocumentTasks("translate", tasks, settings);
@@ -3203,14 +3237,16 @@ DocFlow = {
 			format: settings.outputFormat, imageMode: settings.outputFormat === "html" ? "inline" : "folder", tag: partial ? "#DocFlow-Translation-Partial" : "#DocFlow-Translation",
 			notice: partial ? `未完成：已翻译 ${partial.completed}/${partial.total} 段；标注“未翻译”的位置保留原文。` : ""
 		});
-		if (translationData) {
-			let root = PathUtils.join(PathUtils.parent(await imported.getFilePath()), "_ocrflow");
-			try {
+		try {
+			if (translationData) {
+				let root = PathUtils.join(PathUtils.parent(await imported.getFilePath()), "_ocrflow");
 				await IOUtils.makeDirectory(root, { createAncestors: true });
 				await IOUtils.writeUTF8(PathUtils.join(root, "translation.json"), JSON.stringify({ sourceKey: sourceAttachment.key, language,
 					resources: (images || []).map(image => ({ marker: image.marker, sourceFileName: image.fileName })), pairs: translationData }));
-			} catch (error) { await imported.eraseTx(); throw error; }
-		}
-		return imported;
+			}
+			imported.addRelatedItem(sourceAttachment);
+			await imported.saveTx({notifierData:{skipRenameFile:true}});
+			return imported;
+		} catch (error) { await imported.eraseTx(); throw error; }
 	}
 };

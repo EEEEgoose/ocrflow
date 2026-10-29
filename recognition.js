@@ -27,7 +27,10 @@ Object.assign(DocFlow, {
 		try {
 		let work = context.cloudState ||= {}, parts = work.parts;
 		if (!parts) {
-			let pdf = /\.pdf$/i.test(fileName) ? await this.getPDFLibrary().PDFDocument.load(this.bytesToBase64(fileBytes)) : null;
+			let pdf = null;
+			if (/\.pdf$/i.test(fileName)) {
+				let prepared=await this.loadPDFForParsing(fileBytes,context);pdf=prepared.pdf;fileBytes=prepared.bytes;
+			}
 			work.totalPages = pdf?.getPageCount() || 0;
 			work.dir = PathUtils.join(PathUtils.tempDir, "ocrflow-cloud-" + this.makeDataID(attachmentID));
 			await IOUtils.makeDirectory(work.dir, {createAncestors:true});
@@ -93,6 +96,10 @@ Object.assign(DocFlow, {
 			let document = result.document ? JSON.parse(JSON.stringify(result.document)) : null;
 			if (document) {
 				for (let page of document.pages) page.page += part.start;
+				for (let page of document.layout || []) {
+					page.page += part.start;
+					for (let region of page.regions) region.text=rewrite(region.text);
+				}
 				for (let block of document.blocks) {
 					for (let fragment of block.fragments) fragment.page += part.start;
 					block.text=rewrite(block.text); block.rawText=rewrite(block.rawText);
@@ -109,6 +116,7 @@ Object.assign(DocFlow, {
 		let document=null, markdownText=markdown.join("\n\n");
 		if (documents.length === parts.length && typeof OCRFlowDocument !== "undefined") {
 			document=OCRFlowDocument.create("mineru");
+			document.layout=documents.flatMap(doc=>doc.layout||[]);
 			for (let doc of documents) {
 				document.pages.push(...doc.pages);
 				for (let block of doc.blocks) OCRFlowDocument.add(document,block.type,block.rawText,block.fragments[0]?.page,block.fragments[0]?.rect,{level:block.level});

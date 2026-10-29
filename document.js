@@ -24,6 +24,7 @@ var OCRFlowDocument = {
 
 	fromMineru(payload, offset = 0, blockList = {}) {
 		let doc = this.create("mineru");
+		doc.layout = OCRFlowLayout.mineru(payload).map(page => ({...page, page:page.page + offset}));
 		for (let [index, page] of (payload.pdf_info || []).entries()) {
 			let number = offset + index + 1, discarded = page.discarded_blocks || [];
 			let printed = discarded.find(block => block.type === "page_number");
@@ -76,6 +77,7 @@ var OCRFlowDocument = {
 
 	fromPaddle(pages) {
 		let doc = this.create("paddleocr");
+		doc.layout = OCRFlowLayout.paddle(pages);
 		for (let [index, page] of pages.entries()) {
 			let data = page.prunedResult || page;
 			doc.pages.push({ page: index + 1, printed: null, size: [data.width, data.height] });
@@ -257,6 +259,7 @@ Object.assign(DocFlow, {
 		}).replace(/(<img\b[^>]*\bsrc=["'])([^"']+)(["'])/gi, (_match, before, url, after) => before + resolve(url) + after);
 		result.markdownText = rewrite(result.markdownText);
 		for (let block of result.document?.blocks || []) block.text = rewrite(block.text);
+		for (let page of result.document?.layout || []) for (let region of page.regions) region.text = rewrite(region.text);
 		return result;
 	},
 

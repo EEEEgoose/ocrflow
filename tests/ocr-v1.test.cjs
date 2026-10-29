@@ -17,7 +17,7 @@ function setup() {
   fetch:async(url,options)=>{requests.push({url,options});throw Error('unexpected network request')}
  };
  vm.createContext(context);
- for(const name of ['prompts.js','docflow.js','workflow.js','document.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','preferences.js'])vm.runInContext(fs.readFileSync(name,'utf8'),context,{filename:name});
+ for(const name of ['prompts.js','docflow.js','workflow.js','document.js','layout.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','preferences.js'])vm.runInContext(fs.readFileSync(name,'utf8'),context,{filename:name});
  const m=context.DocFlow,d=context.OCRFlowDocument;
  const withTimeout=m.withTimeout;
  m.withTimeout=run=>run();m.refreshParseQueueDialog=()=>{};

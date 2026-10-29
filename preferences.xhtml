@@ -109,11 +109,11 @@
 			<html:label for="docflow-parser-service">PDF识别服务</html:label>
 			<menulist id="docflow-parser-service" native="true">
 				<menupopup>
-					<menuitem label="MinerU · 当前配置" value="mineru" /><menuitem label="MinerU · 官方云端" value="mineru-cloud" /><menuitem label="MinerU · 本地" value="mineru-local" /><menuitem label="PaddleOCR" value="paddle" />
-					<menuitem label="Marker" value="marker" /><menuitem label="MarkItDown" value="markitdown" />
+					<menuitem label="MinerU · 当前配置" value="mineru" /><menuitem label="MinerU · 在线 API" value="mineru-cloud" /><menuitem label="MinerU · 自部署 API" value="mineru-local" /><menuitem label="PaddleOCR" value="paddle" />
+					<menuitem label="Marker" value="marker" /><menuitem label="MarkItDown · 自部署 API" value="markitdown" />
 					<menuitem label="AI 视觉 OCR" value="ai" />
 				</menupopup>
-			</menulist><html:label for="ocrflow-default-office">Office文档识别服务</html:label><menulist id="ocrflow-default-office" native="true"><menupopup><menuitem label="MinerU · 官方云端" value="mineru-cloud" /><menuitem label="MinerU · 本地" value="mineru-local" /><menuitem label="MarkItDown" value="markitdown" /></menupopup></menulist><html:label for="ocrflow-default-html">HTML识别服务</html:label><menulist id="ocrflow-default-html" native="true"><menupopup><menuitem label="MinerU · 官方云端" value="mineru-cloud" /><menuitem label="MinerU · 本地" value="mineru-local" /><menuitem label="MarkItDown" value="markitdown" /></menupopup></menulist><html:label for="ocrflow-default-image">图片识别服务</html:label><menulist id="ocrflow-default-image" native="true"><menupopup><menuitem label="MinerU · 官方云端" value="mineru-cloud" /><menuitem label="MinerU · 本地" value="mineru-local" /><menuitem label="PaddleOCR · 官方 API" value="paddle-cloud" /><menuitem label="PaddleOCR · 自部署 API" value="paddle-local" /><menuitem label="AI 视觉 OCR" value="ai" /></menupopup></menulist>
+			</menulist><html:label for="ocrflow-default-office">Office文档识别服务</html:label><menulist id="ocrflow-default-office" native="true"><menupopup><menuitem label="MinerU · 在线 API" value="mineru-cloud" /><menuitem label="MinerU · 自部署 API" value="mineru-local" /><menuitem label="MarkItDown · 自部署 API" value="markitdown" /></menupopup></menulist><html:label for="ocrflow-default-html">HTML识别服务</html:label><menulist id="ocrflow-default-html" native="true"><menupopup><menuitem label="MinerU · 在线 API" value="mineru-cloud" /><menuitem label="MinerU · 自部署 API" value="mineru-local" /><menuitem label="MarkItDown · 自部署 API" value="markitdown" /></menupopup></menulist><html:label for="ocrflow-default-image">图片识别服务</html:label><menulist id="ocrflow-default-image" native="true"><menupopup><menuitem label="MinerU · 在线 API" value="mineru-cloud" /><menuitem label="MinerU · 自部署 API" value="mineru-local" /><menuitem label="PaddleOCR · 在线 API" value="paddle-cloud" /><menuitem label="PaddleOCR · 自部署 API" value="paddle-local" /><menuitem label="AI 视觉 OCR" value="ai" /></menupopup></menulist>
 		</html:div><html:p class="mineru-help">EPUB 需要 MarkItDown；Office、HTML 和图片使用各自的默认服务。</html:p><html:nav class="ocrflow-tabs" aria-label="转换服务"><html:button id="ocrflow-service-tab-mineru" type="button" aria-pressed="false">MinerU</html:button><html:button id="ocrflow-service-tab-paddle" type="button" aria-pressed="false">PaddleOCR</html:button><html:button id="ocrflow-service-tab-marker" type="button" aria-pressed="false">Marker</html:button><html:button id="ocrflow-service-tab-markitdown" type="button" aria-pressed="false">MarkItDown</html:button><html:button id="ocrflow-service-tab-ai" type="button" aria-pressed="false">AI 视觉</html:button></html:nav><html:div id="ocrflow-service-panel-mineru"><html:section class="ocrflow-section" aria-labelledby="ocrflow-mineru-heading">
 			<html:div class="ocrflow-section-heading">
 				<html:h3 id="ocrflow-mineru-heading">MinerU</html:h3>
@@ -123,8 +123,8 @@
 				<html:label for="mineru-api-mode">接口类型</html:label>
 				<menulist id="mineru-api-mode" native="true">
 					<menupopup>
-						<menuitem label="官方云端 API v4" value="cloud" />
-						<menuitem label="本地 MinerU 4（V1）" value="local-v1" />
+						<menuitem label="在线 API v4" value="cloud" />
+						<menuitem label="自部署 API（MinerU 4 V1）" value="local-v1" />
 					</menupopup>
 				</menulist>
 				<html:label for="mineru-api-base-url">API 地址</html:label>
@@ -188,7 +188,7 @@
 		</html:section></html:div><html:div id="ocrflow-service-panel-paddle"><html:section class="ocrflow-section" aria-labelledby="ocrflow-paddle-heading">
 			<html:h3 id="ocrflow-paddle-heading">PaddleOCR 文档解析</html:h3>
 			<html:p class="mineru-help">官方 API 会上传文件到 PaddleOCR 服务；自部署使用完整文档解析服务地址。两种配置分别保存。</html:p>
-			<html:div class="mineru-grid"><html:label for="ocrflow-paddle-mode">接口类型</html:label><html:select id="ocrflow-paddle-mode"><html:option value="cloud">官方 API</html:option><html:option value="local">自部署 API</html:option></html:select></html:div><html:div id="ocrflow-paddle-cloud-fields" class="mineru-grid">				<html:label for="ocrflow-paddle-cloud-url">官方 API 地址</html:label><html:input id="ocrflow-paddle-cloud-url" type="url"/>
+			<html:div class="mineru-grid"><html:label for="ocrflow-paddle-mode">接口类型</html:label><html:select id="ocrflow-paddle-mode"><html:option value="cloud">在线 API</html:option><html:option value="local">自部署 API</html:option></html:select></html:div><html:div id="ocrflow-paddle-cloud-fields" class="mineru-grid">				<html:label for="ocrflow-paddle-cloud-url">官方 API 地址</html:label><html:input id="ocrflow-paddle-cloud-url" type="url"/>
 				<html:label for="ocrflow-paddle-cloud-token">官方访问令牌</html:label><html:input id="ocrflow-paddle-cloud-token" type="password"/>
 				<html:label for="ocrflow-paddle-cloud-model">官方模型名称</html:label><html:input id="ocrflow-paddle-cloud-model" type="text"/></html:div><html:div id="ocrflow-paddle-local-fields" class="mineru-grid">				<html:label for="ocrflow-paddle-local-url">自部署服务地址</html:label><html:input id="ocrflow-paddle-local-url" type="url" placeholder="http://127.0.0.1:8080"/>
 				<html:label for="ocrflow-paddle-local-token">自部署令牌（可空）</html:label><html:input id="ocrflow-paddle-local-token" type="password"/>
@@ -196,7 +196,7 @@
 			<html:div class="ocrflow-group-actions"><html:button id="ocrflow-paddle-save" type="button">保存 PaddleOCR 配置</html:button><html:span id="ocrflow-paddle-status" class="ocrflow-status"/></html:div>
 		</html:section></html:div><html:div id="ocrflow-service-panel-marker"><html:section class="ocrflow-section" aria-labelledby="ocrflow-marker-heading">
 			<html:h3 id="ocrflow-marker-heading">Marker 文档解析</html:h3>
-<html:div class="mineru-grid"><html:label for="ocrflow-marker-type">接口类型</html:label><html:select id="ocrflow-marker-type"><html:option value="local">自部署 API</html:option><html:option value="cloud">Datalab 在线 API</html:option></html:select></html:div>
+<html:div class="mineru-grid"><html:label for="ocrflow-marker-type">接口类型</html:label><html:select id="ocrflow-marker-type"><html:option value="local">自部署 API</html:option><html:option value="cloud">在线 API</html:option></html:select></html:div>
 <html:div id="ocrflow-marker-local-fields"><html:p class="mineru-help">自部署使用整文件任务和页进度接口；Streamlit 网页不能用于插件调用。</html:p><html:div class="mineru-grid">
 				<html:label for="ocrflow-marker-url">API 服务地址</html:label><html:input id="ocrflow-marker-url" type="url" placeholder="http://127.0.0.1:8001"/>
 				<html:label for="ocrflow-marker-token">访问令牌（可空）</html:label><html:input id="ocrflow-marker-token" type="password"/>
@@ -446,10 +446,15 @@
 				<html:input id="mineru-parseGenerateHTML" type="checkbox" />
 				<html:span>
 					<html:span>同时生成 HTML</html:span>
-					<html:small class="mineru-help">关闭后仅生成 Markdown；已有附件不自动转换。</html:small>
+					<html:small class="mineru-help">可选原文布局或 Markdown 布局。原文布局或存在格式问题，Markdown 布局便于阅读。为不影响翻译效果，全文翻译强制Markdown 布局。已有附件不自动转换。</html:small>
 				</html:span>
 			</html:label>
 			<html:div class="mineru-grid ocrflow-image-setting">
+				<html:label for="mineru-parseHTMLLayout">HTML 布局</html:label>
+				<menulist id="mineru-parseHTMLLayout" native="true"><menupopup>
+					<menuitem label="原文布局" value="original" />
+					<menuitem label="Markdown 布局" value="markdown" />
+				</menupopup></menulist>
 				<html:label for="mineru-parseImageMode">HTML 图片保存方式</html:label>
 				<menulist id="mineru-parseImageMode" native="true">
 					<menupopup>

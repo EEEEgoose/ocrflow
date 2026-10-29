@@ -9,11 +9,11 @@ docflow-menu-parse-pdf =
 docflow-menu-ocr-default =
     .label = 使用设置中的服务
 docflow-menu-ocr-mineru-local =
-    .label = MinerU（本地服务）
+    .label = MinerU（自部署 API）
 docflow-menu-ocr-mineru-cloud =
-    .label = MinerU（官方云端）
+    .label = MinerU（在线 API）
 docflow-menu-ocr-markitdown =
-    .label = MarkItDown
+    .label = MarkItDown（自部署 API）
 docflow-menu-ocr-ai =
     .label = AI 视觉 OCR
 docflow-menu-fill-metadata =
@@ -26,7 +26,7 @@ docflow-menu-outline =
     .label = 生成大纲
 
 docflow-menu-ocr-paddle-cloud =
-    .label = PaddleOCR（官方 API）
+    .label = PaddleOCR（在线 API）
 docflow-menu-ocr-paddle-local =
     .label = PaddleOCR（自部署 API）
 ocrflow-menu-review-collation =
@@ -34,8 +34,10 @@ ocrflow-menu-review-collation =
 ocrflow-menu-changes =
     .label = 查看整理差异
 
-docflow-menu-ocr-marker =
-    .label = Marker（在线 / 自部署）
+docflow-menu-ocr-marker-cloud =
+    .label = Marker（在线 API）
+docflow-menu-ocr-marker-local =
+    .label = Marker（自部署 API）
 
 docflow-menu-translate-title =
     .label = 翻译标题

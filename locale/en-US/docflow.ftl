@@ -9,11 +9,11 @@ docflow-menu-parse-pdf =
 docflow-menu-ocr-default =
     .label = Use Service from Settings
 docflow-menu-ocr-mineru-local =
-    .label = MinerU (Local Service)
+    .label = MinerU (self-hosted API)
 docflow-menu-ocr-mineru-cloud =
-    .label = MinerU (Official Cloud)
+    .label = MinerU (online API)
 docflow-menu-ocr-markitdown =
-    .label = MarkItDown
+    .label = MarkItDown (self-hosted API)
 docflow-menu-ocr-ai =
     .label = AI Vision OCR
 docflow-menu-fill-metadata =
@@ -26,7 +26,7 @@ docflow-menu-outline =
     .label = Generate Outline
 
 docflow-menu-ocr-paddle-cloud =
-    .label = PaddleOCR (Official API)
+    .label = PaddleOCR (online API)
 docflow-menu-ocr-paddle-local =
     .label = PaddleOCR (Self-hosted API)
 ocrflow-menu-review-collation =
@@ -34,8 +34,10 @@ ocrflow-menu-review-collation =
 ocrflow-menu-changes =
     .label = View Processing Changes
 
-docflow-menu-ocr-marker =
-    .label = Marker (online / self-hosted)
+docflow-menu-ocr-marker-cloud =
+    .label = Marker (online API)
+docflow-menu-ocr-marker-local =
+    .label = Marker (self-hosted API)
 
 docflow-menu-translate-title =
     .label = Translate title

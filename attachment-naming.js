@@ -21,7 +21,8 @@ Object.assign(DocFlow, {
 			let oldPath=await item.getFilePath();if(!oldPath)continue;
 			let suffix=item.getField("title").match(/ · (?:AI 校勘|校勘)[\s\S]*$/)?.[0]||"";
 			if(translated&&tags.includes("#DocFlow-Translation-Partial"))suffix+=" · 未完成";
-			let name=(translated?"翻译OCRFlow_":parsed?"OCRFlow_":"")+stem+suffix;
+			let layoutPrefix=parsed && ["html","htm"].includes(ext) ? item.getField("title").match(/^OCRFlow_((?:原文布局|MD布局)_)/)?.[1] || "" : "";
+			let name=(translated?"翻译OCRFlow_":parsed?"OCRFlow_":"")+layoutPrefix+stem+suffix;
 			if(item.renameAttachmentFile) {
 				let renamed=await item.renameAttachmentFile(this.sanitizeFileName(name)+"."+ext,false,true);
 				if(renamed===false||renamed===-1||renamed===-2)throw Error("附件重命名失败："+item.attachmentFilename);

@@ -45,6 +45,14 @@ test('real PDF page copying preserves scans, uses 200-page pieces, offsets outli
   assert(s.statuses.some(p=>p.pageProgress?.completed===count));
  }
 });
+
+test('an encrypted PDF is normalized before the cloud uploader receives its bytes',async()=>{
+ const s=setup(),encrypted=fs.readFileSync('tests/fixtures/permission-encrypted.pdf'),plain=fs.readFileSync('tests/fixtures/encryption-source.pdf');let normalized=0;
+ s.context.Zotero.PDFWorker={_enqueue:async fn=>fn(),_query:async()=>{normalized++;return {buf:Uint8Array.from(plain).buffer};}};
+ const result=await s.m.parseCloudDocument(encrypted,'restricted.pdf',1,settings,{cloudState:{}});
+ assert.equal(normalized,1);assert.equal(s.uploads.length,1);assert.deepEqual(Buffer.from(s.uploads[0].bytes),plain);
+ assert.deepEqual(Array.from(result.outlinePages),['page-1','page-2','page-3']);assert.deepEqual(encrypted,fs.readFileSync('tests/fixtures/permission-encrypted.pdf'));
+});
 test('51 files from five documents split into batches of at most 50 and results match data_id despite reverse response order',async()=>{
  const s=setup(),contexts=Array.from({length:5},()=>({cloudState:{}}));let active=0,peak=0;
  const fetch=s.context.fetch;s.context.fetch=async(...args)=>{peak=Math.max(peak,++active);await new Promise(r=>setTimeout(r,1));const reply=await fetch(...args);active--;return reply;};

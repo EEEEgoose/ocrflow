@@ -49,14 +49,17 @@ async function check({format, link, importChangesTitle = false, importFails = fa
   vm.runInContext(fs.readFileSync('docflow.js', 'utf8'), context);
 vm.runInContext(fs.readFileSync('attachment-naming.js','utf8'),context);
   const plugin = context.DocFlow;
+  plugin.prepareOriginalLayout = () => [];
+  plugin.renderOriginalLayout = () => ({body:'',style:'',script:''});
   plugin.renderDocumentBody = text => '<p>' + text + '</p>';
   const save = () => plugin.saveResultAsMarkdownAttachment({attachment: source, parentItem: parent,
     parsedResult: {markdownText: '正文'}, settings: {outputFormat: format, parseLinkSourcePDF: link}});
   if (importFails) await assert.rejects(save, /Import failed/);
   else {
     const result = await save();
-    assert.equal(result.attachment.title, 'OCRFlow_作者_年份不详_书名');
-    assert.equal(path.basename(await result.attachment.getFilePath()), 'OCRFlow_作者_年份不详_书名.' + format);
+    const stem='OCRFlow_'+(format==='html'?'原文布局_':'')+'作者_年份不详_书名';
+    assert.equal(result.attachment.title, stem);
+    assert.equal(path.basename(await result.attachment.getFilePath()), stem+'.'+format);
     if (link) assert.deepEqual(relations.get(1), [result.attachment.id]);
     else assert.equal(relations.has(1), false);
   }

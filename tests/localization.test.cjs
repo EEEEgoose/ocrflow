@@ -44,5 +44,5 @@ test('native menu registration uses English fallback labels, and recognition cho
  context.DocFlow.registerMenuForZotero8();const menus=registered[0].menus[0].menus.filter(row=>row.menuType!=='separator');
  assert.equal(menus[0].label,'Organize document');assert(menus.some(row=>row.label==='Translate title'));assert(menus.some(row=>row.label==='Create item'));
  const sources=context.OCRFlowSources.choices([{id:'custom',llmProviderName:'翻译标题',llmModel:'识别文档'}]);
- assert.equal(sources[0].label,'Marker (Datalab hosted API)');assert.equal(sources.at(-1).label,'翻译标题 · 识别文档');
+ assert.equal(sources[0].label,'Marker (online API)');assert.equal(sources.at(-1).label,'翻译标题 · 识别文档');
 });

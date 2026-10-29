@@ -3,7 +3,14 @@ var OCRFlowTaskSidebar = {
 	views: new Map(),
 	plugin: null,
 
-	init(plugin) { this.plugin = plugin; },
+	init(plugin) {
+		this.plugin = plugin;
+		this.tabObserver = Zotero.Notifier?.registerObserver({notify:(action) => {
+			if (["select", "load", "close"].includes(action)) for (let view of this.views.values()) {
+				this.place(view); this.followSelection(view); this.render(view);
+			}
+		}}, ["tab"], plugin.id+"-sidebar", 30);
+	},
 
 	showUpdateNotice(version) {
 		let read=name=>Zotero.Prefs.get(this.plugin.PREF_BRANCH+name,true);
@@ -21,7 +28,7 @@ var OCRFlowTaskSidebar = {
 		if (!host || !rail) return;
 		let make = tag => doc.createElementNS("http://www.w3.org/1999/xhtml", tag);
 		let style = doc.createElementNS("http://www.w3.org/1999/xhtml", "link");
-		style.rel = "stylesheet"; style.href = "chrome://docflow/content/task-sidebar.css"; doc.documentElement.appendChild(style);
+		style.rel = "stylesheet"; style.href = "chrome://docflow/content/task-sidebar.css?v="+encodeURIComponent(this.plugin.version || ""); doc.documentElement.appendChild(style);
 		let button = make("button"); button.id = "ocrflow-sidebar-button"; button.className = "ocrflow-sidebar-button";
 		button.type = "button"; button.title = "OCRFlow 任务进度"; button.setAttribute("aria-label", ocrflowText("OCRFlow 任务进度"));
 		button.setAttribute("aria-controls", "ocrflow-task-sidebar"); button.setAttribute("aria-expanded", "false");
@@ -30,7 +37,7 @@ var OCRFlowTaskSidebar = {
 		rail.insertBefore(button, rail.querySelector(".highlight-notes-active")?.previousElementSibling || null);
 		let panel = make("section"); panel.id = "ocrflow-task-sidebar"; panel.hidden = true; panel.setAttribute("aria-label", ocrflowText("OCRFlow 任务进度"));
 		host.insertBefore(panel, doc.getElementById("zotero-item-pane-content"));
-		let view = { window, host, rail, panel, button, badge, style, open: false, dismissed: false, taskID: null, expanded: new Set(), collapsed: new Set(), launching: new Set(), fileID: null };
+		let view = { window, host, rail, libraryHost:host, libraryRail:rail, panel, button, badge, style, open: false, dismissed: false, taskID: null, expanded: new Set(), collapsed: new Set(), launching: new Set(), fileID: null };
 		this.views.set(window, view);
 		button.addEventListener("click", event => { event.stopPropagation(); this.toggle(view, !view.open, true); });
 		view.onRailClick = event => {
@@ -69,7 +76,41 @@ var OCRFlowTaskSidebar = {
 		panel.addEventListener("keydown", view.onSelectKey);
 		view.observer = new window.MutationObserver(() => { this.followSelection(view); this.render(view); });
 		view.observer.observe(doc.getElementById("zotero-item-pane-content"), { childList: true, subtree: true, characterData: true });
-		this.render(view);
+		this.place(view); this.render(view);
+	},
+
+	selectedItems(view) {
+		let tabs = view.window.Zotero_Tabs;
+		if (tabs && tabs.selectedType !== "library") {
+			let reader = Zotero.Reader.getByTabID(tabs.selectedID), item = reader && Zotero.Items.get(reader.itemID);
+			return item ? [item] : [];
+		}
+		return view.window.ZoteroPane.getSelectedItems();
+	},
+
+	place(view) {
+		let win=view.window, doc=win.document, reader=win.Zotero_Tabs && win.Zotero_Tabs.selectedType !== "library";
+		let host=reader ? doc.getElementById("zotero-context-pane-inner") : view.libraryHost;
+		let rail=reader ? doc.getElementById("zotero-context-pane-sidenav") : view.libraryRail;
+		if (!host || !rail) return;
+		if (view.host !== host) {
+			view.host.classList.remove("ocrflow-sidebar-open"); view.rail.removeEventListener("click",view.onRailClick,true);
+			host.insertBefore(view.panel,doc.getElementById(reader ? "zotero-context-pane-deck" : "zotero-item-pane-content"));
+			rail.appendChild(view.button); rail.addEventListener("click",view.onRailClick,true);
+			view.host=host; view.rail=rail;
+		}
+		let item=this.selectedItems(view)[0], key=reader ? item?.id : "library";
+		if (key !== view.placementKey && reader && item && !view.dismissed && (this.plugin.isMarkdownResult(item) || this.plugin.isTranslationResult(item))) view.open=true;
+		view.placementKey=key; view.panel.hidden=!view.open;
+		view.host.classList.toggle("ocrflow-sidebar-open",view.open); view.button.setAttribute("aria-expanded",String(view.open));
+		if (reader && view.open) win.ZoteroContextPane.collapsed=false;
+	},
+
+	async openDocument(view, item) {
+		if (["html","htm"].includes(this.plugin.documentExtension(item))) {
+			await Zotero.Reader.open(item.id);
+			this.place(view); this.toggle(view,true,true);
+		} else await view.window.ZoteroPane.viewAttachment(item.id);
 	},
 
 	toggle(view, open, manual = false) {
@@ -80,22 +121,27 @@ var OCRFlowTaskSidebar = {
 		view.button.setAttribute("aria-expanded", String(open));
 		if (open) { this.followSelection(view); view.host.collapsed = false; }
 		else if (manual) view.host.collapsed = true;
+		if (view.window.Zotero_Tabs && view.window.Zotero_Tabs.selectedType !== "library") view.window.ZoteroContextPane.collapsed=!open;
 		this.render(view);
 	},
 
 	documentContext(view) {
-		let selected = view.window.ZoteroPane.getSelectedItems();
+		let selected = this.selectedItems(view);
 		if (selected.length !== 1) return { key:"", item:null, files:[], file:null, source:null, parent:null };
 		let plugin = this.plugin, item = selected[0], parent = plugin.parentForDocument(item);
-		let explicit = plugin.isMarkdownResult(item) ? item : null;
-		let files = explicit ? plugin.relatedDocuments(item).filter(doc => plugin.collectSourceFiles([doc]).length)
+		let explicit = plugin.isMarkdownResult(item) ? item : plugin.isTranslationResult(item) ?
+			plugin.relatedDocuments(item).find(doc => plugin.isMarkdownResult(doc)) || (view.translationContext?.id === item.id ? view.translationContext.source : null) : null;
+		if (plugin.isTranslationResult(item) && !explicit && view.translationContext?.id !== item.id) this.loadTranslationContext(view,item);
+		if (plugin.isTranslationResult(item) && !explicit) return {key:`${item.id}:translation`,item,files:[],file:null,source:null,translation:item,parent,title:(parent || item).getField("title")};
+		let files = explicit ? plugin.relatedDocuments(explicit).filter(doc => plugin.collectSourceFiles([doc]).length)
 			: plugin.collectSourceFiles([item.isNote?.() ? parent || item : item]);
 		if (explicit && !files.length && parent) { let originals = plugin.collectSourceFiles([parent]).filter(doc => !plugin.isMarkdownResult(doc)); if (originals.length === 1) files = originals; }
 		let file = files.find(file => file.id === view.fileID) || files[0] || null;
 		view.fileID = file?.id || null;
 		let source = explicit || (file ? plugin.findDocumentMarkdown(file) : null);
 		if (!source && !files.length && parent) source = parent.getAttachments().map(id => Zotero.Items.get(id)).filter(doc => plugin.isMarkdownResult(doc)).at(-1) || null;
-		return { key:`${item.id}:${file?.id || source?.id || ""}`, item, files, file, source, parent,
+		let translation = source ? plugin.findDocumentTranslation(source) || (view.sourceActions?.id === source.id ? view.sourceActions.translation : null) : null;
+		return { key:`${item.id}:${file?.id || source?.id || ""}`, item, files, file, source, translation, parent,
 			title:(parent || item).getField("title") || file?.attachmentFilename || "未命名文献" };
 	},
 
@@ -106,15 +152,40 @@ var OCRFlowTaskSidebar = {
 	},
 
 	async loadSourceActions(view, source) {
-		let state = {id:source.id, review:false, changes:false}; view.sourceActions = state;
+		let state = {id:source.id, review:false, changes:false, translation:null}; view.sourceActions = state;
 		try {
 			let path = await source.getFilePath();
 			if (path) {
 				let root = PathUtils.join(PathUtils.parent(path), "_ocrflow");
 				[state.review, state.changes] = await Promise.all([IOUtils.exists(PathUtils.join(root, "collation.json")), IOUtils.exists(PathUtils.join(root, "changes.html"))]);
 			}
+			let parent=this.plugin.parentForDocument(source);
+			for (let id of parent?.getAttachments() || []) {
+				let item=Zotero.Items.get(id);
+				if (!this.plugin.isTranslationResult(item) || !["html","htm"].includes(this.plugin.documentExtension(item)) || !item.getTags().some(tag=>tag.tag==="#DocFlow-Translation")) continue;
+				let path=await item.getFilePath();
+				if (!path) continue;
+				let file=PathUtils.join(PathUtils.parent(path),"_ocrflow","translation.json");
+				if (await IOUtils.exists(file)) {
+					let data=JSON.parse(await IOUtils.readUTF8(file));
+					if (data.sourceKey===source.key && (!state.translation || item.id>state.translation.id)) state.translation=item;
+				}
+			}
 		} catch (error) { Zotero.logError(error); }
 		if (this.views.get(view.window) === view && view.sourceActions === state) this.render(view);
+	},
+
+	async loadTranslationContext(view, item) {
+		let state={id:item.id,source:null};view.translationContext=state;
+		try {
+			let path=await item.getFilePath();
+			let file=PathUtils.join(PathUtils.parent(path),"_ocrflow","translation.json");
+			if (await IOUtils.exists(file)) {
+				let data=JSON.parse(await IOUtils.readUTF8(file));
+				state.source=Zotero.Items.getByLibraryAndKey(item.libraryID,data.sourceKey);
+			}
+		} catch(error) {Zotero.logError(error);}
+		if (this.views.get(view.window)===view && view.translationContext===state) this.render(view);
 	},
 
 	async openReview(view, source) {
@@ -122,6 +193,16 @@ var OCRFlowTaskSidebar = {
 		view.reviewOpening = true; this.render(view);
 		try { await this.plugin.openCollationReview({selectedItems:[source]}); }
 		finally { view.reviewOpening = false; this.render(view); }
+	},
+
+	async convertDocumentLayout(view,htmlLayout) {
+		let context=this.documentContext(view);
+		if(!context.source || view.layoutConverting)return;
+		view.layoutConverting=true;view.launching.add(context.key);view.error=null;this.render(view);
+		try {
+			let item=await this.plugin.convertDocumentLayout({source:context.source,original:context.file,htmlLayout});
+			await this.openDocument(view,item);
+		} finally {view.layoutConverting=false;view.launching.delete(context.key);this.render(view);}
 	},
 
 	actionUnavailableReason(context, kind, busy = false) {
@@ -160,7 +241,7 @@ var OCRFlowTaskSidebar = {
 		view.launching.add(context.key); view.error = null; this.render(view);
 		try {
 			let target = kind === "title" ? context.parent : ["summary", "metadata", "translate"].includes(kind) || (kind === "organize" && plugin.isMarkdownResult(context.item)) ? context.source || context.file : context.file || context.source;
-			let options = {window:view.window, selectedItems:[target]};
+			let options = {window:view.window, selectedItems:[target], ...(kind === "translate" ? {force:true} : {})};
 			let running;
 			if (kind === "organize") running=plugin.handleOrganizeCommand(options);
 			else if (kind === "ocr") running=plugin.handleParseCommand(options);
@@ -181,7 +262,7 @@ var OCRFlowTaskSidebar = {
 	},
 
 	followSelection(view) {
-		let key = view.window.ZoteroPane.getSelectedItems().map(item => item.id).join(",");
+		let key = this.selectedItems(view).map(item => item.id).join(",");
 		if (view.selectionKey === key) return;
 		view.selectionKey = key; view.fileID = null; view.error = null; view.selectActive = null;
 		let tasks = this.documentTasks(this.documentContext(view));
@@ -243,12 +324,14 @@ var OCRFlowTaskSidebar = {
 			let heading=make("div",undefined,"of-update-heading");
 			let icon=doc.createElementNS("http://www.w3.org/2000/svg","svg"),path=doc.createElementNS("http://www.w3.org/2000/svg","path");
 			icon.setAttribute("viewBox","0 0 20 20");icon.setAttribute("class","of-update-icon");icon.setAttribute("aria-hidden","true");
+			for(let [name,value] of Object.entries({width:17,height:17,fill:"none",stroke:"currentColor","stroke-width":1.5,"stroke-linecap":"round","stroke-linejoin":"round"}))icon.setAttribute(name,String(value));
 			path.setAttribute("d","M16.6 8a6.7 6.7 0 0 0-11-3.1L3 7.5m0-4v4h4M3.4 12a6.7 6.7 0 0 0 11 3.1l2.6-2.6m0 4v-4h-4");icon.append(path);
 			heading.append(icon,make("strong","本次更新"),make("span",`v${version}`,"of-update-version",true));notice.append(heading);
 			let updates=make("ul",undefined,"of-update-list");
-			for(let [label,text] of [["识别服务","：按 PDF、Office、HTML、图片分别设置"],["批量识别","：长文档自动切片，最多 5 份并行"],["任务流程","：优化页码、大纲与操作排队"],["配置备份","：支持本机命名与保留数量管理"]]) {
+			for(let [label,text] of [["HTML 布局","：可选原文布局或 Markdown 布局。"],["侧栏操作","：直接打开已有全文和译文；更多操作支持重新识别、重译全文。"],["阅读侧栏","：打开识别 HTML 和译文时，同步显示 OCRFlow 面板。"],["全文总结","：提示词更新，笔记中注明实际使用模型。"],["PDF 兼容","：支持无需打开密码的加密 PDF，保留原附件。"]]) {
 				let item=make("li");item.append(make("strong",label),make("span",text));updates.append(item);
 			}notice.append(updates);
+			notice.append(make("p","已有自定义提示词和全文翻译格式保持不变。","of-update-note"));
 			let buttons=make("div",undefined,"of-update-actions"),close=action("关闭",()=>this.dismissUpdateNotice(version)),mute=action("不再提醒",()=>this.dismissUpdateNotice(version,true));
 			close.title=ocrflowText("关闭当前版本的提示，重启后仍有效");mute.title=ocrflowText("不再提醒当前大版本下的更新；升级大版本时仍提醒");
 			buttons.append(close,mute);notice.append(buttons);content.append(notice);
@@ -267,7 +350,7 @@ var OCRFlowTaskSidebar = {
 			if (context.file) fileRow.appendChild(action("打开", () => view.window.ZoteroPane.viewAttachment(context.file.id)));
 			content.appendChild(fileRow);
 			let sourceRow = make("div", undefined, "of-source"); sourceRow.appendChild(make("span", context.source ? "✓ 已有全文" : "暂无全文", "of-muted"));
-			if (context.source) sourceRow.appendChild(action("查看全文", () => view.window.ZoteroPane.viewAttachment(context.source.id)));
+			if (context.source) sourceRow.appendChild(action("查看全文", () => this.openDocument(view,context.source)));
 			content.appendChild(sourceRow);
 			let section = make("div", undefined, "of-section-title"); section.append(make("span", "文献操作"), action("服务与模型设置", () => plugin.openPreferences("services")));
 			content.appendChild(section);
@@ -282,8 +365,10 @@ var OCRFlowTaskSidebar = {
 			primary.appendChild(make("small", "识别、建条、补全、总结、翻译、大纲")); content.appendChild(primary);
 			let operations = make("div", undefined, "of-document-actions");
 			for (let [kind, label, icon] of [["ocr", "识别文档", "ocr"], ["metadata", "补全条目", "metadata"], ["summary", "总结文献", "summary"], ["translate", "翻译文献", "translate"], ["outline", "生成大纲", "outline"], ["title", "翻译标题", "translate"]]) {
-				let button = iconButton(label, icon, () => this.performDocumentAction(view, kind), !this.canPerform(context, kind, busy));
-				button.title = ocrflowText(this.actionUnavailableReason(context, kind, busy) || (kind === "ocr" && context.source ? "将重新识别关联原文件，保留已有全文。" : ""));
+				let existing=kind==="ocr" ? context.source : kind==="translate" ? context.translation : null;
+				if (existing) label=kind==="ocr" ? ["html","htm"].includes(plugin.documentExtension(existing)) ? "打开HTML" : "打开全文" : "打开译文";
+				let button = iconButton(label, icon, () => existing ? this.openDocument(view,existing) : this.performDocumentAction(view, kind), !existing && !this.canPerform(context, kind, busy));
+				button.title = ocrflowText(existing ? label : this.actionUnavailableReason(context, kind, busy));
 				button.setAttribute("data-focus-key", kind); operations.appendChild(button);
 			}
 			content.appendChild(operations);
@@ -292,12 +377,14 @@ var OCRFlowTaskSidebar = {
 				else if (busy) content.appendChild(make("p", relatedTasks.some(task => task.decision) ? "翻译已暂停，请在下方查看失败原因并选择重试或终止。" : "当前任务执行中，其他操作可加入队列。", "of-muted"));
 				else {
 					if (!context.source || !context.parent) content.appendChild(make("p", this.actionUnavailableReason(context, "summary"), "of-muted"));
-					if (context.source) content.appendChild(make("p", context.file ? "已使用现有全文；点击“识别文档”将重新识别原文件，保留已有全文。" : this.actionUnavailableReason(context, "ocr"), "of-muted"));
+					if (context.source) content.appendChild(make("p", context.file ? "已使用现有全文；可在“更多操作”中重新识别或重译。" : this.actionUnavailableReason(context, "ocr"), "of-muted"));
 				}
 			}
 			let more = make("details", undefined, "of-more"); more.open = !!view.moreOpen;
 			more.appendChild(make("summary", "更多操作"));
 			let moreActions = make("div", undefined, "of-actions");
+			moreActions.append(action("重新识别",()=>this.performDocumentAction(view,"ocr"),!this.canPerform(context,"ocr",busy)),action("重译全文",()=>this.performDocumentAction(view,"translate"),!this.canPerform(context,"translate",busy)));
+			moreActions.append(action("转为原文布局",()=>this.convertDocumentLayout(view,"original"),!context.source || busy || view.layoutConverting),action("转为MD布局",()=>this.convertDocumentLayout(view,"markdown"),!context.source || busy || view.layoutConverting));
 			moreActions.append(action("建立条目", () => this.performDocumentAction(view, "parent"), !this.canPerform(context, "parent", busy)),
 				action(view.reviewOpening ? "正在打开校勘…" : "审阅 OCR 校勘", () => this.openReview(view, context.source), view.reviewOpening || !view.sourceActions?.review),
 				action("查看整理差异", () => plugin.openChangesReport({selectedItems:[context.source]}), !view.sourceActions?.changes));
@@ -363,13 +450,13 @@ var OCRFlowTaskSidebar = {
 			else if (["failed", "canceled", "wait_expired", "waiting"].includes(task.state)) actions.appendChild(action(task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : "重新处理", () => plugin.retryParseQueueTasks([task.id])));
 			if (["queued", "running", "wait_expired"].includes(task.state) || task.cancelFailed) actions.appendChild(action(task.cancelFailed ? "重试终止" : ((task.cancelSettings||task.settings).parserService==="marker" && (task.cancelSettings||task.settings).markerSettings?.apiType==="cloud") ? "停止等待" : "终止任务", () => plugin.cancelParseQueueTask(task.id), !!task.saving));
 			if (task.resultAttachment) {
-				actions.appendChild(action("查看结果", () => view.window.ZoteroPane.viewItems([task.resultAttachment])));
+				actions.appendChild(action("查看结果", () => task.resultAttachment.isAttachment?.() ? this.openDocument(view,task.resultAttachment) : view.window.ZoteroPane.viewItems([task.resultAttachment])));
 				if (task.collationStatus) actions.appendChild(action(view.reviewOpening ? "正在打开校勘…" : "审阅 OCR 校勘", () => this.openReview(view, task.resultAttachment), view.reviewOpening));
 				if (task.hasChangesReport) actions.appendChild(action("整理差异报告", () => plugin.openChangesReport({selectedItems:[task.resultAttachment]})));
 			}
 			for (let [kind,label] of [["summary","查看总结"],["translate","查看译文"]]) {
 				let result=task.organizeResults?.[kind];
-				if(result)actions.appendChild(action(label,()=>view.window.ZoteroPane.viewItems([result])));
+				if(result)actions.appendChild(action(label,()=>result.isAttachment?.() ? this.openDocument(view,result) : view.window.ZoteroPane.viewItems([result])));
 			}
 			content.appendChild(actions);
 		}
@@ -392,12 +479,12 @@ var OCRFlowTaskSidebar = {
 	serviceLabel(task) {
 		let settings = task.displaySettings || task.settings;
 		if(task.kind==="title" || settings.service && settings.targetLang)return `${this.plugin.titleTranslationServiceLabel(settings)} → ${settings.targetLang}`;
-		if(settings.parserService==="marker"&&settings.markerSettings?.apiType==="cloud")return ocrflowText("Marker · Datalab 在线 API");
+		if(settings.parserService==="marker"&&settings.markerSettings?.apiType==="cloud")return ocrflowText("Marker · 在线 API");
 		if (settings.parserService === "ai" || (!settings.parserService && settings.model) || !["parse", "organize"].includes(task.kind)) {
 			let model = settings.llmSettings || settings;
 			return [model.providerName, model.model].filter(Boolean).join(" · ") || ocrflowText("AI 工作");
 		}
-		return ocrflowText(({marker:"Marker · 自部署 API","paddle-cloud":"PaddleOCR · 官方 API","paddle-local":"PaddleOCR · 自部署 API",markitdown:"MarkItDown"})[settings.parserService] || (settings.apiMode === "local-v1" ? "MinerU · 本地服务" : "MinerU · 官方云端"));
+		return ocrflowText(({marker:"Marker · 自部署 API","paddle-cloud":"PaddleOCR · 在线 API","paddle-local":"PaddleOCR · 自部署 API",markitdown:"MarkItDown · 自部署 API"})[settings.parserService] || (settings.apiMode === "local-v1" ? "MinerU · 自部署 API" : "MinerU · 在线 API"));
 	},
 
 	unmount(window) {
@@ -415,6 +502,7 @@ var OCRFlowTaskSidebar = {
 	},
 
 	shutdown() {
+		if (this.tabObserver) Zotero.Notifier.unregisterObserver(this.tabObserver);
 		for (let window of this.views.keys()) this.unmount(window);
 		for (let task of this.plugin.parseQueue) if (task.decision) this.plugin.resolveTaskDecision(task, "discard");
 	}

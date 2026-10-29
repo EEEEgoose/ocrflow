@@ -38,7 +38,7 @@ out.mkdir(parents=True, exist_ok=True)
 assets = [
     "manifest.json", "bootstrap.js", "localization.js", "locale/en-US/ui.js", "config.js", "config-preferences.js", "datalab.js", "prompts.js", "docflow.js", "markitdown.js", "marker.js", "metadata.js", "workflow.js",
     "translation-services.js", "title-translation.js", "recognition.js", "attachment-naming.js",
-    "outline.js", "preferences.js", "preferences.xhtml", "document.js", "paddleocr.js", "translation.js",
+    "outline.js", "preferences.js", "preferences.xhtml", "document.js", "layout.js", "paddleocr.js", "translation.js",
     "collation.js", "collation-dialog.js", "collation.xhtml", "ocr-sources.js",
     "task-queue.xhtml", "task-queue.js", "task-queue.css", "task-sidebar.js", "task-sidebar.css", "sidebar-icon.svg", "prefs.js",
     "icon16.png", "icon48.png", "icon96.png", "LICENSE", "THIRD_PARTY.md",

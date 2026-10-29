@@ -15,20 +15,20 @@ function setup() {
 
 test('OCR submenu choices use saved service profiles without changing defaults',async()=>{
   const s=setup(),choices=s.plugin.getContextMenuDefinitions()[1].children,before=Array.from(s.prefs);
-  assert.deepEqual(Array.from(choices,choice=>choice.id),['docflow-ocr-default','docflow-ocr-mineru-local','docflow-ocr-mineru-cloud','docflow-ocr-markitdown','docflow-ocr-paddle-cloud','docflow-ocr-paddle-local','docflow-ocr-marker','docflow-ocr-ai']);
+  assert.deepEqual(Array.from(choices,choice=>choice.id),['docflow-ocr-default','docflow-ocr-mineru-local','docflow-ocr-mineru-cloud','docflow-ocr-markitdown','docflow-ocr-paddle-cloud','docflow-ocr-paddle-local','docflow-ocr-marker-cloud','docflow-ocr-marker-local','docflow-ocr-ai']);
   for(const choice of choices)await choice.run({selectedItems:[s.pdf,s.image,s.epub]});
-  assert.deepEqual(s.calls.map(call=>call.settings.parserService),['ai','mineru','mineru','markitdown','paddle-cloud','paddle-local','marker','ai']);
+  assert.deepEqual(s.calls.map(call=>call.settings.parserService),['ai','mineru','mineru','markitdown','paddle-cloud','paddle-local','marker','marker','ai']);
   assert.equal(s.calls[1].settings.apiBaseURL,'http://local.example');assert.equal(s.calls[1].settings.modelVersion,'advanced');
   assert.equal(s.calls[2].settings.apiMode,'cloud');assert.equal(s.calls[2].settings.apiBaseURL,'https://cloud.example/v4');assert.equal(s.calls[2].settings.apiToken,'cloud-token');
-  assert.deepEqual(s.calls.map(call=>Array.from(call.tasks,task=>task.attachment.id)),[[1,2,3],[1,2],[1,2],[1,2,3],[1,2],[1,2],[1],[1,2]]);
+  assert.deepEqual(s.calls.map(call=>Array.from(call.tasks,task=>task.attachment.id)),[[1,2,3],[1,2],[1,2],[1,2,3],[1,2],[1,2],[1],[1],[1,2]]);
   assert.deepEqual(Array.from(s.prefs),before);
 });
 
 test('MenuManager receives a nested OCR menu and enables only supported input formats',()=>{
   const s=setup();assert(s.plugin.registerMenuForZotero8());
-  const menu=s.registered[0].menus[0].menus.find(menu=>menu.l10nID==="docflow-menu-parse-pdf");assert.equal(menu.menuType,'submenu');assert.equal(menu.menus.length,8);assert.equal(menu.onCommand,undefined);
+  const menu=s.registered[0].menus[0].menus.find(menu=>menu.l10nID==="docflow-menu-parse-pdf");assert.equal(menu.menuType,'submenu');assert.equal(menu.menus.length,9);assert.equal(menu.onCommand,undefined);
   const enabled=[];for(const leaf of menu.menus)leaf.onShowing(null,{items:[s.epub],setEnabled:value=>enabled.push(value)});
-  assert.deepEqual(enabled,[true,false,false,true,false,false,false,false]);
+  assert.deepEqual(enabled,[true,false,false,true,false,false,false,false,false]);
   menu.menus[2].onCommand(null,{items:[s.pdf],menuElem:{ownerGlobal:{}}});
   assert.equal(s.calls[0].settings.parserService,'mineru');assert.equal(s.calls[0].settings.apiMode,'cloud');
 });
@@ -76,4 +76,22 @@ test('menu actions have native label attributes, vector icons and compact functi
     }
   }
   for(const item of actions) {assert(item.icon.endsWith('.svg'));assert(fs.existsSync(item.icon));}
+});
+
+test('Marker menu uses the chosen endpoint and retry refreshes that endpoint without changing defaults',async()=>{
+ const s=setup(),set=(k,v)=>s.prefs.set('extensions.docflow.marker.'+k,v);
+ set('apiType','local');set('url','http://marker.example');set('token','self-token');set('cloud.url','https://datalab.example/api/v1');set('cloud.token','online-token');
+ const before=Array.from(s.prefs),choices=s.plugin.getOCRMenuDefinitions();
+ await choices.find(c=>c.id==='docflow-ocr-marker-cloud').run({selectedItems:[s.pdf]});
+ await choices.find(c=>c.id==='docflow-ocr-marker-local').run({selectedItems:[s.pdf]});
+ assert.equal(s.calls[0].settings.markerSettings.apiType,'cloud');assert.equal(s.calls[0].settings.markerSettings.baseURL,'https://datalab.example/api/v1');assert.equal(s.calls[0].settings.markerSettings.token,'online-token');
+ assert.equal(s.calls[1].settings.markerSettings.apiType,'local');assert.equal(s.calls[1].settings.markerSettings.baseURL,'http://marker.example');assert.equal(s.calls[1].settings.markerSettings.token,'self-token');
+ assert.deepEqual(Array.from(s.prefs),before);
+ s.plugin.parseQueue=s.calls.map((call,i)=>({id:i+1,kind:'parse',state:'failed',settings:call.settings}));
+ set('apiType','cloud');set('cloud.token','renewed-online');set('token','renewed-self');
+ s.plugin.refreshParseQueueDialog=()=>{};s.plugin.processParseQueue=async()=>{};
+ await s.plugin.retryParseQueueTasks([1,2]);
+ assert.deepEqual(s.plugin.parseQueue.map(task=>task.settings.markerSettings.apiType),['cloud','local']);
+ assert.deepEqual(s.plugin.parseQueue.map(task=>task.settings.markerSettings.token),['renewed-online','renewed-self']);
+ assert(s.plugin.parseQueue.every(task=>task.settings.explicitService));
 });

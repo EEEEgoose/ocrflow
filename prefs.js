@@ -17,6 +17,7 @@ pref("extensions.docflow.llmModel", "");
 pref("extensions.docflow.summaryLanguage", "中文");
 pref("extensions.docflow.summaryPrompt", "");
 pref("extensions.docflow.parseGenerateHTML", true);
+pref("extensions.docflow.parseHTMLLayout", "original");
 pref("extensions.docflow.parseLinkSourcePDF", true);
 pref("extensions.docflow.parseImageMode", "folder");
 pref("extensions.docflow.translateOutputFormat", "md");

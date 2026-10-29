@@ -47,6 +47,7 @@ var DocFlowPreferences = {
 		{ id: "mineru-outline-use-ai", pref: "outlineUseAI", type: "bool", defaultValue: true },
 		{ id: "mineru-parseLinkSourcePDF", pref: "parseLinkSourcePDF", type: "bool", defaultValue: true },
 		{ id: "mineru-parseGenerateHTML", pref: "parseGenerateHTML", type: "bool", defaultValue: true },
+		{ id: "mineru-parseHTMLLayout", pref: "parseHTMLLayout", type: "string", defaultValue: "original" },
 		{ id: "mineru-parseImageMode", pref: "parseImageMode", type: "string" },
 		{ id: "mineru-translateOutputFormat", pref: "translateOutputFormat", type: "string" },
 		{ id: "mineru-translateMode", pref: "translateMode", type: "string" },
@@ -570,6 +571,8 @@ var DocFlowPreferences = {
 		mode.disabled = !enabled;
 		let images = this.$("mineru-parseImageMode");
 		if (images) images.disabled = !this.$("mineru-parseGenerateHTML")?.checked;
+		let layout = this.$("mineru-parseHTMLLayout");
+		if (layout) layout.disabled = !this.$("mineru-parseGenerateHTML")?.checked;
 	},
 
 	readCurrentSettings(fromInputs = false) {

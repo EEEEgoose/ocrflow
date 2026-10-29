@@ -6,6 +6,7 @@
 #ocrflow-task-sidebar[hidden] { display:none !important; }
 #ocrflow-task-sidebar * { box-sizing:border-box; }
 .ocrflow-sidebar-open > #zotero-item-pane-content { display:none !important; }
+.ocrflow-sidebar-open > #zotero-context-pane-deck { display:none !important; }
 .ocrflow-sidebar-open > #ocrflow-task-sidebar { display:block; }
 #ocrflow-task-sidebar header, #ocrflow-task-sidebar footer { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:14px; background:light-dark(#fafafa,#262628); }
 #ocrflow-task-sidebar header { position:sticky; top:0; z-index:1; border-bottom:1px solid light-dark(#ddd,#444); }
@@ -72,6 +73,7 @@
 #ocrflow-task-sidebar .of-update-list li { position:relative; padding-left:12px; color:light-dark(#7b683d,#d0b980); font-size:12px; line-height:1.65; overflow-wrap:anywhere; }
 #ocrflow-task-sidebar .of-update-list li:before { content:""; position:absolute; left:1px; top:.68em; width:3px; height:3px; border-radius:50%; background:currentColor; }
 #ocrflow-task-sidebar .of-update-list strong { color:light-dark(#57451e,#f5e2ab); font-weight:550; }
+#ocrflow-task-sidebar .of-update-note { margin:12px 0 0; font-size:12px; line-height:1.65; }
 #ocrflow-task-sidebar .of-update-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; padding-top:11px; border-top:1px solid light-dark(#e4c66c80,#8a703280); }
 #ocrflow-task-sidebar .of-update-actions button { border:1px solid light-dark(#e4c66c,#8a7032); border-radius:5px; background:light-dark(#fffaf0,#4b4028); color:light-dark(#57451e,#f5e2ab); padding:4px 11px; min-height:29px; font-size:12px; }
 #ocrflow-task-sidebar .of-update-actions button:hover { background:light-dark(#f7e8b8,#5e4e2d); }

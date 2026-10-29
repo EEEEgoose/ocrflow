@@ -26,6 +26,8 @@ vm.createContext(context);
 vm.runInContext(fs.readFileSync('docflow.js', 'utf8'), context);
 vm.runInContext(fs.readFileSync('attachment-naming.js','utf8'),context);
 const plugin = context.DocFlow;
+plugin.prepareOriginalLayout = () => [];
+plugin.renderOriginalLayout = () => ({body:'',style:'',script:''});
 plugin.renderDocumentBody = text => '<p>' + text + '</p>';
 const attachment = {libraryID: 1, getFilePath: () => '/source/original.pdf', getField: () => 'PDF'};
 function parent(title, creators) {
@@ -38,9 +40,10 @@ function parent(title, creators) {
   };
 }
 
-async function check(parentItem, stem, format, source = attachment) {
+async function check(parentItem, stem, format, source = attachment, htmlLayout = "original") {
+  if (format === "html") stem = stem.replace(/^OCRFlow_/,htmlLayout === "markdown" ? "OCRFlow_MD布局_" : "OCRFlow_原文布局_");
   const result = await plugin.saveResultAsMarkdownAttachment({attachment: source, parentItem,
-    parsedResult: {markdownText: '正文'}, settings: {outputFormat: format, parseLinkSourcePDF: false}});
+    parsedResult: {markdownText: '正文'}, settings: {outputFormat: format, htmlLayout, parseLinkSourcePDF: false}});
   const entry = imports.at(-1);
   const stored = await result.attachment.getFilePath();
   assert.equal(path.basename(stored), stem + '.' + format);
@@ -62,6 +65,7 @@ async function run() {
   for (const format of ['md', 'html']) await check(book, 'OCRFlow_艾周昌等_年份不详_早期殖民主义侵略史', format);
   await check(parent('Orientalism', [{creatorType: 'author', firstName: 'Edward W.', lastName: 'Said'}]),
     'OCRFlow_Said_年份不详_Orientalism', 'html');
+  await check(undefined, 'OCRFlow_未知作者_年份不详_original', 'html', attachment, 'markdown');
   await check(parent('历史研究', [{creatorType: 'author', name: '中国社会科学院'}]),
     'OCRFlow_中国社会科学院_年份不详_历史研究', 'md');
   await check(parent('史料: 研究/选编?', [{creatorType: 'author', name: '作者'}]),

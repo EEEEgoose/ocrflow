@@ -13,7 +13,7 @@ function setup(){
  const context={TextDecoder,Uint8Array,AbortController,FormData,Blob,URL,atob,btoa,setTimeout,clearTimeout,
   Zotero:{Prefs:{get:key=>prefs.get(key)},getMainWindow:()=>({AbortController,FormData,Blob}),debug:()=>{}},IOUtils:{read:async()=>inputPDF},
   fetch:async(url,options)=>{calls.push({url,options});if(url.endsWith('/openapi.json'))return response({paths:{'/v1/parse/jobs':{post:{}}}});if(options.method==='POST')return response(state('queued'));if(options.method==='DELETE')return response(state('canceled'));if(url.endsWith('/result'))return response(result);return response(states.shift()||state('completed',2));}};
- vm.createContext(context);for(const name of ['prompts.js','docflow.js','marker.js','workflow.js','document.js','paddleocr.js','ocr-sources.js','collation.js'])vm.runInContext(fs.readFileSync(name,'utf8'),context);
+ vm.createContext(context);for(const name of ['prompts.js','docflow.js','marker.js','workflow.js','document.js','layout.js','paddleocr.js','ocr-sources.js','collation.js'])vm.runInContext(fs.readFileSync(name,'utf8'),context);
  const m=context.DocFlow;m.refreshParseQueueDialog=()=>{};m.getPDFLibrary=()=>({PDFDocument});m.delayParsePoll=async()=>{};
  const attachment={id:1,attachmentFilename:'scan.pdf',getFilePath:async()=>'/scan.pdf'};
  const settings={parserService:'marker',markerSettings:{baseURL:'http://marker.test/',token:'test-token',mode:'balanced',forceOCR:true},timeoutMS:1000};
@@ -32,6 +32,21 @@ test('Marker uploads the whole PDF once, polls real stages and downloads one ful
 test('a known job resumes without uploading or reading the original PDF again',async()=>{
  const s=setup();s.states.splice(0,s.states.length,s.state('completed',2));s.context.IOUtils.read=()=>{throw Error('must not read PDF');};
  await s.m.parseWithMarker(s.attachment,s.settings,{jobID:'job1'});assert(!s.calls.some(c=>c.options.method==='POST'));assert.equal(s.calls[0].url,'http://marker.test/v1/parse/jobs/job1');
+});
+
+test('original-layout HTML requests geometry with the same Marker job and keeps its Markdown output',async()=>{
+ const s=setup();
+ s.setResult({success:true,output:'Original recognized text.',images:{},layout:{children:[{bbox:[0,0,600,800],children:[{block_type:'Text',html:'<p>Original recognized text.</p>',bbox:[10,20,500,40]}]}]}});
+ const result=await s.m.parseWithMarker(s.attachment,{...s.settings,outputFormat:'html'});
+ assert.equal(s.calls.filter(c=>c.options.method==='POST').length,1);
+ assert.equal(s.calls.find(c=>c.options.method==='POST').options.body.get('include_layout'),'true');
+ assert(result.markdownText.includes('Original recognized text.'));assert.equal(result.document.layout[0].regions[0].text,'Original recognized text.');
+ assert(JSON.parse(result.rawFiles[0].text).layout);
+});
+
+test('Markdown-layout HTML does not request extra Marker geometry',async()=>{
+ const s=setup();await s.m.parseWithMarker(s.attachment,{...s.settings,outputFormat:'html',htmlLayout:'markdown'});
+ assert.equal(s.calls.find(c=>c.options.method==='POST').options.body.get('include_layout'),null);
 });
 test('temporary polling and result download outages reconnect without reuploading',async()=>{
  const s=setup(),fetch=s.context.fetch,statuses=[];let pollFailures=0,resultFailures=0;

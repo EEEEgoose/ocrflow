@@ -3,7 +3,7 @@ function setup(){
  const prefs=new Map(),items=new Map(),context={setTimeout,clearTimeout,AbortController,Uint8Array,
   Zotero:{getMainWindow:()=>({AbortController}),Prefs:{get:k=>prefs.get(k),set:(k,v)=>prefs.set(k,v)},Items:{get:id=>items.get(id),getByLibraryAndKey:(_lib,key)=>[...items.values()].find(i=>i.key===key)},debug(){},logError(){}},
   IOUtils:{exists:async()=>true}};
- vm.createContext(context);for(const file of ['prompts.js','docflow.js','workflow.js','document.js','translation.js','recognition.js','attachment-naming.js','task-sidebar.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
+ vm.createContext(context);for(const file of ['prompts.js','docflow.js','workflow.js','document.js','layout.js','translation.js','recognition.js','attachment-naming.js','task-sidebar.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
  const m=context.DocFlow;m.refreshParseQueueDialog=()=>{};m.openParseQueueDialog=()=>{};
  let next=1;function item(filename,parent=null,tags=[]){const i={id:next++,libraryID:1,key:'K'+next,attachmentFilename:filename,parentItemID:parent?.id,relatedItems:[],
   getField:f=>f==='title'?(filename||'Book'):f==='date'?'2024':'',getTags:()=>tags.map(tag=>({tag})),isRegularItem:()=>!filename,isAttachment:()=>!!filename,

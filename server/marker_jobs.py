@@ -23,6 +23,17 @@ queue = None
 active = None
 
 
+def render_document(converter, filepath, include_layout):
+    if not include_layout:
+        return converter(filepath), None
+    from marker.renderers.json import JSONRenderer
+    document = converter.build_document(filepath)
+    converter.page_count = len(document.pages)
+    rendered = converter.resolve_dependencies(converter.renderer)(document)
+    layout = converter.resolve_dependencies(JSONRenderer)(document)
+    return rendered, layout.model_dump(mode='json', exclude={'metadata'})
+
+
 def directory(job_id):
     path = ROOT / job_id
     if not re.fullmatch('[a-f0-9]{32}', job_id) or not (path / 'status.json').exists():
@@ -89,6 +100,7 @@ def run_job(folder):
                 return [observed(processor) for processor in processors]
 
         request = json.loads((Path(folder) / 'request.json').read_text())
+        include_layout = request.pop('include_layout', False)
         parser = ConfigParser(request)
         config = parser.generate_config_dict()
         config['pdftext_workers'] = 1
@@ -97,7 +109,7 @@ def run_job(folder):
         model.manager = ProgressManager(model.manager, progress, PROMPT_TYPE_HIGH_ACCURACY_BBOX)
         converter = Converter(artifact_dict=models, config=config, processor_list=parser.get_processors(),
                               renderer=parser.get_renderer(), llm_service=parser.get_llm_service())
-        rendered = converter(str(Path(folder) / 'input.pdf'))
+        rendered, layout = render_document(converter, str(Path(folder) / 'input.pdf'), include_layout)
         text, _, images = text_from_rendered(rendered)
         progress.update(stage='saving', detail='正在保存整份文档结果')
         encoded = {}
@@ -107,6 +119,8 @@ def run_job(folder):
             encoded[name] = base64.b64encode(buffer.getvalue()).decode()
         result = {'success': True, 'format': request['output_format'], 'output': text,
                   'images': encoded, 'metadata': rendered.metadata}
+        if layout is not None:
+            result['layout'] = layout
         target = Path(folder) / 'result.json'
         temporary = target.with_suffix('.tmp')
         temporary.write_text(json.dumps(result, ensure_ascii=False))
@@ -173,7 +187,7 @@ async def lifespan(app):
 app = FastAPI(title='OCRFlow Marker Jobs', lifespan=lifespan)
 
 
-async def submit(file, mode, force_ocr, output_format, paginate_output):
+async def submit(file, mode, force_ocr, output_format, paginate_output, include_layout=False):
     job_id = uuid.uuid4().hex
     path = ROOT / job_id
     path.mkdir(parents=True)
@@ -182,7 +196,8 @@ async def submit(file, mode, force_ocr, output_format, paginate_output):
             target.write(chunk)
     await file.close()
     (path / 'request.json').write_text(json.dumps({'mode': mode, 'force_ocr': force_ocr,
-                                                  'output_format': output_format, 'paginate_output': paginate_output}))
+                                                  'output_format': output_format, 'paginate_output': paginate_output,
+                                                  'include_layout': include_layout}))
     state = {'job_id': job_id, 'status': 'queued', 'stage': 'queued', 'filename': file.filename,
              'created_at': time.time(), 'detail': '等待 Marker 处理整份 PDF', 'error': '',
              'progress': {'completed': 0, 'total': 0, 'unit': '页'}}
@@ -193,10 +208,10 @@ async def submit(file, mode, force_ocr, output_format, paginate_output):
 
 @app.post('/v1/parse/jobs', status_code=202)
 async def create_job(file: UploadFile = File(...), mode: str = Form('balanced'), force_ocr: bool = Form(False),
-                     output_format: str = Form('markdown'), paginate_output: bool = Form(True)):
+                     output_format: str = Form('markdown'), paginate_output: bool = Form(True), include_layout: bool = Form(False)):
     if mode not in {'balanced', 'fast'} or output_format not in {'markdown', 'json', 'html'}:
         raise HTTPException(400, '无效的 Marker 模式或输出格式')
-    return await submit(file, mode, force_ocr, output_format, paginate_output)
+    return await submit(file, mode, force_ocr, output_format, paginate_output, include_layout)
 
 
 @app.get('/v1/parse/jobs/{job_id}')
@@ -236,8 +251,8 @@ async def cancel(job_id: str):
 
 @app.post('/marker/upload')
 async def official_upload(request: Request, file: UploadFile = File(...), mode: str = Form('balanced'), force_ocr: bool = Form(False),
-                          output_format: str = Form('markdown'), paginate_output: bool = Form(True)):
-    state = await create_job(file, mode, force_ocr, output_format, paginate_output)
+                          output_format: str = Form('markdown'), paginate_output: bool = Form(True), include_layout: bool = Form(False)):
+    state = await create_job(file, mode, force_ocr, output_format, paginate_output, include_layout)
     try:
         while state['status'] not in TERMINAL:
             if await request.is_disconnected():
