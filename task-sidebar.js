@@ -328,10 +328,9 @@ var OCRFlowTaskSidebar = {
 			path.setAttribute("d","M16.6 8a6.7 6.7 0 0 0-11-3.1L3 7.5m0-4v4h4M3.4 12a6.7 6.7 0 0 0 11 3.1l2.6-2.6m0 4v-4h-4");icon.append(path);
 			heading.append(icon,make("strong","本次更新"),make("span",`v${version}`,"of-update-version",true));notice.append(heading);
 			let updates=make("ul",undefined,"of-update-list");
-			for(let [label,text] of [["HTML 布局","：可选原文布局或 Markdown 布局。"],["侧栏操作","：直接打开已有全文和译文；更多操作支持重新识别、重译全文。"],["阅读侧栏","：打开识别 HTML 和译文时，同步显示 OCRFlow 面板。"],["全文总结","：提示词更新，笔记中注明实际使用模型。"],["PDF 兼容","：支持无需打开密码的加密 PDF，保留原附件。"]]) {
+			for(let [label,text] of [["全文翻译","：优化模型返回格式的处理，失败段落自动拆分、单段重试。"],["跨页段落","：识别重复页眉，合并跨页正文，译文标注完整来源页码范围。"],["进度保留","：修复旧翻译任务恢复时可能丢失已译进度的问题。"],["重试优化","：服务异常时延迟重试，已完成译段保留；减少重复失败请求。"],["格式兼容","：修复 JSON 原文被误判为翻译响应格式的问题。"]]) {
 				let item=make("li");item.append(make("strong",label),make("span",text));updates.append(item);
 			}notice.append(updates);
-			notice.append(make("p","已有自定义提示词和全文翻译格式保持不变。","of-update-note"));
 			let buttons=make("div",undefined,"of-update-actions"),close=action("关闭",()=>this.dismissUpdateNotice(version)),mute=action("不再提醒",()=>this.dismissUpdateNotice(version,true));
 			close.title=ocrflowText("关闭当前版本的提示，重启后仍有效");mute.title=ocrflowText("不再提醒当前大版本下的更新；升级大版本时仍提醒");
 			buttons.append(close,mute);notice.append(buttons);content.append(notice);

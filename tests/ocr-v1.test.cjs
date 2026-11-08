@@ -769,3 +769,35 @@ test('an isolated paragraph that succeeds on a later automatic retry is saved wi
  assert.equal(calls.length,7);assert.deepEqual(calls.slice(5),['single','single']);
  assert(task.saved.translationData.every(pair=>pair.complete));
 });
+
+test('legacy MiMo caches with a batch budget retain completed translations when resumed',async()=>{
+ const {s,task,calls,setReply}=isolationSetup('One.\n\nTwo.',0);
+ Object.assign(task.settings,{apiBaseURL:'https://openrouter.ai/api/v1',model:'xiaomi/mimo-v2.6-flash'});
+ const units=s.m.translationUnits('One.\n\nTwo.',task.settings);units[0].translated[0]='一。';
+ task.translation={language:'中文',budget:4096,units,images:[]};
+ assert(s.m.translationParagraphBudget(task.settings)>4096);
+ s.m.readSourceMarkdown=async()=>{throw new Error('A legacy cache must keep its existing units');};
+ setReply((batch,content)=>JSON.stringify(JSON.parse(content).map(item=>({...item,text:'译 '+item.text}))));
+ await s.m.runAlignedTranslationTask(task);
+ assert.equal(task.translation.units,units);
+ assert.deepEqual(calls,[['p2.0']]);
+ assert.equal(task.saved.translationData[0].translated,'一。');
+ assert(task.saved.translationData.every(pair=>pair.complete));
+});
+
+test('single-paragraph fallback preserves JSON business IDs and rejects wrong protocol IDs for prose',async()=>{
+ const s=setup(),run=async(source,reply)=>{
+  s.m.requestDocumentAI=async messages=>messages[0].content.includes('Input is a JSON array')?'invalid JSON':reply;
+  return (await s.m.translateAlignedBatch([{id:'p1.0',text:source}],{translateLanguage:'中文'}))[0];
+ };
+ for(const [source,reply] of [
+  ['{"id":"record-1","text":"Hello"}','{"id":"record-1","text":"你好"}'],
+  ['[{"id":"record-1","text":"Hello"}]','[{"id":"record-1","text":"你好"}]'],
+  ['{"translations":[{"id":"record-1","text":"Hello"}]}','{"translations":[{"id":"record-1","text":"你好"}]}'],
+  ['{"id":"p1.0","text":"Hello ⟦K0⟧"}','{"id":"p1.0","text":"你好 ⟦K0⟧"}']
+ ]) assert.equal(await run(source,reply),reply);
+ for(const reply of ['{"id":"wrong","text":"你好"}','[{"id":"wrong","text":"你好"}]']){
+  await assert.rejects(run('Hello',reply),/重复或未知段落 ID/);
+ }
+ assert.equal(await run('Hello','{"id":"p1.0","text":"你好"}'),'你好');
+});

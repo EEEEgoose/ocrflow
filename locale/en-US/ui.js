@@ -958,5 +958,14 @@ var OCRFlowEnglish = {
   "单段翻译仍返回 JSON 包装，请重试此段。": "The single-paragraph translation still returned a JSON wrapper. Retry this paragraph.",
   "AI 未完成回复（{0}）。": "The AI response did not complete ({0}).",
   "来源 PDF 第 {0} 页": "Source PDF pages {0}",
-  "服务暂时不可用，{0} 秒后重试；可终止任务。": "Service temporarily unavailable. Retrying in {0} seconds; the task can be stopped."
+  "服务暂时不可用，{0} 秒后重试；可终止任务。": "Service temporarily unavailable. Retrying in {0} seconds; the task can be stopped.",
+  "跨页段落": "Cross-page paragraphs",
+  "进度保留": "Progress preservation",
+  "重试优化": "Retry improvements",
+  "格式兼容": "Format compatibility",
+  "：优化模型返回格式的处理，失败段落自动拆分、单段重试。": ": Improved model response handling, with automatic splitting and single-paragraph retries for failed translations.",
+  "：识别重复页眉，合并跨页正文，译文标注完整来源页码范围。": ": Detect repeated running headers, merge cross-page body paragraphs, and show complete source page ranges.",
+  "：修复旧翻译任务恢复时可能丢失已译进度的问题。": ": Fixed a problem that could discard completed translations when resuming older tasks.",
+  "：服务异常时延迟重试，已完成译段保留；减少重复失败请求。": ": Delay retries after service failures, preserve completed translations, and reduce repeated failed requests.",
+  "：修复 JSON 原文被误判为翻译响应格式的问题。": ": Fixed JSON source content being mistaken for translation response formatting."
 };

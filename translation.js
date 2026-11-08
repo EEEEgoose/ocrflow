@@ -168,8 +168,9 @@ Object.assign(DocFlow, {
 		let value;
 		try { value = JSON.parse(text.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, "$1")); } catch (_error) {}
 		let sourceJSON = /^\s*[[{]/.test(item.text), isObject = value !== null && typeof value === "object";
-		let wrapped = isObject && (Array.isArray(value)
-			? value.length > 0 && (!sourceJSON || value.every(entry => entry && typeof entry.id === "string"))
+		// JSON source fields belong to the document, even when they resemble protocol IDs.
+		let wrapped = !sourceJSON && isObject && (Array.isArray(value)
+			? value.length > 0
 			: Array.isArray(value.translations) || typeof value.id === "string" || Object.hasOwn(value, item.id));
 		if (wrapped) return this.parseAlignedTranslationResponse(text, [item])[0];
 		let keys = isObject && !Array.isArray(value) ? Object.keys(value) : [];
@@ -250,8 +251,8 @@ Object.assign(DocFlow, {
 		let status = text => { signal.throwIfAborted(); task.detail = text; this.setTaskStep?.(task, task.saving ? "save" : "work", task.saving ? "保存译文" : "逐段翻译", text); this.refreshParseQueueDialog(); };
 		let budget = this.translationBatchBudget(settings), paragraphBudget = this.translationParagraphBudget(settings), retryAt = 0;
 		let cached = task.translation;
-		// Units depend only on the paragraph budget; legacy caches stored it as `budget`.
-		if (!cached?.units || cached.language !== settings.translateLanguage || (cached.paragraphBudget ?? cached.budget) !== paragraphBudget) {
+		// Legacy `budget` may describe a batch, so retain its existing units and completed translations.
+		if (!cached?.units || cached.language !== settings.translateLanguage || cached.paragraphBudget != null && cached.paragraphBudget !== paragraphBudget) {
 			status("读取自然段与来源");
 			let { filePath, markdown } = await this.readSourceMarkdown(task.mineruSource);
 			let structurePath = PathUtils.join(PathUtils.parent(filePath), "_ocrflow", "document.json");
