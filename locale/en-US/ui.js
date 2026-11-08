@@ -952,5 +952,11 @@ var OCRFlowEnglish = {
   "在线 API": "Online API",
   "转为原文布局": "Convert to original-page layout",
   "转为MD布局": "Convert to Markdown layout",
-  "此全文缺少页面位置数据，无法转为原文布局。请重新识别以获取布局数据。": "This full text has no page-position data. Run recognition again to obtain layout data."
+  "此全文缺少页面位置数据，无法转为原文布局。请重新识别以获取布局数据。": "This full text has no page-position data. Run recognition again to obtain layout data.",
+  "逐段翻译返回的 JSON 无效（{0}）。返回开头为 {1}": "Invalid paragraph translation JSON ({0}). Response begins with {1}",
+  "译文段落条目或 ID 无效": "Invalid translated paragraph entry or ID",
+  "单段翻译仍返回 JSON 包装，请重试此段。": "The single-paragraph translation still returned a JSON wrapper. Retry this paragraph.",
+  "AI 未完成回复（{0}）。": "The AI response did not complete ({0}).",
+  "来源 PDF 第 {0} 页": "Source PDF pages {0}",
+  "服务暂时不可用，{0} 秒后重试；可终止任务。": "Service temporarily unavailable. Retrying in {0} seconds; the task can be stopped."
 };

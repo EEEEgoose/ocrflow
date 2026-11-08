@@ -2806,14 +2806,17 @@ DocFlow = {
 				? '<div class="bilingual"><div class="column-label">原文</div><div class="column-label">译文</div>' + pairs.map(pair => {
 					let labels=(pair.pages||[pair.page]).filter(page=>page&&!seenPages.has(page));for(let page of labels)seenPages.add(page);
 					let label=labels.length ? '<div class="page-label" style="grid-column:1/-1;border-top:1px solid #ddd;padding-top:12px">PDF 第 '+this.escapeHTML(labels.join("、"))+' 页</div>' : '';
-					return label+'<section data-block="'+this.escapeHTML(pair.id)+'" class="pair"><div>'+render(replaceImages(pair.source),"source")+'</div><div>'+render(replaceImages(pair.translated),"target")+'</div></section>';
+					let pages = (pair.pages || [pair.page]).filter(Boolean);
+					let range = pages.length > 1 && labels.length < pages.length
+						? '<header class="source-range" style="grid-column:1/-1;font-size:.8em;color:#666">'+this.escapeHTML(ocrflowText("来源 PDF 第 {0} 页").replace("{0}", pages.join("、")))+'</header>' : '';
+					return label+'<section data-block="'+this.escapeHTML(pair.id)+'" class="pair">'+range+'<div>'+render(replaceImages(pair.source),"source")+'</div><div>'+render(replaceImages(pair.translated),"target")+'</div></section>';
 				}).join("") + '</div>'
 				: render(source, "document");
 			let original = layout ? await this.renderOriginalLayout(layout, text => this.renderDocumentBody(replaceImages(text))) : null;
 			if (original) body = original.body;
 			let metadata = JSON.stringify({ markdown: source }).replace(/</g, "\\u003c");
 			content = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-				'<title>' + this.escapeHTML(title) + '</title><style>'+(original ? original.style : 'body{font:16px/1.7 system-ui,sans-serif;max-width:1200px;margin:32px auto;padding:0 24px;color:#222}img{max-width:100%;height:auto}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid #bbb;padding:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f5f5;padding:12px}.bilingual,.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.pair{grid-column:1/-1;padding:12px 0}.pair>div{min-width:0;overflow-wrap:anywhere}.column-label{font-weight:bold}')+'</style></head><body>' +
+				'<title>' + this.escapeHTML(title) + '</title><style>'+(original ? original.style : 'body{font:16px/1.7 system-ui,sans-serif;max-width:1200px;margin:32px auto;padding:0 24px;color:#222}img{max-width:100%;height:auto}table{border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid #bbb;padding:6px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f5f5;padding:12px}.bilingual,.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}.pair{grid-column:1/-1;row-gap:6px;padding:12px 0}.pair>div{min-width:0;overflow-wrap:anywhere}.column-label{font-weight:bold}')+'</style></head><body>' +
 				(notice ? '<p role="status">' + this.escapeHTML(notice) + '</p>' : '') + body + '<script type="application/json" id="mineru-source">' + metadata + '</script>'+(original ? original.script : '')+'</body></html>';
 		}
 		let tempDir = PathUtils.join(PathUtils.tempDir, "docflow-output-" + Date.now() + "-" + Math.random().toString(36).slice(2));
@@ -2850,7 +2853,9 @@ DocFlow = {
 		let details = [limit ? `输出上限 ${limit} tokens` : "达到服务端输出上限"];
 		if (usage?.completion_tokens) details.push(`已用 ${usage.completion_tokens} tokens`);
 		if (usage?.completion_tokens_details?.reasoning_tokens) details.push(`其中推理 ${usage.completion_tokens_details.reasoning_tokens} tokens`);
-		return new Error(`AI 输出被截断（${details.join("，")}）。请提高所选模型的“最大输出长度”；若“工作模型配置”中该工作的请求参数 JSON 已指定 max_tokens 或 max_completion_tokens，则需提高该参数，或缩短提示词要求的输出；确认模型支持该上限、上下文足够，保存后在队列中重试。`);
+		let error = new Error(`AI 输出被截断（${details.join("，")}）。请提高所选模型的“最大输出长度”；若“工作模型配置”中该工作的请求参数 JSON 已指定 max_tokens 或 max_completion_tokens，则需提高该参数，或缩短提示词要求的输出；确认模型支持该上限、上下文足够，保存后在队列中重试。`);
+		error.name = "AIOutputLimitError";
+		return error;
 	},
 
 	getLLMSettings(kind, selectedModel) {

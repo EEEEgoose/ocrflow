@@ -122,7 +122,43 @@ var OCRFlowDocument = {
 		if (before !== after) doc.changes.push({ block: block.id, page: block.fragments[0]?.page, kind, before, after });
 	},
 
+	runningHeaderKey(text) {
+		return String(text || "").replace(/^#{1,6}\s+/, "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+	},
+
+	runningHeaders(doc) {
+		let layouts = new Map((doc.layout || []).map(page => [page.page, page]));
+		let heights = new Map(doc.pages.map(page => [page.page, page.size?.[1] || layouts.get(page.page)?.size?.[1]]));
+		let first = new Map(), groups = new Map(), headers = [];
+		for (let block of doc.blocks) {
+			if (!["heading", "header"].includes(block.type)) continue;
+			let key = this.runningHeaderKey(block.text);
+			if (!first.has(key)) first.set(key, block);
+			let fragment = block.fragments[0], rect = fragment?.rect, height = heights.get(fragment?.page);
+			if (!rect) {
+				let matches = layouts.get(fragment?.page)?.regions.filter(region => this.runningHeaderKey(region.text) === key);
+				if (matches?.length === 1) rect = matches[0].rect;
+			}
+			if (!key || key.length > 160 || !rect || !(height > 0)) continue;
+			if (rect[1] < 0 || rect[3] > height * .18 || rect[3] - rect[1] > height * .04) continue;
+			if (!groups.has(key)) groups.set(key, []);
+			groups.get(key).push(block);
+		}
+		for (let [key, blocks] of groups) {
+			if (new Set(blocks.map(block => block.fragments[0].page)).size < 3) continue;
+			for (let block of blocks) {
+				if (block === first.get(key) && block.type !== "header") continue;
+				headers.push(block);
+			}
+		}
+		return headers;
+	},
+
 	prepare(doc) {
+		for (let block of this.runningHeaders(doc)) if (block.type !== "header") {
+			block.type = "header";
+			this.change(doc, block, block.text, "", "识别重复页眉");
+		}
 		let nextNote = 0, notes = new Map();
 		for (let block of doc.blocks) {
 			if (block.type !== "footnote") continue;

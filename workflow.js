@@ -439,14 +439,21 @@ Object.assign(DocFlow, {
 		});
 	},
 
+	isOpenRouterMiMo(settings) {
+		try { return new URL(settings.apiBaseURL).hostname === "openrouter.ai" && settings.model === "xiaomi/mimo-v2.6-flash"; }
+		catch (_error) { return false; }
+	},
+
 	async sendDocumentAI(messages, settings, signal, json = false) {
 		this.validateAISettings(settings);
+		let responseFormat = json === true ? { type: "json_object" } : json;
 		let payload = this.mergeRequestPayload({ model: settings.model, stream: false, temperature: 0,
-			messages, ...(json ? { response_format: { type: "json_object" } } : {}) }, settings.summaryRequestParams, ["model", "messages", "stream", "response_format"]);
+			messages, ...(responseFormat ? { response_format: responseFormat } : {}) }, settings.summaryRequestParams, ["model", "messages", "stream", "response_format"]);
 		this.applyAIContextBudget(payload, settings);
 		let endpoint = settings.apiBaseURL.replace(/\/+$/, "");
 		if (!endpoint.endsWith("/chat/completions")) endpoint += "/chat/completions";
 		if (new URL(endpoint).hostname === "api.xiaomimimo.com" && !payload.thinking) payload.thinking = { type: "disabled" };
+		if (this.isOpenRouterMiMo(settings) && settings.workKind === "translate" && payload.reasoning === undefined) payload.reasoning = { enabled: false };
 		let controller = this.createAbortController();
 		let abort = () => controller.abort();
 		if (signal?.aborted) signal.throwIfAborted();
@@ -466,6 +473,9 @@ Object.assign(DocFlow, {
 			let data = await response.json();
 			let choice = data.choices?.[0];
 			if (choice?.finish_reason === "length") throw this.aiOutputLimitError(payload, data);
+			if (["error", "content_filter"].includes(choice?.finish_reason) || choice?.message?.refusal) {
+				throw new Error(choice.message?.refusal || choice.error?.message || data.error?.message || `AI 未完成回复（${choice.finish_reason}）。`);
+			}
 			let text = choice?.message?.content;
 			if (typeof text !== "string" || !text.trim()) throw new Error(data.error?.message || "AI 未返回文本。");
 			return text.trim();

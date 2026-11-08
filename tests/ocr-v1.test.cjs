@@ -480,3 +480,292 @@ test('bilingual translation sends a cross-page paragraph together and displays a
  const output=[...s.files.entries()].find(([name])=>name.startsWith('/storage/')&&name.endsWith('.html'));
  assert(new TextDecoder().decode(output[1]).includes('PDF 第 1、2 页'));
 });
+
+test('OpenRouter MiMo translation requests strict JSON schema and validates paragraph IDs and protected tokens',async()=>{
+ const s=setup(),settings={apiBaseURL:'https://openrouter.ai/api/v1',apiKey:'test-only',model:'xiaomi/mimo-v2.6-flash',workKind:'translate',contextWindow:1048576,outputTokens:131072,translateLanguage:'中文',translateRequestParams:{provider:{order:['controlled-provider']}}};
+ let sent;
+ s.context.fetch=async(_url,options)=>{
+  sent=JSON.parse(options.body);
+  return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify({'p2.0':'第二段','p1.0':'第一段 ⟦K0⟧'})}}]})};
+ };
+ const items=[{id:'p1.0',text:'First ⟦K0⟧'},{id:'p2.0',text:'Second'}];
+ assert.deepEqual(Array.from(await s.m.translateAlignedBatch(items,settings)),['第一段 ⟦K0⟧','第二段']);
+ assert.equal(sent.response_format.type,'json_schema');assert.equal(sent.response_format.json_schema.strict,true);
+ assert.equal(sent.reasoning.enabled,false);assert.equal(s.m.translationBatchBudget(settings),4096);
+ const schema=sent.response_format.json_schema.schema;assert.equal(schema.type,'object');assert.deepEqual(schema.required,['p1.0','p2.0']);
+ assert.deepEqual(schema.properties,{'p1.0':{type:'string'},'p2.0':{type:'string'}});
+ assert.equal(sent.provider.require_parameters,true);assert.deepEqual(sent.provider.order,['controlled-provider']);
+ assert.equal(settings.translateRequestParams.provider.require_parameters,undefined,'Saved request settings are not mutated');
+ await s.m.translateAlignedBatch(items,{...settings,translateChunkSize:1024,translateRequestParams:{reasoning:{enabled:true}}});
+ assert.equal(sent.reasoning.enabled,true,'Explicit user reasoning settings take precedence');
+ assert.equal(s.m.translationBatchBudget({...settings,translateChunkSize:1024}),1024);
+ s.m.requestDocumentAI=async()=>JSON.stringify({translations:[{id:'p1.0',text:'Token removed'},{id:'p2.0',text:'第二段'}]});
+ assert.deepEqual(Array.from(await s.m.translateAlignedBatch(items,settings)),[null,'第二段']);
+ s.m.requestDocumentAI=async()=>JSON.stringify({translations:[{id:'other',text:'wrong'}]});
+ await assert.rejects(s.m.translateAlignedBatch(items,settings),/未知段落 ID/);
+});
+
+test('translation format errors expose parse details while legacy JSON arrays remain accepted',async()=>{
+ const s=setup(),items=[{id:'p1.0',text:'First'}],settings={translateLanguage:'中文'};
+ s.m.requestDocumentAI=async()=> 'Here is the translation: [{"id":"p1.0","text":"第一段"}]';
+ await assert.rejects(s.m.requestAlignedTranslationBatch(items,settings),error=>error.name==='TranslationResponseFormatError'&&error.responseText.includes('Here is the translation')&&error.message.includes('JSON 无效')&&error.message.includes('返回开头')&&error.message.includes('Here is the translation'));
+ s.m.requestDocumentAI=async()=> '```json\n[{"id":"p1.0","text":"第一段"}]\n```';
+ assert.deepEqual(Array.from(await s.m.translateAlignedBatch(items,settings)),['第一段']);
+ s.m.requestDocumentAI=async()=> '[null]';await assert.rejects(s.m.translateAlignedBatch(items,settings),/条目或 ID 无效/);
+});
+
+test('malformed multi-paragraph responses split down to single paragraphs with quoted Markdown fallback',async()=>{
+ const s=setup(),calls=[];
+ const units=['First ⟦K0⟧','Second','Third'].map((text,index)=>({id:'p'+(index+1)+'.0',text,unit:{translated:[null]},index:0}));
+ s.m.requestDocumentAI=async messages=>{
+  calls.push(messages);
+  if(messages[0].content.includes('Input is a JSON array')){
+   const input=JSON.parse(messages[1].content);
+   if(input.length===1&&input[0].id==='p3.0')return JSON.stringify([{id:'p3.0',text:'第三段'}]);
+   return '[{"id":"p1.0","text":"译文中有"未转义引号""}]';
+  }
+  return messages[1].content.includes('First')?'第一段“引号”\n第二行 ⟦K0⟧':'第二段';
+ };
+ const result=await s.m.translateAlignedBatch(units,{translateLanguage:'中文'},new AbortController().signal);
+ assert.deepEqual(Array.from(result),['第一段“引号”\n第二行 ⟦K0⟧','第二段','第三段']);
+ assert.deepEqual(units.map(item=>item.unit.translated[0]),Array.from(result));
+ const count=calls.length;
+ assert.deepEqual(Array.from(await s.m.translateAlignedBatch(units,{translateLanguage:'中文'})),Array.from(result));
+ assert.equal(calls.length,count,'Already completed paragraphs never request translation again');
+});
+
+test('a failed split retains successful sub-batches and retry only requests the unfinished paragraphs',async()=>{
+ const s=setup(),calls=[],items=['p1.0','p2.0'].map(id=>({id,text:id,unit:{translated:[null]},index:0}));
+ let interrupted=true;
+ s.m.requestDocumentAI=async messages=>{
+  const input=JSON.parse(messages[1].content);calls.push(input.map(item=>item.id));
+  if(input.length>1)return 'invalid JSON';
+  if(input[0].id==='p2.0'&&interrupted){const error=new Error('rate limited');error.status=429;throw error;}
+  return JSON.stringify(input.map(item=>({...item,text:'译 '+item.id})));
+ };
+ await assert.rejects(s.m.translateAlignedBatch(items,{translateLanguage:'中文'}),error=>error.status===429);
+ assert.equal(items[0].unit.translated[0],'译 p1.0');assert.equal(items[1].unit.translated[0],null);
+ interrupted=false;
+ assert.deepEqual(Array.from(await s.m.translateAlignedBatch(items,{translateLanguage:'中文'})),['译 p1.0','译 p2.0']);
+ assert.deepEqual(calls,[['p1.0','p2.0'],['p1.0'],['p2.0'],['p2.0']]);
+});
+
+test('single-paragraph fallback preserves anchor checks and rejects JSON wrappers',async()=>{
+ const s=setup(),item={id:'p321.0',text:'Text ⟦K0⟧'};let calls=0;
+ s.m.requestDocumentAI=async()=>++calls===1?'invalid JSON':'译文没有标记';
+ assert.deepEqual(Array.from(await s.m.translateAlignedBatch([item],{translateLanguage:'中文'})),[null]);
+ s.m.requestDocumentAI=async messages=>messages[0].content.includes('Input is a JSON array')?'invalid JSON':'Here is [{"id":"p321.0","text":"译文 ⟦K0⟧"}]';
+ await assert.rejects(s.m.translateAlignedBatch([item],{translateLanguage:'中文'}),/仍返回 JSON 包装/);
+});
+
+test('repeated top-margin headings are treated as running headers while the real chapter heading is retained',()=>{
+ const s=setup(),doc=s.d.create('mineru');
+ doc.pages=[1,2,3,4].map(page=>({page,size:[600,800]}));
+ const title=s.d.add(doc,'heading','INTRODUCTION',1,[100,220,450,240]);
+ s.d.add(doc,'paragraph','Germany expanded. He was',1,[50,600,550,740]);
+ const header=s.d.add(doc,'heading','INTRODUCTION',2,[100,70,450,84]);
+ s.d.add(doc,'paragraph','reluctant to intervene.',2,[50,100,550,300]);
+ s.d.add(doc,'header','INTRODUCTION',3,[100,72,450,86]);
+ s.d.add(doc,'paragraph','A separate paragraph.',3,[50,100,550,300]);
+ s.d.add(doc,'heading','INTRODUCTION',4,[100,71,450,85]);
+ s.d.add(doc,'paragraph','Another paragraph.',4,[50,100,550,300]);
+ const markdown=s.d.render(doc),paragraphs=s.m.translationParagraphs(markdown,doc);
+ assert.equal(paragraphs.filter(p=>p.text==='## INTRODUCTION').length,1);
+ assert(paragraphs.some(p=>p.text==='Germany expanded. He was reluctant to intervene.'&&p.pages.join(',')==='1,2'));
+ assert.equal(header.type,'heading','Reading old metadata does not modify the stored source');
+ const legacy=JSON.parse(JSON.stringify(doc));
+ legacy.layout=legacy.pages.map(page=>({page:page.page,size:page.size,regions:legacy.blocks.filter(b=>b.fragments[0].page===page.page).map(b=>({text:b.text,rect:b.fragments[0].rect}))}));
+ legacy.pages.forEach(page=>delete page.size);legacy.blocks.forEach(block=>block.fragments[0].rect=null);
+ assert(s.m.translationParagraphs(markdown,legacy).some(p=>p.text==='Germany expanded. He was reluctant to intervene.'));
+ s.d.prepare(doc);assert.equal(header.type,'header');assert.equal(title.type,'heading');
+ assert(s.d.visible(doc).some(b=>b.text.includes('He was<!--ocrflow-page:2--> reluctant')));
+});
+
+test('a first chapter title in the top margin remains visible and a genuine next chapter blocks joining',()=>{
+ const s=setup(),doc=s.d.create('mineru');doc.pages=[1,2,3].map(page=>({page,size:[600,800]}));
+ for(const page of [1,2,3])s.d.add(doc,'heading','CHAPTER ONE',page,[100,60,450,80]);
+ const headers=s.d.runningHeaders(doc);assert.equal(headers.length,2);assert(!headers.includes(doc.blocks[0]));
+ const markdown='<!--ocrflow-page:1-->\n\nAn unfinished sentence\n\n<!--ocrflow-page:2-->\n\n## A DIFFERENT CHAPTER\n\nA new paragraph.';
+ assert.equal(s.m.translationParagraphs(markdown,doc).length,3);
+});
+
+test('a long cross-page paragraph stays together even when MiMo batches use a smaller soft limit',()=>{
+ const s=setup(),settings={apiBaseURL:'https://openrouter.ai/api/v1',model:'xiaomi/mimo-v2.6-flash',workKind:'translate',contextWindow:1048576,outputTokens:16384,translateLanguage:'中文'};
+ const text='First part '.repeat(400)+'<!--ocrflow-page:2-->'+ 'continued part '.repeat(300);
+ const units=s.m.translationUnits('<!--ocrflow-page:1-->'+text,settings);
+ assert.equal(units.length,1);assert.equal(units[0].fragments.length,1);assert(units[0].source.length>4096);
+ assert.deepEqual(Array.from(units[0].pages),[1,2]);assert.equal(s.m.translationBatchBudget(settings),4096);
+});
+
+test('platform-neutral response decoding accepts ID-bearing variants and rejects mismatched IDs',()=>{
+ const s=setup(),items=[{id:'p1.0',text:'First ⟦K0⟧'},{id:'p2.0',text:'Second'}];
+ for(const output of [[{id:'p2.0',text:'第二段'},{id:'p1.0',text:'第一段 ⟦K0⟧'}],{translations:[{id:'p1.0',text:'第一段 ⟦K0⟧'},{id:'p2.0',text:'第二段'}]},{'p2.0':'第二段','p1.0':'第一段 ⟦K0⟧'}]){
+  assert.deepEqual(Array.from(s.m.parseAlignedTranslationResponse(JSON.stringify(output),items)),['第一段 ⟦K0⟧','第二段']);
+ }
+ assert.deepEqual(Array.from(s.m.parseAlignedTranslationResponse('{"id":"p1.0","text":"第一段 ⟦K0⟧"}',items)),['第一段 ⟦K0⟧',null]);
+ assert.throws(()=>s.m.parseAlignedTranslationResponse('{"wrong":"错位"}',items),error=>error.name==='TranslationResponseFormatError');
+});
+
+test('persistent content errors in one split do not prevent the sibling paragraph from translating',async()=>{
+ const s=setup(),items=['p1.0','p2.0'].map(id=>({id,text:id,unit:{translated:[null]},index:0}));
+ s.m.requestDocumentAI=async messages=>{
+  if(!messages[0].content.includes('Input is a JSON array'))return 'Still {"id":"p1.0","text":"bad JSON"';
+  const input=JSON.parse(messages[1].content);
+  return input.length===1&&input[0].id==='p2.0'?JSON.stringify([{id:'p2.0',text:'第二段'}]):'bad JSON';
+ };
+ const output=await s.m.translateAlignedBatch(items,{translateLanguage:'中文'},new AbortController().signal);
+ assert.deepEqual(Array.from(output),[null,'第二段']);assert.equal(items[1].unit.translated[0],'第二段');
+ assert(items[0].error.includes('JSON'));
+});
+
+test('output truncation splits the request and single-paragraph JSON fallback remains ID-checked',async()=>{
+ const s=setup(),calls=[];
+ s.m.requestDocumentAI=async messages=>{
+  const input=JSON.parse(messages[1].content);calls.push(input.length);
+  if(input.length>1)throw s.m.aiOutputLimitError({max_tokens:8},{usage:{completion_tokens:8}});
+  return JSON.stringify({id:input[0].id,text:'译 '+input[0].id});
+ };
+ assert.deepEqual(Array.from(await s.m.translateAlignedBatch([{id:'p1.0',text:'First'},{id:'p2.0',text:'Second'}],{})),['译 p1.0','译 p2.0']);
+ assert.deepEqual(calls,[2,1,1]);
+ s.m.requestDocumentAI=async messages=>messages[0].content.includes('Input is a JSON array')?'bad JSON':'{"p1.0":"单段译文 ⟦K0⟧"}';
+ assert.deepEqual(Array.from(await s.m.translateAlignedBatch([{id:'p1.0',text:'First ⟦K0⟧'}],{})),['单段译文 ⟦K0⟧']);
+});
+
+test('provider refusal and filtering cannot be mistaken for a successful translation body',async()=>{
+ const s=setup(),settings={apiBaseURL:'https://controlled.invalid/v1',model:'test-model',workKind:'translate',contextWindow:32768};
+ for(const choice of [{finish_reason:'content_filter',message:{content:'{"p1.0":"not a translation"}'}},{finish_reason:'error',message:{content:'partial text'}},{finish_reason:'stop',message:{content:'body text',refusal:'Provider refused this response'}}]){
+  s.context.fetch=async()=>({ok:true,json:async()=>({choices:[choice]})});
+  await assert.rejects(s.m.requestDocumentAI([{role:'user',content:'Translate'}],settings),/未完成回复|Provider refused/);
+ }
+});
+
+test('bilingual cross-page paragraphs display their full source range after a page was already introduced',async()=>{
+ const s=setup();
+ const item=await s.m.saveDocumentAttachment({libraryID:1,title:'Cross-page range',markdown:'译文',format:'html',pairs:[{id:'p1',source:'Earlier paragraph.',translated:'前段。',page:22,pages:[22]},{id:'p2',source:'He was reluctant.',translated:'他不愿意。',page:22,pages:[22,23]}]});
+ const html=new TextDecoder().decode(s.files.get(await item.getFilePath()));
+ assert.equal((html.match(/class="page-label"/g)||[]).length,2);
+ assert(html.includes('来源 PDF 第 22、23 页'));assert.equal((html.match(/class="source-range"/g)||[]).length,1);
+});
+
+const echoTranslation=async(_url,options)=>{const payload=JSON.parse(options.body),items=JSON.parse(payload.messages[1].content);
+ const content=payload.response_format?.type==='json_schema'?JSON.stringify(Object.fromEntries(items.map(item=>[item.id,'译 '+item.text]))):JSON.stringify(items.map(item=>({...item,text:'译 '+item.text})));
+ return {ok:true,json:async()=>({choices:[{message:{content}}]})};};
+
+test('an unreadable document.json is ignored instead of failing the translation',async()=>{
+ const s=setup();s.m.readSourceMarkdown=async()=>({filePath:'/doc/source.md',markdown:'First.\n\nSecond.'});s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});
+ s.write('/doc/_ocrflow/document.json','{bad');
+ const task={settings:{workKind:'translate',model:'controlled',apiBaseURL:'https://controlled.invalid/v1',contextWindow:32768,translateLanguage:'中文'},controller:new AbortController(),mineruSource:{},parentItem:{}};
+ let saved;s.context.fetch=echoTranslation;s.m.saveTranslationAsMarkdownAttachment=async value=>saved=value;
+ await s.m.runAlignedTranslationTask(task);assert(saved.translationData.every(pair=>pair.complete));
+});
+
+test('a cached translation keyed by the legacy budget field keeps its progress and rebuilds only when the paragraph budget changes',async()=>{
+ const s=setup(),settings={workKind:'translate',model:'xiaomi/mimo-v2.6-flash',apiBaseURL:'https://openrouter.ai/api/v1',contextWindow:65536,translateLanguage:'中文'};
+ const paragraphBudget=s.m.translationParagraphBudget(settings);assert.notEqual(paragraphBudget,s.m.translationBatchBudget(settings));
+ const units=s.m.translationUnits('One.\n\nTwo.',settings);units[0].translated[0]='一。';
+ let reads=0,requested=[];s.m.readSourceMarkdown=async()=>{reads++;return {filePath:'/source.md',markdown:'One.\n\nTwo.'};};s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});
+ s.context.fetch=async(url,options)=>{requested.push(...JSON.parse(JSON.parse(options.body).messages[1].content).map(item=>item.id));return echoTranslation(url,options);};
+ s.m.saveTranslationAsMarkdownAttachment=async()=>{};
+ const task={settings,controller:new AbortController(),mineruSource:{},parentItem:{},translation:{language:'中文',budget:paragraphBudget,units,images:[]}};
+ await s.m.runAlignedTranslationTask(task);assert.equal(reads,0);assert.deepEqual(requested,['p2.0']);assert.equal(task.translation.units[0].translated[0],'一。');
+ task.translation={language:'中文',paragraphBudget:paragraphBudget+1,units,images:[]};
+ await s.m.runAlignedTranslationTask(task);assert.equal(reads,1);assert.equal(task.translation.paragraphBudget,paragraphBudget);
+});
+
+test('persistent format errors stay within 3N requests and an exhausted quota stops splitting',async()=>{
+ const s=setup(),make=()=>Array.from({length:8},(_v,i)=>({id:`p${i+1}.0`,text:`Text ${i} ⟦K0⟧`,unit:{translated:[null]},index:0}));let calls=0;
+ s.m.requestDocumentAI=async()=>{calls++;return 'invalid JSON';};
+ assert.deepEqual(Array.from(await s.m.translateAlignedBatch(make(),{translateLanguage:'中文'})),Array(8).fill(null));
+ assert.equal(calls,23);
+ calls=0;await assert.rejects(s.m.translateAlignedBatch(make(),{translateLanguage:'中文'},undefined,{left:2}),error=>error.name==='TranslationQuotaError');
+ assert.equal(calls,2);
+});
+
+test('single-paragraph fallback keeps JSON-like source text and unwraps only known single-value wrappers',async()=>{
+ const s=setup(),run=async(source,reply)=>{s.m.requestDocumentAI=async messages=>messages[0].content.includes('Input is a JSON array')?'invalid JSON':reply;
+  return (await s.m.translateAlignedBatch([{id:'p1.0',text:source}],{translateLanguage:'中文'}))[0];};
+ assert.equal(await run('[1, 2]','[1, 2]'),'[1, 2]');
+ assert.equal(await run('{"name":"x"}','{"name":"x"}'),'{"name":"x"}');
+ assert.equal(await run('Use "id": 5 here','使用 "id": 5'),'使用 "id": 5');
+ assert.equal(await run('Hello','{"translation":"你好"}'),'你好');
+ assert.equal(await run('Hello','```markdown\n你好\n```'),'你好');
+ await assert.rejects(run('Hello','{"zh":"你好"}'),/仍返回 JSON 包装/);
+});
+
+test('running headers are dropped only near the top of a page while a matching body heading is kept',()=>{
+ const s=setup(),doc=s.d.create('mineru');
+ doc.pages=[1,2,3,4].map(page=>({page,size:[600,800]}));
+ s.d.add(doc,'heading','INTRODUCTION',1,[100,220,450,240]);s.d.add(doc,'paragraph','Opening paragraph.',1,[50,300,550,400]);
+ s.d.add(doc,'heading','INTRODUCTION',2,[100,70,450,84]);s.d.add(doc,'paragraph','Page two text.',2,[50,100,550,300]);
+ s.d.add(doc,'heading','INTRODUCTION',3,[100,70,450,84]);s.d.add(doc,'paragraph','Page three first.',3,[50,100,550,200]);
+ s.d.add(doc,'paragraph','Page three second.',3,[50,210,550,300]);s.d.add(doc,'heading','INTRODUCTION',3,[100,400,450,414]);
+ s.d.add(doc,'paragraph','4',4,[290,40,310,50]);s.d.add(doc,'heading','INTRODUCTION',4,[100,70,450,84]);s.d.add(doc,'paragraph','Page four text.',4,[50,100,550,300]);
+ const paragraphs=s.m.translationParagraphs(s.d.render(doc),doc),headings=paragraphs.filter(p=>p.text==='## INTRODUCTION');
+ assert.deepEqual(Array.from(headings,p=>p.page),[1,3]);
+});
+
+test('the OpenRouter MiMo check matches only the exact model on openrouter.ai',()=>{
+ const s=setup(),check=(apiBaseURL,model)=>s.m.isOpenRouterMiMo({apiBaseURL,model});
+ assert.equal(check('https://openrouter.ai/api/v1','xiaomi/mimo-v2.6-flash'),true);
+ assert.equal(check('https://openrouter.ai/api/v1','xiaomi/mimo-v2.6-flash:free'),false);
+ assert.equal(check('https://example.com/openrouter.ai','xiaomi/mimo-v2.6-flash'),false);
+ assert.equal(check('not a url','xiaomi/mimo-v2.6-flash'),false);
+});
+
+test('an error finish reason reports the per-choice error message',async()=>{
+ const s=setup();
+ s.context.fetch=async()=>({ok:true,json:async()=>({choices:[{finish_reason:'error',error:{message:'upstream timeout'},message:{content:''}}]})});
+ await assert.rejects(s.m.sendDocumentAI([{role:'user',content:'x'}],{apiBaseURL:'https://controlled.invalid/v1',model:'m'}),/upstream timeout/);
+});
+
+test('transient 5xx and connection failures back off briefly before retrying while format errors retry at once',async()=>{
+ const run=async failures=>{
+  const s=setup();s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown:'First.'});s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});
+  const task={settings:{workKind:'translate',model:'controlled',apiBaseURL:'https://controlled.invalid/v1',contextWindow:32768,translateLanguage:'中文',translateRetryCount:2},controller:new AbortController(),mineruSource:{},parentItem:{}};
+  const waits=[],phases=[];let calls=0;
+  s.m.refreshParseQueueDialog=()=>phases.push(task.detail);s.m.delayParsePoll=async(ms,{signal})=>{signal.throwIfAborted();waits.push(ms);};
+  s.context.fetch=async(url,options)=>{const failure=failures[calls++];if(failure)return failure();return echoTranslation(url,options);};
+  s.m.saveTranslationAsMarkdownAttachment=async()=>{};
+  await s.m.runAlignedTranslationTask(task);return {waits,phases,calls};
+ };
+ const unavailable=()=>({ok:false,status:503,headers:{get:()=>null},text:async()=>'overloaded'});
+ const offline=()=>{throw new TypeError('NetworkError when attempting to fetch resource.');};
+ let result=await run([unavailable,offline]);
+ assert.deepEqual(result.waits,[2000,4000]);assert.equal(result.calls,3);assert(result.phases.some(text=>text.includes('服务暂时不可用')));
+ const capped=()=>({ok:false,status:503,headers:{get:()=> '3600'},text:async()=>'maintenance'});
+ assert.deepEqual((await run([capped])).waits,[60000]);
+ const malformed=()=>({ok:true,json:async()=>({choices:[{message:{content:'not json'}}]})});
+ assert.deepEqual((await run([malformed])).waits,[]);
+});
+
+const isolationSetup=(markdown,retryCount)=>{
+ const s=setup();s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown});s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});
+ const task={settings:{workKind:'translate',model:'controlled',apiBaseURL:'https://controlled.invalid/v1',contextWindow:32768,translateLanguage:'中文',translateRetryCount:retryCount},controller:new AbortController(),mineruSource:{},parentItem:{}};
+ const calls=[];let reply=()=> 'not json';
+ s.m.delayParsePoll=async()=>{};s.m.saveTranslationAsMarkdownAttachment=async value=>task.saved=value;
+ s.context.fetch=async(_url,options)=>{const messages=JSON.parse(options.body).messages,batch=messages[0].content.includes('Input is a JSON array');
+  calls.push(batch?JSON.parse(messages[1].content).map(item=>item.id):'single');
+  return {ok:true,json:async()=>({choices:[{message:{content:reply(batch,messages[1].content)}}]})};};
+ return {s,task,calls,setReply:fn=>reply=fn};
+};
+
+test('paragraphs that failed on their own skip batching on later automatic retries and are re-batched after a manual retry',async()=>{
+ const markdown=Array.from({length:8},(_v,i)=>`Paragraph ${i+1} uses \`code${i}\`.`).join('\n\n');
+ const {s,task,calls,setReply}=isolationSetup(markdown,2);let decisions=0;
+ s.m.requestTaskDecision=async()=>{decisions++;setReply((batch,content)=>batch?JSON.stringify(JSON.parse(content).map(item=>({...item,text:'译 '+item.text}))):'not json');return 'retry';};
+ await s.m.runAlignedTranslationTask(task);
+ assert.equal(decisions,1);
+ assert.equal(calls.length,40,'23 requests in the first attempt, then 8 single requests in each of the two automatic retries, then one batch');
+ assert(calls.slice(23,39).every(call=>call==='single'));
+ assert.equal(calls[39].length,8,'a manual retry gives every paragraph a fresh batch attempt');
+ assert(task.saved.translationData.every(pair=>pair.complete));
+});
+
+test('an isolated paragraph that succeeds on a later automatic retry is saved without another batch request',async()=>{
+ const {s,task,calls,setReply}=isolationSetup('First `a`.\n\nSecond `b`.',1);
+ s.m.requestTaskDecision=async()=>{throw new Error('no decision expected');};
+ setReply((batch,content)=>{if(calls.length<=5)return 'not json';return '译 '+content;});
+ await s.m.runAlignedTranslationTask(task);
+ assert.equal(calls.length,7);assert.deepEqual(calls.slice(5),['single','single']);
+ assert(task.saved.translationData.every(pair=>pair.complete));
+});
