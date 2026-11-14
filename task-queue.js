@@ -2,7 +2,7 @@ var ocrflowText = typeof ocrflowText === "function" ? ocrflowText : value => Str
 var DocFlowTaskQueue = {
 	plugin: window.arguments?.[0]?.plugin || null,
 	rows: new Map(),
-	labels: { waiting_dependency:"等待前置条件", queued: "排队中", running: "处理中", stopping: "终止中", canceled: "已终止", completed: "已完成", failed: "失败", wait_expired: "等待已结束", waiting: "待补充" },
+	labels: { waiting_dependency:"等待前置条件", waiting_slot:"等待识别名额", cloud_queued:"云端排队中", server_queued:"服务端排队中", translation_paused:"翻译待处理", queued: "排队中", running: "处理中", stopping: "终止中", canceled: "已终止", completed: "已完成", failed: "失败", wait_expired: "等待已结束", waiting: "待补充" },
 
 	init(plugin = window.arguments[0].plugin) {
 		if (this.initialized) return;
@@ -124,6 +124,11 @@ var DocFlowTaskQueue = {
 		});
 	},
 
+	async locate(task) {
+		try { await this.plugin.locateTaskItem(task); }
+		catch (error) { document.getElementById("queue-copy-status").textContent = ocrflowText("定位失败：" + error.message); }
+	},
+
 	render() {
 		// Keep unchanged text nodes so progress updates preserve text selection.
 		let setText = (element, value, content = false) => {
@@ -135,9 +140,10 @@ var DocFlowTaskQueue = {
 		for (let [id, row] of this.rows) {
 			if (!taskIDs.has(id)) { row.element.remove(); this.rows.delete(id); }
 		}
-		let counts = { queued: 0, running: 0, stopping: 0, canceled: 0, completed: 0, failed: 0, wait_expired: 0, waiting: 0 };
+		let counts = Object.fromEntries(Object.keys(this.labels).map(state => [state, 0]));
 		for (let [index, task] of this.plugin.parseQueue.entries()) {
-			counts[task.state]++;
+			let displayedState = this.plugin.taskDisplayState(task);
+			counts[displayedState]++;
 			let row = this.rows.get(task.id);
 			if (!row) {
 				let make = tag => document.createElementNS("http://www.w3.org/1999/xhtml", tag);
@@ -145,20 +151,25 @@ var DocFlowTaskQueue = {
 				let cells = Array.from({ length: 5 }, () => make("td"));
 				for (let cell of cells) tr.appendChild(cell);
 				let title = make("div"), mode = make("div"), state = make("span");
-				let detail = make("div"), job = make("div"), error = make("div"), retry = make("button"), cancel = make("button"), copy = make("button");
+				let detail = make("div"), job = make("div"), error = make("div"), queryMessage = make("div"), retry = make("button"), cancel = make("button"), copy = make("button"), query = make("button"), locate = make("button");
 				mode.className = "queue-mode"; state.className = "queue-state";
 				detail.className = "queue-detail"; job.className = "queue-job-id"; error.className = "queue-error";
 				retry.type = "button";
 				retry.addEventListener("click", () => task.needsRecognition ? this.plugin.recognizeThenOutline(task) : this.retry([task.id]));
 				cancel.type = "button";
 				cancel.addEventListener("click", () => this.cancel(task.id));
+				query.type = "button";
+				query.addEventListener("click", () => this.plugin.queryCloudTaskProgress(task));
 				copy.type = "button";
 				copy.textContent = ocrflowText("复制");
 				copy.addEventListener("click", () => this.copyText(this.taskText(row), "已复制本条任务"));
+				locate.type = "button"; locate.textContent = ocrflowText("定位条目");
+				locate.addEventListener("click", () => this.locate(task));
+				let grid = make("div"); grid.className = "queue-action-grid"; grid.append(retry, cancel, copy, locate);
 				cells[4].className = "queue-row-actions";
-				cells[1].append(title, mode); cells[2].append(state); cells[3].append(detail, job, error); cells[4].append(retry, cancel, copy);
+				cells[1].append(title, mode); cells[2].append(state); cells[3].append(detail, job, error, queryMessage); cells[4].append(grid, query);
 				body.appendChild(tr);
-				row = { element: tr, number: cells[0], title, mode, state, detail, job, error, retry, cancel, copy };
+				row = { element: tr, number: cells[0], title, mode, state, detail, job, error, queryMessage, retry, cancel, query, copy, locate };
 				this.rows.set(task.id, row);
 			}
 			setText(row.number, index + 1);
@@ -168,18 +179,28 @@ var DocFlowTaskQueue = {
 				|| (settings.parserService === "marker" ? "Marker" : settings.parserService === "ai" ? "AI 视觉 OCR" : settings.parserService === "markitdown" ? "MarkItDown" : settings.parserService?.startsWith("paddle-") ? (settings.parserService === "paddle-local" ? "PaddleOCR 自部署 API" : "PaddleOCR 官方 API") : settings.apiMode === "local-v1" ? "本地 MinerU" : "MinerU 官方 API");
 			let ai = task.kind === "organize" ? null : settings.parserService === "ai" ? settings.llmSettings : task.kind !== "parse" ? task.settings : null;
 			setText(row.mode, ocrflowText(mode) + (ai?.providerName ? ` · ${ai.providerName} + ${ai.model}` : ""));
-			setText(row.state, task.state==="running"&&task.phase==="Marker · queued" ? "服务端排队中" : this.labels[task.state]);
-			row.state.dataset.state = task.state;
+			setText(row.state, this.labels[displayedState]);
+			row.state.dataset.state = displayedState;
 			setText(row.detail, task.detail);
 			setText(row.job, task.jobID ? `任务 ID: ${task.jobID}` : "");
 			setText(row.error, task.error);
-			setText(row.retry, task.needsRecognition ? "识别后继续生成大纲" : task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : task.state === "canceled" ? "重新处理" : "重试");
+			row.locate.disabled = !task.attachment?.id || !!task.attachment.deleted;
+			setText(row.queryMessage, task.cloudQueryMessage || "");
+			setText(row.query, task.cloudQuerying ? "查询中…" : "查询云端进度");
+			row.query.hidden = !this.plugin.canQueryCloudTask(task);
+			row.query.disabled = !!task.cloudQuerying;
+			setText(row.retry, task.needsRecognition ? "识别后继续生成大纲" : task.recoveryDecision ? "继续翻译" : task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : task.state === "canceled" ? "重新处理" : "重试");
 			row.retry.disabled = !["failed", "wait_expired", "canceled", "waiting"].includes(task.state);
 			setText(row.cancel, task.cancelFailed ? "重试终止" : ((task.cancelSettings||task.settings).parserService==="marker" && (task.cancelSettings||task.settings).markerSettings?.apiType==="cloud") ? "停止等待" : "终止");
 			row.cancel.disabled = !!task.saving || (!["queued", "running", "wait_expired", "waiting_dependency"].includes(task.state) && !task.cancelFailed);
 		}
 		setText(document.getElementById("queue-summary"), this.plugin.parseQueue.length
 			? Object.entries(counts).map(([state, count]) => `${ocrflowText(this.labels[state])} ${count}`).join("　") : "暂无任务");
+		let recovery = document.getElementById("queue-recovery-status");
+		if (recovery) {
+			setText(recovery, this.plugin.taskRecovery?.error || (this.plugin.taskRecovery?.pendingUnlock ? "配置解锁后恢复未完成任务" : ""));
+			recovery.hidden = !recovery.textContent;
+		}
 		document.getElementById("queue-retry-failed").disabled = counts.failed === 0;
 		document.getElementById("queue-clear").disabled = !this.plugin.parseQueue.some(task => this.plugin.canClearParseQueueTask(task));
 		this.updateScrollbar();

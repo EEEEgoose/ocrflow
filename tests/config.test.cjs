@@ -35,6 +35,13 @@ test('encryption migrates settings out of plaintext preferences; export and reop
  await c.lock();assert.throws(()=>c.get(prefix+'llmModel'),/已锁定/);await assert.rejects(c.unlock('wrong password'),/密码错误或配置包已损坏/);assert.equal(c.state,'locked');
  await c.unlock(password);assert.equal(c.get(prefix+'llmModel'),'test-model');
 });
+
+test('configuration setup and unlock activate task recovery and locking flushes pending progress',async()=>{
+ const {c}=await setup();let restored=0,saved=0;
+ c.owner.taskRecovery={restore:async()=>{assert.equal(c.state,'unlocked');restored++;},flush:async()=>{assert.equal(c.state,'unlocked');saved++;}};
+ await c.setup(password);assert.equal(restored,1);await c.lock();assert.equal(saved,1);
+ await c.unlock(password);assert.equal(restored,2);
+});
 test('wrong passwords, tampering and invalid model references leave the current configuration unchanged',async()=>{
  const {c,shared}=await setup();await c.setup(password);const original=shared.files.get(c.path),envelope=JSON.parse(original);
  await assert.rejects(c.apply(envelope,'wrong'),/密码错误/);assert.equal(shared.files.get(c.path),original);

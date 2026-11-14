@@ -103,6 +103,48 @@ test('official Paddle uploads multipart, polls its job and consumes the JSONL re
  assert(result.markdownText.includes('正文'));assert.equal(calls.length,3);assert(result.rawFiles[0].name.endsWith('.jsonl'));
 });
 
+test('Paddle recovery reuses completed slices and polls an existing job without reading or uploading the PDF',async()=>{
+ const s=setup();s.pref('paddle.cloud.token','fixture-token');const calls=[];let checkpoints=0;
+ const page=text=>({prunedResult:{blocks:[{label:'text',content:text}]},markdown:{text}});
+ const first=page('First.'),second=page('Second.');
+ const paddleState={parts:[{name:'first.pdf',count:1,pages:[first],rawText:JSON.stringify({result:{layoutParsingResults:[first]}})},
+  {name:'second.pdf',count:1,jobID:'existing-job'}]};
+ s.context.fetch=async(url,options)=>{
+  calls.push({url,options});
+  if(url.endsWith('/jobs/existing-job'))return {ok:true,json:async()=>({code:0,data:{state:'done',resultUrl:{jsonUrl:'https://results.invalid/existing'}}})};
+  assert.equal(url,'https://results.invalid/existing');return {ok:true,text:async()=>JSON.stringify({result:{layoutParsingResults:[second]}})};
+ };
+ s.context.IOUtils.read=async()=>{throw Error('A recovered job must use its recorded upload');};
+ const result=await s.m.parseWithPaddle(s.attachment,{parserService:'paddle-cloud'},{paddleState,checkpoint:async()=>checkpoints++});
+ assert(result.markdownText.includes('First.'));assert(result.markdownText.includes('Second.'));
+ assert.equal(calls.length,2);assert(calls.every(call=>call.options.method!=='POST'));assert(checkpoints>0);
+});
+
+test('direct Paddle document calls share slots, cancel queued work and release capacity after failure',async()=>{
+ const s=setup();s.write('/scan.png','image');let release,active=0,peak=0,calls=0;
+ const gate=new Promise(resolve=>release=resolve),controller=new AbortController(),statuses=[];
+ s.m.paddleRequest=async()=>{
+  const index=++calls;peak=Math.max(peak,++active);
+  try{
+   await gate;if(index===1)throw Error('controlled failure');
+   return {result:{layoutParsingResults:[{prunedResult:{blocks:[{label:'text',content:'正文'}]},markdown:{text:'正文'}}]}};
+  }finally{active--;}
+ };
+ const settings={parserService:'paddle-local',paddleSettings:{mode:'local',baseURL:'https://paddle.invalid'}};
+ const runs=Array.from({length:4},(_value,index)=>s.m.parseWithPaddle({...s.attachment,id:index+1},settings,{
+  signal:index===2?controller.signal:undefined,onStatus:status=>statuses.push(status)
+ }));
+ const completed=Promise.allSettled(runs);
+ try{
+  for(let i=0;i<20;i++)await Promise.resolve();
+  assert.equal(calls,2);assert(statuses.some(status=>status.phase==='等待识别名额'));
+  controller.abort();
+ }finally{release();}
+ const results=await completed;assert.equal(peak,2);assert.equal(calls,3);
+ assert.equal(results[0].status,'rejected');assert.equal(results[2].reason.name,'AbortError');
+ assert.equal(results[3].status,'fulfilled');assert.equal(s.m.paddleDocumentPools.size,0);
+});
+
 test('translation batches bind by paragraph IDs, retry missing IDs and preserve protected formula/image anchors',async()=>{
  const s=setup(),settings={workKind:'translate',contextWindow:32768,outputTokens:8192,translateLanguage:'中文',translateChunkSize:20000};
  const units=s.m.translationUnits('First $x$ paragraph.\n\nSecond ![图](docflow-image://img-1) paragraph.',settings);
@@ -114,6 +156,44 @@ test('translation batches bind by paragraph IDs, retry missing IDs and preserve 
  const missing=await s.m.translateAlignedBatch(items,settings);assert.equal(missing[0],null);assert.equal(missing[1],null);
  s.m.requestDocumentAI=async()=>JSON.stringify([{id:items[0].id,text:items[0].text},{id:items[0].id,text:items[0].text}]);
  await assert.rejects(()=>s.m.translateAlignedBatch(items,settings),/重复/);
+});
+
+test('cached date ordinals are sent as English dates while footnotes remain protected in batch and single retries',async()=>{
+ const s=setup(),items=[
+  {id:'p1.0',text:'On 31 ⟦K0⟧ March, the committee met.',unit:{protectedParts:['$^{st}$']}},
+  {id:'p2.0',text:'On 31 ⟦K0⟧ May, the committee met. ⟦K1⟧',unit:{protectedParts:['$^{st}$','$^{7}$']}}
+ ];
+ s.m.requestDocumentAI=async messages=>{
+  if(messages[0].content.includes('Input is a JSON array')){
+   const input=JSON.parse(messages[1].content);
+   assert.equal(input[0].text,'On 31st March, the committee met.');
+   assert.equal(input[1].text,'On 31st May, the committee met. ⟦K1⟧');
+   return JSON.stringify([{id:'p1.0',text:'委员会于3月31日开会。'},{id:'p2.0',text:'委员会于5月31日开会。⟦K1⟧'}]);
+  }
+  assert.equal(messages[1].content,'On 31st May, the committee met. ⟦K1⟧');
+  return '委员会于5月31日开会。⟦K1⟧';
+ };
+ const result=await s.m.requestAlignedTranslationBatch(items,{translateLanguage:'中文'});
+ assert.deepEqual(Array.from(result),['委员会于3月31日开会。','委员会于5月31日开会。⟦K1⟧']);
+ assert.equal(await s.m.translateAlignedParagraph(items[1],{translateLanguage:'中文'}),'委员会于5月31日开会。⟦K1⟧');
+ assert.equal(items[1].text,'On 31 ⟦K0⟧ May, the committee met. ⟦K1⟧');
+ s.m.requestDocumentAI=async()=> '委员会于5月31日开会。';
+ assert.equal(await s.m.translateAlignedParagraph(items[1],{translateLanguage:'中文'}),null);
+});
+
+test('date ordinal normalization leaves formulas, note numbers and non-date superscripts protected',()=>{
+ const s=setup();
+ for(const [day,suffix] of [[1,'st'],[2,'nd'],[3,'rd'],[4,'th'],[11,'th'],[12,'th'],[13,'th'],[21,'st'],[22,'nd'],[23,'rd'],[31,'st']]){
+  const input={id:'p1.0',text:`On ${day} ⟦K0⟧ January.`,unit:{protectedParts:[`$^{${suffix}}$`]}};
+  assert.equal(s.m.alignedTranslationInput(input).text,`On ${day}${suffix} January.`);
+ }
+ for(const [text,protectedPart] of [
+  ['On 31 ⟦K0⟧ March.','$^{7}$'],['On 32 ⟦K0⟧ March.','$^{nd}$'],['On 11 ⟦K0⟧ March.','$^{st}$'],
+  ['Value 1 ⟦K0⟧ plus x.','$^{st}$'],['On 1 ⟦K0⟧ March.','$x^2$']
+ ]){
+  const input={id:'p1.0',text,unit:{protectedParts:[protectedPart]}};
+  assert.equal(s.m.alignedTranslationInput(input),input);
+ }
 });
 
 test('runtime bilingual translation saves one pair per paragraph while requesting multiple paragraphs together',async()=>{

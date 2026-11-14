@@ -56,9 +56,13 @@ Object.assign(DocFlow, {
 		if (!source) return "标题为空，已跳过";
 		if (parent.getField("shortTitle").trim() && !settings.overwrite) return "已有短标题，已保留；如需替换请勾选覆盖";
 		task.detail = `翻译标题 → ${settings.targetLang}`; this.refreshParseQueueDialog();
-		let text = await this.translateTitleText(source, settings, signal);
+		let pending = task.titleTranslationPending;
+		let text = pending?.source === source && pending.targetLang === settings.targetLang && pending.service === settings.service && pending.modelID === settings.modelID
+			? pending.text : await this.translateTitleText(source, settings, signal);
 		signal.throwIfAborted();
 		if (typeof text !== "string" || !text.trim()) throw new Error("标题翻译返回空值，未修改短标题。");
+		task.titleTranslationPending = {source, targetLang:settings.targetLang, service:settings.service, modelID:settings.modelID, text};
+		await this.taskRecovery?.flush();
 		if (parent.getField("title").trim() !== source) throw new Error("原题名在翻译期间发生变化，请重试。");
 		if (parent.getField("shortTitle").trim() && !settings.overwrite) return "短标题已更新，已保留现有内容";
 		task.saving = true;

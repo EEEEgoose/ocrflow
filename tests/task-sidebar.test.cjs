@@ -5,7 +5,10 @@ const vm=require('node:vm');
 function setup(){
  const plugin={parseQueue:[],parentForDocument:()=>null,refreshParseQueueDialog(){},confirmRetryFailedChunks:()=> 'save'};
  const context={DocFlow:plugin,Zotero:{getMainWindow:()=>({})}};
- vm.createContext(context);vm.runInContext(fs.readFileSync('task-sidebar.js','utf8'),context);
+ vm.createContext(context);
+ for(const file of ['docflow.js','recognition.js'])vm.runInContext(fs.readFileSync(file,'utf8'),context);
+ for(const name of ['taskDisplayState','canQueryCloudTask'])plugin[name]=context.DocFlow[name];
+ context.DocFlow=plugin;vm.runInContext(fs.readFileSync('task-sidebar.js','utf8'),context);
  const sidebar=context.OCRFlowTaskSidebar;sidebar.init(plugin);plugin.sidebar=sidebar;
  return {plugin,sidebar,context};
 }
@@ -39,6 +42,14 @@ test('timeline records real stages and retains failed comparison after successfu
 test('Marker server queue is labeled separately from active OCR',()=>{
  const {sidebar}=setup(),task={state:'running',phase:'Marker · queued'};
  assert.equal(sidebar.stateLabel(task),'Marker 服务端排队中');task.phase='Marker · ocr';assert.equal(sidebar.stateLabel(task),'正在执行');task.state='canceled';task.phase='Marker · queued';assert.equal(sidebar.stateLabel(task),'已终止');
+});
+
+test('MinerU cloud queue, local slot waiting and paused translation have distinct sidebar states',()=>{
+ const {sidebar}=setup(),task={state:'running',phase:'MinerU · queued'};
+ assert.equal(sidebar.stateLabel(task),'云端排队中');
+ task.phase='等待识别名额';assert.equal(sidebar.stateLabel(task),'等待识别名额');
+ task.decision={};assert.equal(sidebar.stateLabel(task),'等待处理失败译段');
+ task.decision=null;task.state='completed';assert.equal(sidebar.stateLabel(task),'已完成');
 });
 test('failed step becomes pending on retry and completed extraction stays available',()=>{
  const {plugin}=setup();const task={kind:'parse',settings:{}};

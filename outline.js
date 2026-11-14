@@ -84,8 +84,24 @@ var DocFlowOutline = {
 		return headings;
 	},
 
+	parseStructuredDocument(document) {
+		let pages = Array.from({length: Math.max(0, ...document.pages.map(page => page.page))}, () => ""), headings = [];
+		for (let block of OCRFlowDocument.visible(document)) {
+			let page = block.fragments[0]?.page;
+			if (!Number.isInteger(page) || page < 1) continue;
+			if (block.type === "heading") headings.push({title: block.text, level: block.level || 2, summary: "", page});
+			for (let part of block.text.split(/(<!--ocrflow-page:\d+[^>]*-->)/g)) {
+				let marker = part.match(/^<!--ocrflow-page:(\d+)[^>]*-->$/);
+				if (marker) { page = Number(marker[1]); continue; }
+				if (part.trim()) pages[page - 1] = [pages[page - 1], part.trim()].filter(Boolean).join("\n\n");
+			}
+		}
+		return {pages: Array.from(pages, page => page || ""), headings};
+	},
+
 	async storeSource(attachment, result) {
 		let data = { pages: (result.outlinePages || []).map(page => this.blockText(page)), headings: result.outlineHeadings || [], outline: [] };
+		if (!data.pages.some(page => page.trim()) && result.document) Object.assign(data, this.parseStructuredDocument(result.document));
 		if (!data.headings.length) data.headings = this.markdownHeadings(result.markdownText);
 		this.locatePages(data.headings, data.pages, []);
 		await this.save(attachment, data);
@@ -215,7 +231,7 @@ var DocFlowOutline = {
 		}));
 	},
 
-	async generate(attachment, { settings, force = false, onStatus = () => {}, onReady = () => {}, signal } = {}) {
+	async generate(attachment, { settings, force = false, runID, onStatus = () => {}, onReady = () => {}, signal } = {}) {
 		let data = await this.load(attachment);
 		// Do not replace a valid cached outline on a failed generation.
 		data={...data,pages:[...data.pages],headings:[...data.headings]};
@@ -230,6 +246,15 @@ var DocFlowOutline = {
 			if (!outline.length) throw new Error("未找到书签或识别标题，请先解析 PDF 或启用 LLM 大纲生成。");
 		}
 		else {
+			if (!data.pages.some(page => page.trim())) {
+				let source = this.owner.findDocumentMarkdown?.(attachment);
+				if (source) {
+					let path = PathUtils.join(PathUtils.parent(await source.getFilePath()), "_ocrflow", "document.json");
+					try {
+						if (await IOUtils.exists(path)) Object.assign(data, this.parseStructuredDocument(JSON.parse(await IOUtils.readUTF8(path))));
+					} catch (error) { Zotero.debug?.("OCRFlow: outline source could not be read: " + error.message); }
+				}
+			}
 			if (!data.pages.some(page => page.trim())) {
 				onStatus("读取 PDF 每页文字");
 				let document = reader ? this.getReaderApp(reader)?.pdfDocument : null;
@@ -265,9 +290,10 @@ var DocFlowOutline = {
 			if (!chunks.length) throw Object.assign(new Error("没有可定位页码的文字，请识别后继续生成大纲。"),{name:"OutlineNeedsRecognition"});
 			if (!settings.apiBaseURL || !settings.model) throw new Error("请在 MinerU 设置中填写 LLM API 地址和模型，用于生成大纲与章节摘要。");
 			let prompt = OCRFlowPrompts.get("outline", settings.workPrompt);
+			if (runID && data.pendingRunID !== runID) { data.chunkResults = {}; data.pendingRunID = runID; }
 			data.chunkResults ||= {};
 			for (let [index, chunk] of chunks.entries()) {
-				if(!force && data.chunkResults[index]?.source===chunk){outline.push(...data.chunkResults[index].outline);continue;}
+				if((!force || runID && data.pendingRunID === runID) && data.chunkResults[index]?.source===chunk){outline.push(...data.chunkResults[index].outline);continue;}
 				let lastError;
 				for(let attempt=0;attempt<2;attempt++) {
 				try {

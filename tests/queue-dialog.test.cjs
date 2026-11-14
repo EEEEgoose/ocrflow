@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+const {test}=require('node:test');
 class Element {
   constructor() {this.children = []; this.dataset = {}; this.listeners = {}; this.textContent = ''; this.disabled = false; this.style = {}; this.clientHeight = 0; this.scrollHeight = 0; this.scrollTop = 0;}
   set textContent(value) {this.text=String(value??'');this.textWrites=(this.textWrites||0)+1;}
@@ -31,7 +32,8 @@ plugin.parseQueueWindow = window;
 const context = {window,Components:{classes:{'@mozilla.org/widget/clipboardhelper;1':{getService:()=>({copyString:text=>copied.push(text)})}},interfaces:{nsIClipboardHelper:{}}}, document: {getElementById: id => elements.get(id), createElementNS: () => new Element()}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('docflow.js', 'utf8'), context);
-for (const name of ['canClearParseQueueTask', 'clearParseQueueTasks', 'refreshParseQueueDialog']) plugin[name] = context.DocFlow[name];
+vm.runInContext(fs.readFileSync('recognition.js', 'utf8'), context);
+for (const name of ['canClearParseQueueTask', 'clearParseQueueTasks', 'refreshParseQueueDialog', 'taskDisplayState', 'canQueryCloudTask']) plugin[name] = context.DocFlow[name];
 vm.runInContext(fs.readFileSync('task-queue.js', 'utf8'), context);
 // The model may render as soon as the dialog script loads, before DOMContentLoaded.
 context.DocFlowTaskQueue.render();
@@ -137,4 +139,36 @@ assert.equal(plugin.parseQueueWindow, null);
 assert.equal(plugin.parseQueueViews.size,0,'closing the view unregisters it before its script scope is destroyed');
 assert(!events.keydown,'closing removes the window clipboard listener');
 assert.equal(plugin.parseQueue[0].state, 'running');
-console.log('PASS: dialog rows, button binding, retry-all selection, early rendering and close without task cancellation.');
+const queried=[];plugin.queryCloudTaskProgress=task=>queried.push(task.id);
+plugin.parseQueue=[
+ {id:101,title:'Cloud PDF',kind:'parse',state:'running',phase:'MinerU · queued',settings:{apiMode:'cloud'},cloudState:{parts:[{batchID:'existing',uploaded:true}]}},
+ {id:102,title:'Waiting PDF',kind:'organize',state:'running',phase:'等待识别名额',settings:{}},
+ {id:103,title:'Paused translation',kind:'translate',state:'running',decision:{},settings:{}}
+];view.render();
+assert.equal(view.rows.get(101).state.textContent,'云端排队中');
+assert.equal(view.rows.get(102).state.textContent,'等待识别名额');
+assert.equal(view.rows.get(103).state.textContent,'翻译待处理');
+assert.match(elements.get('queue-summary').textContent,/处理中 0/);
+assert.match(elements.get('queue-summary').textContent,/云端排队中 1/);
+assert.equal(view.rows.get(101).query.hidden,false);view.rows.get(101).query.listeners.click();assert.deepEqual(queried,[101]);
+plugin.parseQueue[0].cloudQuerying=true;view.render();assert.equal(view.rows.get(101).query.disabled,true);
+assert.equal(view.rows.get(102).query.hidden,true);
+console.log('PASS: dialog rows, accurate waiting states, manual cloud queries and task controls.');
+
+test('queue actions form a four-button grid and locate the task source in the library',async()=>{
+ const calls=[],item={id:42,deleted:false};
+ context.Zotero={Items:{getAsync:async id=>id===42?item:null},getMainWindow:()=>({ZoteroPane:{selectItem:async id=>{calls.push(['select',id]);return true;}},focus:()=>calls.push(['focus'])})};
+ plugin.locateTaskItem=context.DocFlow.locateTaskItem;
+ const task={id:120,title:'source.pdf',kind:'parse',attachment:item,settings:{apiMode:'cloud'},state:'failed',cloudState:{parts:[{batchID:'existing',uploaded:true}]}};
+ plugin.parseQueue=[task];view.render();const row=view.rows.get(120);
+ assert.equal(row.locate.textContent,'定位条目');assert.equal(row.locate.disabled,false);
+ const cell=row.element.children[4],grid=cell.children[0];
+ assert.equal(grid.className,'queue-action-grid');assert.deepEqual(grid.children,[row.retry,row.cancel,row.copy,row.locate]);
+ assert.equal(cell.children[1],row.query,'cloud queries use a separate full-width row');
+ await row.locate.listeners.click();assert.deepEqual(calls,[['select',42],['focus']]);assert.equal(task.state,'failed');
+ item.deleted=true;view.render();assert.equal(row.locate.disabled,true);
+ await view.locate(task);assert(elements.get('queue-copy-status').textContent.includes('定位失败'));
+ const css=fs.readFileSync('task-queue.css','utf8');
+ assert.match(css,/\.queue-action-grid\s*\{[^}]*display:\s*grid/);
+ assert.match(css,/\.queue-action-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+});

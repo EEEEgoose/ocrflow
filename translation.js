@@ -160,7 +160,18 @@ Object.assign(DocFlow, {
 		return output;
 	},
 
+	alignedTranslationInput(item) {
+		// English date ordinals are translated as ordinary text, including in older cached units.
+		let text = item.text.replace(/\b(\d{1,2})\s*⟦K(\d+)⟧(?=\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\b)/gi, (match, number, index) => {
+			let day = Number(number), suffix = item.unit?.protectedParts?.[Number(index)]?.match(/^\$\^\{(st|nd|rd|th)\}\$$/i)?.[1].toLowerCase();
+			let expected = day >= 11 && day <= 13 ? "th" : ({1:"st", 2:"nd", 3:"rd"}[day % 10] || "th");
+			return day >= 1 && day <= 31 && suffix === expected ? number + suffix : match;
+		});
+		return text === item.text ? item : {...item, text};
+	},
+
 	async translateAlignedParagraph(item, settings, signal) {
+		item = this.alignedTranslationInput(item);
 		let prompt = OCRFlowPrompts.get("translate", settings.workPrompt, settings.translateLanguage) +
 			"\nTranslate this single paragraph. Return only its translated body as plain Markdown, without JSON, paragraph IDs, code fences or explanations. Preserve every ⟦Knumber⟧ token exactly once and in its original order. Do not translate code, formulas or link targets.";
 		let text = await this.requestDocumentAI([{ role: "system", content: prompt }, { role: "user", content: item.text }],
@@ -218,6 +229,7 @@ Object.assign(DocFlow, {
 	},
 
 	async requestAlignedTranslationBatch(items, settings, signal) {
+		items = items.map(item => this.alignedTranslationInput(item));
 		let input = items.map(item => ({ id: item.id, text: item.text }));
 		let structured = this.isOpenRouterMiMo(settings);
 		let responseFormat = false;
@@ -299,6 +311,7 @@ Object.assign(DocFlow, {
 						error = null;
 						remaining.forEach((item, index) => { if (output[index]) item.unit.translated[item.index] = output[index]; });
 						remaining = remaining.filter(item => !item.unit.translated[item.index]);
+						await this.taskRecovery?.flush();
 					} catch (e) {
 						signal.throwIfAborted(); error = e;
 						if (e.status === 429) retryAt = Math.max(retryAt, Date.now() + (e.retryAfterMS > 0 ? e.retryAfterMS : 30000 * 2 ** attempt));

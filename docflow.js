@@ -286,10 +286,15 @@ DocFlow = {
 			localJobTimeoutMS: localJobTimeoutSec * 1000,
 			...this.getOutputSettings("parse"),
 			parseLinkSourcePDF: this.getPref(this.PREF_BRANCH + "parseLinkSourcePDF", true) !== false,
+			markerConcurrency: Math.min(10, Math.max(1, parseInt(this.getPref(this.PREF_BRANCH + "marker.concurrency", true), 10) || 2)),
+			mineruConcurrency: Math.min(10, Math.max(1, parseInt(this.getPref(this.PREF_BRANCH + "mineruConcurrency", true), 10) || 2)),
+			paddleConcurrency: Math.min(10, Math.max(1, parseInt(this.getPref(this.PREF_BRANCH + "paddle.concurrency", true), 10) || 2)),
 			parserService: (() => {
 				let service = this.getPref(this.PREF_BRANCH + "parserService", true) || "mineru";
+				if (/^marker-/.test(service)) return "marker";
 				return service === "paddle" ? "paddle-" + (this.getPref(this.PREF_BRANCH + "paddleMode", true) || "cloud") : service;
 			})(),
+			markitdownConcurrency: Math.min(10, Math.max(1, parseInt(this.getPref(this.PREF_BRANCH + "markitdownConcurrency", true), 10) || 2)),
 			markitdownBaseURL: (this.getPref(this.PREF_BRANCH + "markitdownBaseURL", true) || "").trim().replace(/\/+$/, ""),
 			collationEnabled: this.getPref(this.PREF_BRANCH + "collationEnabled", true) === true,
 			collationAIEnabled: this.getPref(this.PREF_BRANCH + "collationAIEnabled", true) === true,
@@ -352,6 +357,15 @@ DocFlow = {
 
 	openParseQueueDialog() { return this.openPreferences("tasks"); },
 
+	async locateTaskItem(task) {
+		let item = task.attachment?.id ? await Zotero.Items.getAsync(task.attachment.id) : null;
+		if (!item || item.deleted) throw Error("任务对应条目已删除或不可用。");
+		let main = Zotero.getMainWindow();
+		if (!main?.ZoteroPane) throw Error("Zotero 主窗口尚未就绪，请稍后重试。");
+		if (!await main.ZoteroPane.selectItem(item.id)) throw Error("未能定位任务对应条目。");
+		main.focus();
+	},
+
 	openPreferences(section = "services") {
 		this.requestedPreferencesSection = section;
 		let pane = Zotero.PreferencePanes.pluginPanes.find(pane => pane.pluginID === this.id);
@@ -368,6 +382,7 @@ DocFlow = {
 	},
 
 	refreshParseQueueDialog() {
+		this.taskRecovery?.schedule();
 		this.sidebar?.refresh();
 		for (let view of this.parseQueueViews) {
 			try { view.render(); }
@@ -394,6 +409,7 @@ DocFlow = {
 			if (task.kind === "parse" && parserService === "marker" && markerAPIType) task.settings.markerSettings = this.getMarkerSettings(markerAPIType);
 			if (task.kind === "organize" && task.jobID) task.settings.parserService = parserService;
 			task.state = "queued";
+			delete task.recoveryDecision; delete task.recoveryPaused;
 			task.detail = task.jobID ? "等待继续查询原任务" : "等待重试";
 			task.error = "";
 		}
@@ -460,9 +476,10 @@ DocFlow = {
 		if (task.kind !== "outline" && settings.parserService !== "marker" && settings.apiMode === "local-v1" && jobID) {
 			let controller = this.createAbortController();
 			let timeout = setTimeout(() => controller.abort(), 30000);
-			let url = `${settings.apiBaseURL}/v1/parse/jobs/${encodeURIComponent(jobID)}`;
+			let tasksAPI = settings.localAPIProtocol === "tasks";
+			let url = `${settings.apiBaseURL}/v1/${tasksAPI ? "tasks" : "parse/jobs"}/${encodeURIComponent(jobID)}`;
 			try {
-				let result = await this.requestMineruJSON({url, token: settings.apiToken, method: "DELETE", signal: controller.signal});
+				let result = await this.requestMineruJSON({url:tasksAPI ? url + "/cancel" : url, token: settings.apiToken, method: tasksAPI ? "POST" : "DELETE", signal: controller.signal});
 				if (result.status !== "canceled") throw new Error("服务端未确认取消任务");
 				detail = "服务端已接受取消；当前推理与资源清理结束后释放资源";
 			}
@@ -522,9 +539,26 @@ DocFlow = {
 		let reader=s.collationEnabled ? s.readerA||s : s;
 		if (["parse", "organize"].includes(task.kind)) reader = this.recognitionSettingsFor(task.attachment, reader);
 		let ai=reader.parserService==="ai" ? reader.llmSettings||{} : s;
-		let endpoint=reader.parserService==="marker" ? reader.markerSettings?.baseURL : reader.parserService?.startsWith("paddle-") ? reader.paddleSettings?.baseURL : reader.parserService==="markitdown" ? reader.markitdownBaseURL : ai.apiBaseURL;
+		let paddle = reader.parserService?.startsWith("paddle-");
+		let paddleSettings = reader.paddleSettings || reader.paddleProfiles?.[reader.parserService === "paddle-local" ? "local" : "cloud"];
+		let endpoint=reader.parserService==="marker" ? reader.markerSettings?.baseURL : paddle ? paddleSettings?.baseURL : reader.parserService==="markitdown" ? reader.markitdownBaseURL : ai.apiBaseURL;
+		if (["parse","organize"].includes(task.kind) && reader.parserService === "marker") return JSON.stringify(["marker", endpoint?.replace(/\/+$/,""), reader.markerSettings?.apiType || "local"]);
+		if (["parse","organize"].includes(task.kind) && reader.parserService === "mineru") return JSON.stringify(["mineru", endpoint?.replace(/\/+$/,""), reader.apiMode]);
+		if (["parse","organize"].includes(task.kind) && paddle) return JSON.stringify([reader.parserService, endpoint?.replace(/\/layout-parsing\/?$/, "").replace(/\/+$/, "")]);
+		if (["parse","organize"].includes(task.kind) && reader.parserService === "markitdown") return JSON.stringify(["markitdown", endpoint?.replace(/\/+$/, "")]);
 		let models=task.kind==="organize" ? [s.metadataSettings,s.titleSettings?.aiSettings||s.titleSettings,s.outlineSettings,s.summarySettings,s.translationSettings].map(row=>[row?.apiBaseURL,row?.modelID,row?.model]) : [];
 		return JSON.stringify([task.kind,reader.parserService||"ai",endpoint?.replace(/\/+$/,""),ai.modelID,ai.model,reader.apiMode,reader.modelVersion||reader.markerSettings?.mode,models]);
+	},
+
+	taskDisplayState(task) {
+		if (task.recoveryDecision && task.state === "waiting") return "translation_paused";
+		if (task.state === "running") {
+			if (task.decision) return "translation_paused";
+			if (task.phase === "等待识别名额") return "waiting_slot";
+			if (task.phase === "MinerU · queued") return "cloud_queued";
+			if (task.phase === "Marker · queued") return "server_queued";
+		}
+		return task.state;
 	},
 
 	parseQueueDocument(task) {
@@ -542,13 +576,22 @@ DocFlow = {
 			let reader = task.settings.readerA || task.settings;
 			if (["parse","organize"].includes(task.kind)) reader=this.recognitionSettingsFor(task.attachment,reader);
 			let cloud = ["parse","organize"].includes(task.kind) && reader.parserService === "mineru" && reader.apiMode !== "local-v1";
-			let limit=["parent","metadata","summary","translate","outline","title"].includes(task.kind) ? task.settings.concurrency||1 : cloud ? 5 : 1;
-			if (cloud && active.filter(row => row.cloudRecognizing).length >= 5) continue;
-			if(active.filter(row=>this.parseQueueLane(row)===lane&&(!cloud||row.cloudRecognizing)).length>=limit)continue;
+			let marker = ["parse","organize"].includes(task.kind) && reader.parserService === "marker";
+			let mineru = ["parse","organize"].includes(task.kind) && reader.parserService === "mineru";
+			let paddle = ["parse","organize"].includes(task.kind) && reader.parserService?.startsWith("paddle-");
+			let documentService = marker || mineru || paddle || (["parse","organize"].includes(task.kind) && reader.parserService === "markitdown");
+			let limit = ["parent","metadata","summary","translate","outline","title"].includes(task.kind) ? task.settings.concurrency || 1 : 1;
+			if (marker) limit = reader.markerConcurrency || 2;
+			else if (mineru) limit = reader.mineruConcurrency || 2;
+			else if (paddle) limit = reader.paddleConcurrency || 2;
+			else if (documentService) limit = reader.markitdownConcurrency || 2;
+			if (cloud && active.filter(row => row.cloudRecognizing).length >= limit) continue;
+			if(active.filter(row=>this.parseQueueLane(row)===lane&&(!documentService||!row.ocrCompleted)).length>=limit)continue;
 			let work=this.processParseQueueTask(task).finally(()=>{
 				this.parseQueueWork.delete(work);this.dispatchParseQueue();
 			});
 			this.parseQueueWork.add(work);
+			task.workPromise = work;
 		}
 	},
 
@@ -590,6 +633,7 @@ DocFlow = {
 				if (task.parsedResult) { task.saving = true; this.refreshParseQueueDialog(); await this.outline.save(task.attachment, task.parsedResult); }
 				else await this.outline.generate(task.attachment, {
 					settings: task.settings, force: task.force,
+					runID:task.outlineRunID ||= this.makeDataID("outline-" + task.id),
 					signal: task.controller.signal,
 					onReady: data => { task.controller.signal.throwIfAborted(); task.parsedResult = data; task.saving = true; this.refreshParseQueueDialog(); },
 					onStatus: text => { if (!task.cancelRequested) task.detail = text; this.refreshParseQueueDialog(); }
@@ -605,6 +649,7 @@ DocFlow = {
 		}
 		catch (error) {
 			if (task.cancelRequested) await this.finishParseQueueCancellation(task, error);
+			else if (this.taskRecovery?.stopping) { task.state = "queued"; task.detail = "任务已暂停，更新后继续"; task.error = ""; }
 			else {
 				if(error.name === "OutlineNeedsRecognition") {task.needsRecognition=true;task.state="waiting";task.error=error.message;task.detail=error.message;return;}
 				task.state = ["MineruJobWaitTimeout","MarkerJobWaitTimeout","MarkerConnectionError"].includes(error.name) ? "wait_expired" : "failed";
@@ -624,6 +669,7 @@ DocFlow = {
 	async runParseTask(task) {
 		task.settings = this.recognitionSettingsFor(task.attachment, task.settings);
 		if (!task.parsedResult) {
+			task.ocrCompleted = false;
 			task.cloudRecognizing = task.settings.parserService === "mineru" && task.settings.apiMode !== "local-v1";
 			task.displaySettings = task.settings.collationEnabled && ["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(task.attachment)) ? task.settings.readerA || task.settings : task.settings;
 			task.cancelSettings = task.displaySettings;
@@ -633,6 +679,9 @@ DocFlow = {
 			task.parsedResult = await this.parseAttachmentWithMineru(task.attachment, task.settings, {
 				jobID: task.jobID,
 				cloudState: task.cloudState ||= {},
+				localTaskState: task.localTaskState ||= {},
+				paddleState: task.paddleState ||= {},
+				checkpoint: () => this.taskRecovery?.flush(),
 				signal: task.controller.signal,
 				onStatus: status => {
 					task.phase = status.phase || task.phase;
@@ -645,19 +694,21 @@ DocFlow = {
 				}
 			});
 		}
-		task.cloudRecognizing = false;
-		this.dispatchParseQueue();
+		if (task.parsedResult) task.paddleState = null;
+		await this.taskRecovery?.flush();
 		this.setTaskStep?.(task, "structure", "整理文档结构", "恢复脚注、图注与来源，保留原始数据");
 		if (this.finalizeDocument) this.finalizeDocument(task.parsedResult, task.settings.parserService);
 		this.setTaskStep?.(task, "structure", "整理文档结构", "结构与来源已整理", "completed");
 		if (task.settings.collationEnabled && this.prepareCollation) await this.prepareCollation(task);
+		task.cloudRecognizing = false;
+		task.ocrCompleted = true;
+		this.dispatchParseQueue();
 		task.controller.signal.throwIfAborted();
 		if (this.parseQueueStopped) return;
 		task.saving = true;
 		task.detail = "保存解析附件";
 		this.setTaskStep?.(task, "save", "保存结果", task.detail);
 		this.refreshParseQueueDialog();
-		if (this.documentExtension && !["pdf", "png", "jpg", "jpeg"].includes(this.documentExtension(task.attachment))) task.settings.outputFormat = "md";
 		let saved = task.ocrBaseSaved || await this.saveResultAsMarkdownAttachment({
 			attachment: task.attachment, parentItem: task.attachment.parentItemID ? Zotero.Items.get(task.attachment.parentItemID) : task.parentItem,
 			parsedResult: task.parsedResult, settings: task.settings
@@ -667,6 +718,7 @@ DocFlow = {
 			saved=await this.saveAutomaticCollation(task,saved);
 		}
 		task.resultAttachment = saved?.attachment;
+		await this.taskRecovery?.flush();
 		task.hasChangesReport = !!task.parsedResult.document;
 		task.collationStatus = task.parsedResult.collation?.status;
 		task.collationAIStatus = task.parsedResult.collation?.ai?.status;
@@ -777,12 +829,28 @@ DocFlow = {
 			mineruState: "",
 			progress: 5,
 			jobID: options.jobID || null,
+			cloudState: options.cloudState ||= {},
+			localTaskState: options.localTaskState ||= {},
+			checkpoint: options.checkpoint,
 			signal: options.signal,
 			onStatus: options.onStatus
 		};
 		this.reportParseStatus(statusContext);
 
 		try {
+			if (settings.apiMode === "local-v1") {
+				let health = await this.requestMineruJSON({url:settings.apiBaseURL + "/v1/health", token:settings.apiToken, signal:statusContext.signal});
+				settings.localAPIProtocol = health.features?.task_output_formats ? "tasks" : "jobs";
+				if (settings.localAPIProtocol === "tasks") {
+					let getBytes = async () => {
+						let path = await attachment.getFilePath();
+						if (!path) throw new Error("附件文件不存在或尚未下载到本地");
+						return IOUtils.read(path);
+					};
+					let fileName = attachment.attachmentFilename || this.fileNameFromPath(await attachment.getFilePath() || "document.pdf");
+					return await this.parseAttachmentWithLocalTasks(getBytes, fileName, settings, statusContext);
+				}
+			}
 			if (settings.apiMode === "local-v1" && options.jobID) {
 				this.reportParseStatus(statusContext, { phase: "查询原任务", jobID: options.jobID });
 				let job;
@@ -798,6 +866,10 @@ DocFlow = {
 					let fileName = this.fileNameFromPath(attachment.getFilePath() || "document.pdf");
 					return await this.waitForLocalV1Job(job, options.jobID, fileName, settings, statusContext);
 				}
+			}
+			if (settings.apiMode !== "local-v1" && options.cloudState.parts?.length && options.cloudState.parts.every(part => part.uploaded || part.result)) {
+				return await this.parseAttachmentWithCloud(new Uint8Array(), attachment.attachmentFilename || "document.pdf", attachment.id,
+					{...settings, recognitionLanguage:this.cloudRecognitionLanguage(attachment, settings.cloudLanguage)}, statusContext);
 			}
 			this.reportParseStatus(statusContext, {
 				phase: "读取本地 PDF",
@@ -824,7 +896,8 @@ DocFlow = {
 
 	getPDFLibrary() {
 		if (!this.pdfLibrary) {
-			let scope = { Uint8Array, ArrayBuffer, setTimeout };
+			let log = (...messages) => Zotero.debug("OCRFlow PDF: " + messages.join(" "));
+			let scope = { Uint8Array, ArrayBuffer, setTimeout, console: {log, warn: log} };
 			Services.scriptloader.loadSubScript(this.rootURI + "vendor/pdf-lib/pdf-lib.min.js", scope);
 			this.pdfLibrary = scope.PDFLib;
 		}
@@ -880,6 +953,62 @@ DocFlow = {
 		return parts.join("，");
 	},
 
+	async parseAttachmentWithLocalTasks(getBytes, fileName, settings, context) {
+		let state = context.localTaskState, base = settings.apiBaseURL, token = settings.apiToken;
+		let jobID = context.jobID, job;
+		if (jobID) {
+			try { job = await this.requestMineruJSON({url:base + "/v1/tasks/" + encodeURIComponent(jobID), token, signal:context.signal}); }
+			catch (error) { if (error.status !== 404) throw error; }
+		}
+		let bytes;
+		if (!job || ["failed", "canceled"].includes(job.status)) {
+			bytes = await getBytes();
+			this.reportParseStatus(context, {phase:"提交解析任务", jobID:null});
+			await context.checkpoint?.(); context.signal?.throwIfAborted();
+			job = await this.requestMineruJSON({url:base + "/v1/tasks", token, method:"POST",
+				body:{files:[{file_name:this.sanitizeFileName(fileName), bytes:bytes.byteLength}], tier:settings.modelVersion, output_formats:["default"]}});
+			jobID = job.task_id;
+			if (!jobID || !job.files?.[0]?.file_id) throw new Error("MinerU 未返回任务或文件 ID");
+			state.fileID = job.files[0].file_id; state.uploaded = false;
+			this.setPref(this.PREF_BRANCH + "lastLocalJobID", jobID, true);
+			this.reportParseStatus(context, {jobID});
+			await context.checkpoint?.();
+			job = await this.requestMineruJSON({url:base + "/v1/tasks/" + encodeURIComponent(jobID), token, signal:context.signal});
+		}
+		state.fileID ||= job.files?.[0]?.file_id;
+		let started = Date.now(), file;
+		while (true) {
+			file = job.files?.find(entry => entry.file_id === state.fileID);
+			if (!file) throw new Error("MinerU 任务中未找到对应文件");
+			this.reportParseStatus(context, {jobID, phase:`任务 ID: ${jobID}，${this.describeLocalJobProgress(job, Date.now() - started)}`,
+				mineruState:file.status, pageProgress:job.progress ? {...job.progress, unit:"个文件"} : null});
+			if (["completed", "failed", "canceled"].includes(file.status)) break;
+			if (this.parseQueueStopped || settings.localJobTimeoutMS > 0 && Date.now() - started >= settings.localJobTimeoutMS) {
+				let error = new Error(`客户端等待已结束，任务 ID: ${jobID}，最后状态: ${file.status}。服务端任务未被取消，可继续等待。`);
+				error.name = "MineruJobWaitTimeout"; throw error;
+			}
+			if (file.status === "waiting-file" && file.upload && !state.uploaded) {
+				bytes ||= await getBytes();
+				let url = new URL(file.upload.url, base + "/"), headers = new Headers(file.upload.headers || {});
+				if (token && url.origin === new URL(base).origin) headers.set("Authorization", `Bearer ${token}`);
+				this.reportParseStatus(context, {phase:"上传文档"});
+				let response = await fetch(url.toString(), {method:"PUT", headers, body:bytes, signal:context.signal});
+				if (!response.ok) throw new Error(`上传文档失败 ${response.status}`);
+				state.uploaded = true; await context.checkpoint?.();
+			} else await this.delayParsePoll(Math.min(10000, Math.max(5000, settings.pollIntervalMS || 5000)), context);
+			job = await this.requestMineruJSON({url:base + "/v1/tasks/" + encodeURIComponent(jobID), token, signal:context.signal});
+		}
+		if (file.status !== "completed") throw new Error(file.error?.message || job.error?.message || `MinerU 解析结束：${file.status}，任务 ID: ${jobID}`);
+		if (!file.result_url) throw new Error("MinerU 未返回 ZIP 结果");
+		this.reportParseStatus(context, {phase:"下载解析结果", progress:75});
+		let url = new URL(file.result_url, base + "/"), headers = token && url.origin === new URL(base).origin ? {Authorization:`Bearer ${token}`} : {};
+		let response = await fetch(url.toString(), {headers, signal:context.signal});
+		if (!response.ok) throw new Error(`下载解析结果失败 ${response.status}`);
+		let result = await this.extractNoteContentFromMineruZip(new Uint8Array(await response.arrayBuffer()), fileName);
+		this.reportParseStatus(context, {phase:"提取完成", progress:95});
+		return result;
+	},
+
 	async parseAttachmentWithLocalV1(fileBytes, fileName, settings, statusContext) {
 		let baseURL = settings.apiBaseURL;
 		let token = settings.apiToken;
@@ -908,6 +1037,7 @@ DocFlow = {
 		if (!fileID) throw new Error("MinerU 未返回文件 ID");
 
 		this.reportParseStatus(statusContext, { phase: "提交解析任务", progress: 55 });
+		await statusContext?.checkpoint?.(); statusContext?.signal?.throwIfAborted();
 		// Await the submission response so termination can cancel the returned job ID.
 		let job = await this.requestMineruJSON({
 			url: `${baseURL}/v1/parse/jobs`, token, method: "POST",
@@ -926,6 +1056,7 @@ DocFlow = {
 		let baseURL = settings.apiBaseURL;
 		let token = settings.apiToken;
 		this.reportParseStatus(statusContext, { jobID });
+		await statusContext?.checkpoint?.();
 		let pollIntervalMS = Math.min(10000, Math.max(5000, settings.pollIntervalMS));
 		let started = Date.now();
 		this.reportParseStatus(statusContext, {

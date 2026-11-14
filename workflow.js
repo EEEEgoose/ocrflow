@@ -255,11 +255,18 @@ Object.assign(DocFlow, {
 		if (source?.getTags().some(tag => tag.tag.startsWith("#DocFlow-") && tag.tag !== "#DocFlow-Parse")) source = null;
 		if (!source && task.source && !task.source.deleted) source = task.source;
 		if (!source || task.parsedResult) {
-			let path = await attachment.getFilePath();
-			if (!path || !await IOUtils.exists(path)) {
-				task.state = "waiting";
-				task.detail = "附件文件尚未在本机就绪；下载或恢复文件后，点击“继续整理”。";
-				return;
+			let reader = task.settings.readerA || task.settings;
+			let remoteReady = reader.parserService === "marker" && task.jobID ||
+				reader.parserService === "mineru" && reader.apiMode === "local-v1" && task.jobID ||
+				reader.parserService === "mineru" && task.cloudState?.parts?.length && task.cloudState.parts.every(part => part.uploaded || part.result) ||
+				reader.parserService === "paddle-cloud" && task.paddleState?.parts?.length && task.paddleState.parts.every(part => part.jobID || part.pages || part.path || part.bytes);
+			if (!task.parsedResult && !remoteReady) {
+				let path = await attachment.getFilePath();
+				if (!path || !await IOUtils.exists(path)) {
+					task.state = "waiting";
+					task.detail = "附件文件尚未在本机就绪；下载或恢复文件后，点击“继续整理”。";
+					return;
+				}
 			}
 			task.detail = "识别文档";
 			this.refreshParseQueueDialog();
@@ -273,10 +280,13 @@ Object.assign(DocFlow, {
 			task.saving = false;
 		}
 		task.source = source;
+		if (this.taskRecovery?.stopping) return;
+		task.ocrCompleted = true;
+		this.dispatchParseQueue();
 		this.setTaskStep?.(task,"extract","识别文档","全文已就绪，复用已保存结果","completed");
 		task.resultAttachment ||= source;
 		signal.throwIfAborted();
-		if (task.organizeSourceID !== source.id) { task.organizeStages = {}; task.organizeSourceID = source.id; }
+		if (task.organizeSourceID !== source.id) { task.organizeStages = {}; task.organizeSourceID = source.id; delete task.outlineRunID; }
 		let hadParent = !!this.parentForDocument(attachment);
 		this.setTaskStep?.(task,"parent","建立条目",hadParent ? "已有父条目" : "从全文识别条目信息",hadParent ? "skipped" : "running");
 		if (task.metadataSourceID !== source.id || !this.parentForDocument(attachment)) {
@@ -312,7 +322,9 @@ Object.assign(DocFlow, {
 			}
 			task.metadataSourceID = source.id;
 			task.saving = false;
+			await this.taskRecovery?.flush();
 		}
+		if (this.taskRecovery?.stopping) return;
 		if (!hadParent) this.setTaskStep?.(task,"parent","建立条目","父条目已建立","completed");
 		this.setTaskStep?.(task,"metadata","补全条目","缺失条目信息已补全","completed");
 		if (!task.renameCompleted) { await this.renameDocumentAttachments(this.parentForDocument(attachment)); task.renameCompleted = true; }
@@ -324,6 +336,7 @@ Object.assign(DocFlow, {
 		let parent = this.parentForDocument(source) || this.parentForDocument(task.attachment);
 		if (!parent) throw new Error("建立条目未完成，无法继续全流程。");
 		for (let [kind,label,settings] of [["title","翻译标题",task.settings.titleSettings],["summary","总结文献",task.settings.summarySettings],["translate","翻译文献",task.settings.translationSettings],["outline","生成大纲",task.settings.outlineSettings]]) {
+			if (this.taskRecovery?.stopping) return;
 			signal.throwIfAborted(); task.saving = false; task.progress = null;
 			let completedDetail="已完成";
 			if (["completed","skipped"].includes(stages[kind]?.state)) { this.setTaskStep?.(task,kind,label,stages[kind].detail,stages[kind].state); continue; }
@@ -334,9 +347,10 @@ Object.assign(DocFlow, {
 					let candidates = task.attachment.isPDFAttachment?.() ? [task.attachment] : this.relatedDocuments(source).filter(item=>item.isPDFAttachment?.());
 					if (!candidates.length) candidates = this.collectSourceFiles([parent]).filter(item=>item.isPDFAttachment?.());
 					if (candidates.length !== 1) { stages[kind]={state:"skipped",detail:"未关联唯一 PDF，此文件不生成大纲"};this.setTaskStep?.(task,kind,label,stages[kind].detail,"skipped");continue; }
-					await this.outline.generate(candidates[0],{settings,signal,onReady:()=>{task.saving=true;},onStatus:detail=>{task.detail=detail;this.setTaskStep?.(task,kind,label,detail);}});
+					await this.outline.generate(candidates[0],{settings,signal,runID:task.outlineRunID ||= this.makeDataID("outline-" + task.id),onReady:()=>{task.saving=true;},onStatus:detail=>{task.detail=detail;this.setTaskStep?.(task,kind,label,detail);}});
 				} else {
 					let child = stages[kind]?.task || {kind,attachment:task.attachment,source,explicitSource:true,mineruSource:source,parentItem:parent,parentTask:task,organizeStage:kind};
+					child.parentTask = task; child.organizeStage = kind;
 					stages[kind] = {state:"running",task:child}; child.settings={...settings};child.controller=task.controller;
 					for (let name of ["detail","progress","saving"]) Object.defineProperty(child,name,{configurable:true,get:()=>task[name],set:value=>{task[name]=value;}});
 					if (kind === "title") {
@@ -353,6 +367,8 @@ Object.assign(DocFlow, {
 					if (child.partial) { stages[kind]={state:"failed",task:child,detail:"已保存部分译文，仍有未完成段落"};this.setTaskStep?.(task,kind,label,stages[kind].detail,"failed");continue; }
 				}
 				signal.throwIfAborted(); stages[kind]={state:"completed",detail:completedDetail};this.setTaskStep?.(task,kind,label,completedDetail,"completed");
+				await this.taskRecovery?.flush();
+				if (this.taskRecovery?.stopping) return;
 			} catch (error) {
 				signal.throwIfAborted(); stages[kind]={...stages[kind],state:"failed",detail:error.message};this.setTaskStep?.(task,kind,label,error.message,"failed");
 			} finally { task.saving=false; }
@@ -364,8 +380,8 @@ Object.assign(DocFlow, {
 	},
 
 	async recognizeThenOutline(task) {
-		task.state="waiting_dependency";task.needsRecognition=false;
 		let settings=this.getSettings(),existing=this.parseQueue.find(row=>row.kind==="parse"&&row.attachment.id===task.attachment.id&&["queued","running"].includes(row.state)),id=existing?.id||this.parseQueueNextID;
+		task.state="waiting_dependency";task.needsRecognition=false;task.error="";task.detail="等待前置识别完成";
 		task.requiredParseID=id;
 		if(existing){this.refreshParseQueueDialog();return;}
 		await this.enqueueDocumentTasks("parse",[{attachment:task.attachment}],settings);
@@ -383,6 +399,10 @@ Object.assign(DocFlow, {
 	resolveTaskPrerequisites(task) {
 		if(task.kind === "outline" && task.requiredParseID) {
 			let prerequisite=this.parseQueue.find(row=>row.id===task.requiredParseID);
+			if(!prerequisite || ["failed","canceled","wait_expired"].includes(prerequisite.state)) {
+				task.state="waiting";task.needsRecognition=true;task.detail="前置识别未完成，请重试识别任务后继续生成大纲";
+				task.error=prerequisite?.error||task.detail;return false;
+			}
 			if(prerequisite?.state!=="completed") {task.state="waiting_dependency";task.detail="等待前置识别完成";return false;}
 			delete task.requiredParseID;task.state="queued";task.force=true;task.needsRecognition=false;
 		}
@@ -412,6 +432,7 @@ Object.assign(DocFlow, {
 		if (this.sidebar) this.sidebar.showTask(this.parseQueue.at(-1));
 		else this.openParseQueueDialog();
 		this.refreshParseQueueDialog();
+		if (this.taskRecovery) await this.taskRecovery.flush();
 		await this.processParseQueue();
 	},
 
@@ -508,7 +529,9 @@ Object.assign(DocFlow, {
 			task.detail = "AI 正在读取文件名";
 			this.refreshParseQueueDialog();
 			let filename = attachment.attachmentFilename || attachment.getField("title");
-			let metadata = await this.identify("", filename, true, {}, settings, signal);
+			let metadata = task.parentMetadata || await this.identify("", filename, true, {}, settings, signal);
+			signal.throwIfAborted();
+			task.parentMetadata = metadata; await this.taskRecovery?.flush();
 			signal.throwIfAborted();
 			task.saving = true;
 			task.resultAttachment = await this.createDocumentParent(attachment, metadata);
@@ -519,6 +542,7 @@ Object.assign(DocFlow, {
 		let source = task.explicitSource ? task.source : this.findDocumentMarkdown(attachment);
 		if (source?.deleted) throw new Error("选中的 Markdown 已删除，请重新选择文档。");
 		if (!source) throw new Error("没有找到与此文档关联的 Markdown，请先执行“识别文档”。");
+		task.source = source;
 		task.detail = "读取 Markdown";
 		this.refreshParseQueueDialog();
 		let { markdown } = await this.readSourceMarkdown(source);
@@ -538,9 +562,11 @@ Object.assign(DocFlow, {
 			await this.renameDocumentAttachments(parent);
 			task.resultAttachment = parent;
 		} else {
-			let summary = await this.summarizeDocument(text, settings, signal, detail => {
+			let summary = task.summaryResult && task.summaryResult.sourceKey === source.key ? task.summaryResult.text : await this.summarizeDocument(text, settings, signal, detail => {
 				task.detail = detail; this.refreshParseQueueDialog();
 			});
+			signal.throwIfAborted();
+			task.summaryResult = {sourceKey:source.key, text:summary}; await this.taskRecovery?.flush();
 			signal.throwIfAborted();
 			task.saving = true;
 			task.resultAttachment = await this.saveDocumentSummary(parent, attachment, summary, settings);
@@ -558,6 +584,8 @@ Object.assign(DocFlow, {
 	},
 
 	async extractDocumentMetadata(task, text, current, settings) {
+		let sourceKey = task.source?.key || task.mineruSource?.key || task.attachment.key;
+		if (task.metadataResult && task.metadataResult.sourceKey === sourceKey) return task.metadataResult.metadata;
 		let completed = 0;
 		let chunks = this.splitAIText(text, settings);
 		let results = await this.mapAIWork(chunks, settings.concurrency, async chunk => {
@@ -574,6 +602,8 @@ Object.assign(DocFlow, {
 				if ((!metadata[key] || (Array.isArray(metadata[key]) && !metadata[key].length)) && value) metadata[key] = value;
 			}
 		}
+		task.controller.signal.throwIfAborted();
+		task.metadataResult = {sourceKey, metadata}; await this.taskRecovery?.flush();
 		return metadata;
 	},
 
@@ -767,11 +797,14 @@ Object.assign(DocFlow, {
 				for (let [name, value] of Object.entries({output_format:"markdown", paginate_output:"true", force_ocr:String(config.forceOCR), mode:config.mode})) form.append(name, value);
 				if (settings.outputFormat === "html" && settings.htmlLayout !== "markdown") form.append("include_layout", "true");
 				options.onStatus?.({phase:"提交 Marker 任务",jobID:null,displayText:`正在上传整份 PDF（${total} 页）`,pageProgress:{completed:0,total,unit:"页"}});
+				await options.checkpoint?.(); signal?.throwIfAborted();
 				// Collect the task ID even if cancellation is requested during submission, then cancel that exact server job.
 				job = await request("/v1/parse/jobs", {method:"POST",body:form}, this.createAbortController());
 				jobID = job.job_id;
 				if (!jobID) throw new Error("Marker 未返回任务 ID，请检查任务服务是否已更新。");
 			}
+			options.onStatus?.({jobID});
+			await options.checkpoint?.();
 			let path = `/v1/parse/jobs/${encodeURIComponent(jobID)}`, started = Date.now();
 			for (;;) {
 				let progress = job.progress?.total > 0 ? job.progress : {completed:0,total,unit:"页"};
@@ -853,7 +886,6 @@ Object.assign(DocFlow, {
 			return settings.apiMode === "local-v1" ? this.parseAttachmentWithLocalV1(bytes,this.fileNameFromPath(path),settings,options) :
 				this.parseAttachmentWithCloud(bytes,this.fileNameFromPath(path).replace(/\.htm$/i,".html"),attachment.id,{...settings,recognitionLanguage:this.cloudRecognitionLanguage(attachment,settings.cloudLanguage)},options);
 		}
-		if (ext !== "pdf" && !image) settings.outputFormat = "md";
 		if (["txt", "md", "markdown", "csv"].includes(ext)) {
 			let bytes = await IOUtils.read(await attachment.getFilePath());
 			return { markdownText: new TextDecoder("utf-8").decode(bytes), embeddedImages: [] };
@@ -962,7 +994,18 @@ Object.assign(DocFlow, {
 			warning: hasEmptyParts ? "部分分段未提取到文字，可能包含扫描页；需要 OCR 时请选择 MinerU 或 AI 视觉 OCR。" : null };
 	},
 
+	normalizeEPUBDocumentLinks(markdownText) {
+		return markdownText.replace(/!\[[^\]]*\]\(([^)]+)\)/g, (match, target) => {
+			let url = this.parseMarkdownImageTarget(target).url;
+			if (url.startsWith("#") || !this.isExternalResourceURL(url) && /\.(?:xhtml|html?)$/i.test(this.normalizeArchiveReference(url))) {
+				return "! " + match.slice(1);
+			}
+			return match;
+		});
+	},
+
 	async inlineEPUBImagesInMarkdown(markdownText, path, signal) {
+		markdownText = this.normalizeEPUBDocumentLinks(markdownText);
 		let references = [...markdownText.matchAll(/!\[[^\]]*\]\(([^)]+)\)|<img\b[^>]*\bsrc=["']([^"']+)["']/gi)]
 			.map(match => match[1] ? this.parseMarkdownImageTarget(match[1]).url : match[2]);
 		if (!references.some(url => !this.isExternalResourceURL(url))) return this.inlineStoredImagesInMarkdownAttachment({ markdownText, markdownPath:path, signal });
@@ -1060,7 +1103,7 @@ Object.assign(DocFlow, {
 			markdown.push(await OCRFlowMarkItDown.convert(connection, `data:text/html;base64,${this.bytesToBase64(new TextEncoder().encode(html))}`));
 		}
 		if (!markdown.some(text => text.trim())) throw new Error("MarkItDown 未返回 EPUB 正文。");
-		return { markdownText: [source.metadata, ...markdown].filter(Boolean).join("\n\n"), embeddedImages: source.embeddedImages || [] };
+		return { markdownText: this.normalizeEPUBDocumentLinks([source.metadata, ...markdown].filter(Boolean).join("\n\n")), embeddedImages: source.embeddedImages || [] };
 	},
 
 	async parseWithVision(attachment, settings, options) {

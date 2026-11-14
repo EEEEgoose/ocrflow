@@ -13,6 +13,7 @@ const owner = {
   applyAIContextBudget(){},parseOptionalJSONObject: () => ({}), mergeRequestPayload: payload => payload
 };
 const context = {
+  DocFlow: owner,
   PathUtils: {join: path.join, parent: path.dirname},
   IOUtils: {exists: async key => files.has(key), readUTF8: async key => files.get(key), makeDirectory: async () => {}, writeUTF8: async (key, value) => files.set(key, value)},
   Zotero: {
@@ -26,12 +27,35 @@ const context = {
 };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('prompts.js', 'utf8'), context);
+vm.runInContext(fs.readFileSync('document.js', 'utf8'), context);
 vm.runInContext(fs.readFileSync('outline.js', 'utf8'), context);
 const outlineFeature = context.DocFlowOutline;
 outlineFeature.init(owner);
 const att = (id, key) => ({id, key, libraryID: 1, getField: () => 'book.pdf'});
 const a = att(1, 'AAAA'), b = att(2, 'BBBB');
 async function run() {
+  const recognized = att(20, 'RECOGNIZED');
+  const structured = {pages: [{page: 1}, {page: 2}, {page: 3}], blocks: [
+    {type: 'heading', text: 'الفصل الأول', fragments: [{page: 1}]},
+    {type: 'paragraph', text: 'نص الصفحة الأولى<!--ocrflow-page:2--> تتمة النص', fragments: [{page: 1}, {page: 2}]},
+    {type: 'heading', text: 'الفصل الثاني', fragments: [{page: 3}]}
+  ]};
+  await outlineFeature.storeSource(recognized, {document: structured, markdownText: '# الفصل الأول\n\n# الفصل الثاني'});
+  const recognizedData = await outlineFeature.load(recognized);
+  assert.equal(recognizedData.pages.length, 3);
+  assert(recognizedData.pages[0].includes('نص الصفحة الأولى'));
+  assert(recognizedData.pages[1].includes('تتمة النص'));
+  assert(!recognizedData.pages[0].includes('تتمة النص'));
+  assert.equal(recognizedData.headings[1].page, 3);
+  const legacy = att(21, 'LEGACY');
+  files.set('/stored/_ocrflow/document.json', JSON.stringify(structured));
+  owner.findDocumentMarkdown = item => item.id === legacy.id ? {getFilePath: async () => '/stored/recognized.html'} : null;
+  aiOutput = {outline: [{title: 'الفصل الأول', page: 1}, {title: 'الفصل الثاني', page: 3}]};
+  const recovered = await outlineFeature.generate(legacy);
+  assert.equal(recovered[1].page, 3);
+  assert.equal(workerCalls, 0, 'Existing recognized pages avoid reading the image-only PDF again');
+  apiCalls = 0; promptTexts = [];
+  aiOutput = {outline: [{level: 1, title: '第一章', summary: '章节概要', page: 1}, {level: 2, title: '研究方法', summary: '方法概要', page: 2}]};
   const local = outlineFeature.parseMineruDocument({
     metadata: {document: {page_count: 3}},
     pages: [{page_idx: 0, blocks: [{type: 'title', content: '第一章'}, {type: 'text', content: '正文'}]},
@@ -122,6 +146,21 @@ async function run() {
   assert.equal((await outlineFeature.load(mismatch)).pages.length, 0);
   await assert.rejects(() => outlineFeature.generate(mismatch), /识别后继续生成大纲/);
   assert.equal(apiCalls, 3);
+  const resumable = att(30, 'RESUMABLE');
+  await outlineFeature.storeSource(resumable,{outlinePages:['First heading '+ 'a'.repeat(12000),'Second heading '+ 'b'.repeat(12000)]});
+  let chunkCalls=0;
+  context.fetch=async()=>{
+    if(++chunkCalls>1)throw Error('interrupted after first chunk');
+    return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify({outline:[{title:'First heading',page:1}]})}}]})};
+  };
+  await assert.rejects(outlineFeature.generate(resumable,{force:true,runID:'same-run'}),/interrupted after first chunk/);
+  chunkCalls=0;
+  context.fetch=async(_url,options)=>{
+    chunkCalls++;const first=JSON.parse(options.body).messages[1].content.includes('First heading');
+    return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify({outline:[{title:first?'First heading':'Second heading',page:first?1:2}]})}}]})};
+  };
+  assert.equal((await outlineFeature.generate(resumable,{force:true,runID:'same-run'})).length,2);assert.equal(chunkCalls,1);
+  chunkCalls=0;await outlineFeature.generate(resumable,{force:true,runID:'new-run'});assert.equal(chunkCalls,2);
   console.log('PASS: local/cloud page data, cache and PDF identity, AI and no-AI generation, bookmarks, contents-page exclusion and long-page chunking.');
 }
 run().catch(error => {console.error(error); process.exitCode = 1;});

@@ -145,3 +145,16 @@ test('dual OCR lists both Marker profiles and captures the explicitly selected c
  s.prefs.set('extensions.docflow.marker.apiType','local');assert.equal(cloud.markerSettings.apiType,'cloud');
  assert.equal(s.m.sourceSettings('marker',{}).markerSettings.apiType,'local');
 });
+
+test('explicit Marker PDF defaults capture their own API regardless of the service tab mode',()=>{
+ const s=setup(),branch=s.m.PREF_BRANCH;
+ s.prefs.set(branch+'marker.apiType','local');s.prefs.set(branch+'marker.url','http://local.example');
+ s.prefs.set(branch+'marker.cloud.url','https://cloud.example/api/v1');
+ s.prefs.set(branch+'parserService','marker-cloud');
+ const cloud=s.m.getSettings();assert.equal(cloud.parserService,'marker');assert.equal(cloud.markerSettings.apiType,'cloud');
+ assert.equal(cloud.markerSettings.baseURL,'https://cloud.example/api/v1');
+ s.prefs.set(branch+'parserService','marker-local');s.prefs.set(branch+'marker.apiType','cloud');
+ const local=s.m.getSettings();assert.equal(local.parserService,'marker');assert.equal(local.markerSettings.apiType,'local');
+ assert.equal(local.markerSettings.baseURL,'http://local.example');
+ assert.equal(cloud.markerSettings.apiType,'cloud');
+});

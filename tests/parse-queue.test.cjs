@@ -12,7 +12,7 @@ const context = {Zotero: {debug: () => {}, logError: () => {},
 vm.createContext(context);
 for (const name of ['prompts.js','docflow.js', 'workflow.js']) vm.runInContext(fs.readFileSync(name, 'utf8'), context);
 const plugin = context.DocFlow;
-plugin.getSettings = mode => ({apiMode: mode || 'local-v1', apiToken: ''});
+plugin.getSettings = mode => ({apiMode: mode || 'local-v1', apiToken: '', mineruConcurrency: 1});
 plugin.collectSourceFiles = items => items;
 const file = id => ({id, libraryID: 1, getField: () => 'file-' + id, getFilePath: () => '/file-' + id + '.pdf'});
 const parseCalls = [], saveCalls = [];

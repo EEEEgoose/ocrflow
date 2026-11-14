@@ -33,6 +33,8 @@ var DocFlowPreferences = {
 		{ id:"ocrflow-marker-token", pref:"marker.token", type:"string", defaultValue:"" },
 		{ id:"ocrflow-marker-mode", pref:"marker.mode", type:"string", defaultValue:"balanced" },
 		{ id:"ocrflow-marker-force-ocr", pref:"marker.forceOCR", type:"bool", defaultValue:false },
+		{ id:"ocrflow-marker-concurrency", pref:"marker.concurrency", type:"int", max:10, defaultValue:2 },
+		{ id:"ocrflow-paddle-concurrency", pref:"paddle.concurrency", type:"int", max:10, defaultValue:2 },
 		...["cloud", "local"].flatMap(mode => ["url", "token", "model"].map(name => ({ id: `ocrflow-paddle-${mode}-${name}`,
 			pref: `paddle.${mode}.${name}`, type: "string", defaultValue: name === "model" ? "PaddleOCR-VL-1.6" : name === "url" && mode === "cloud" ? "https://paddleocr.aistudio-app.com/api/v2/ocr" : "" }))),
 		{ id: "ocrflow-collation-ai-enabled", pref: "collationAIEnabled", type: "bool", defaultValue: false },
@@ -42,6 +44,7 @@ var DocFlowPreferences = {
 		{ id: "ocrflow-collation-b", pref: "collationB", type: "string" },
 		{ id: "ocrflow-paddle-mode", pref: "paddleMode", type: "string", defaultValue: "cloud" },
 		{ id: "docflow-parser-service", pref: "parserService", type: "string", defaultValue: "mineru" },
+		{ id:"ocrflow-markitdown-concurrency", pref:"markitdownConcurrency", type:"int", max:10, defaultValue:2 },
 		{ id: "docflow-markitdown-url", pref: "markitdownBaseURL", type: "string" },
 		{ id: "mineru-auto-outline", pref: "autoOutline", type: "bool", defaultValue: false },
 		{ id: "mineru-outline-use-ai", pref: "outlineUseAI", type: "bool", defaultValue: true },
@@ -56,6 +59,7 @@ var DocFlowPreferences = {
 		{ id: "mineru-api-token", pref: "apiToken", type: "string" },
 		{ id: "mineru-model-version", pref: "modelVersion", type: "string" },
 		{ id: "mineru-cloud-language", pref: "cloudLanguage", type: "string", defaultValue: "auto" },
+		{ id: "mineru-concurrency", pref: "mineruConcurrency", type: "int", max: 10, defaultValue: 2 },
 		{ id: "mineru-poll-interval-sec", pref: "pollIntervalSec", type: "int" },
 		{ id: "mineru-timeout-sec", pref: "timeoutSec", type: "int" },
 		{ id: "mineru-local-job-timeout-sec", pref: "localJobTimeoutSec", type: "int", defaultValue: 7200 },
@@ -120,8 +124,8 @@ var DocFlowPreferences = {
 		if (name.startsWith("marker.")) return "marker";
 		if (name === "paddleMode" || name.startsWith("paddle.")) return "paddle";
 		if (name.startsWith("collation")) return "work";
-		if (name === "markitdownBaseURL") return "markitdown";
-		if (this.API_FIELDS.includes(name) || ["apiMode", "localJobTimeoutSec", "cloudLanguage"].includes(name)) return "mineru";
+		if (["markitdownBaseURL", "markitdownConcurrency"].includes(name)) return "markitdown";
+		if (this.API_FIELDS.includes(name) || ["apiMode", "localJobTimeoutSec", "cloudLanguage", "mineruConcurrency"].includes(name)) return "mineru";
 		if (this.LLM_PROVIDER_FIELDS.includes(name)) return "ai";
 		if (["summaryPrompt", "summaryRequestJSON", "translateRequestJSON", "summaryLanguage", "translateLanguage", "translateChunkSize", "translateRetryCount", "translateOutputFormat", "translateMode", "autoOutline", "outlineUseAI"].includes(name)) return "work";
 		return "all";
@@ -463,9 +467,10 @@ var DocFlowPreferences = {
 				: this.API_FIELDS.includes(field.pref) ? this.readAPIPref(field.pref, apiMode)
 				: this.getPref(this.PREF_BRANCH + field.pref, true);
 			if (value === undefined || value === null) value = field.defaultValue ?? "";
-			if (field.pref === "parserService" && String(value).startsWith("paddle-")) {
-				this.$("ocrflow-paddle-mode").value = String(value).slice(7);
-				value = "paddle";
+			if (field.pref === "parserService") {
+				if (value === "mineru") value = apiMode === "local-v1" ? "mineru-local" : "mineru-cloud";
+				else if (value === "paddle") value = "paddle-" + (this.getPref(this.PREF_BRANCH + "paddleMode", true) || "cloud");
+				else if (value === "marker") value = "marker-" + (this.getPref(this.PREF_BRANCH + "marker.apiType", true) || "local");
 			}
 			if (field.pref === "modelVersion") value = this.normalizeModelVersion(value, apiMode);
 			if (field.pref === "defaultService.image" && !value) { let old=this.getPref(this.PREF_BRANCH+"parserService",true)||"mineru"; value=old==="mineru" ? (apiMode==="local-v1"?"mineru-local":"mineru-cloud") : old==="paddle" ? "paddle-"+(this.getPref(this.PREF_BRANCH+"paddleMode",true)||"cloud") : old; }
@@ -478,8 +483,6 @@ var DocFlowPreferences = {
 		this.loadLLMProviders();
 		this.syncTranslationMode();
 		this.syncMarkerMode();this.syncPaddleMode();
-		let jobIDInput = this.$("mineru-job-id");
-		if (jobIDInput) jobIDInput.value = this.getPref(this.PREF_BRANCH + "lastLocalJobID", true) || "";
 		this.setStatus("");
 	},
 
@@ -531,8 +534,11 @@ var DocFlowPreferences = {
 				}
 				if (field.type === "int") {
 					value = Number(value);
-					if (!input.value.trim() || !Number.isInteger(value) || value < (field.pref === "localJobTimeoutSec" ? 0 : 1)) {
-						throw new Error("数值须为正整数；任务等待上限可为 0。");
+					if (!input.value.trim() || !Number.isInteger(value) || value < (field.pref === "localJobTimeoutSec" ? 0 : 1) || field.max && value > field.max) {
+						if (field.pref === "mineruConcurrency") throw new Error("MinerU 并发数须为 1–10 的整数。");
+						if (field.pref === "markitdownConcurrency") throw new Error("MarkItDown 并发数须为 1–10 的整数。");
+						if (field.pref === "paddle.concurrency") throw new Error("PaddleOCR 并发数须为 1–10 的整数。");
+						throw new Error(field.pref === "marker.concurrency" ? "Marker 并发数须为 1–10 的整数。" : "数值须为正整数；任务等待上限可为 0。");
 					}
 				}
 				if (field.pref === "summaryPrompt" && value === OCRFlowPrompts.defaults.summary) value = "";
@@ -600,68 +606,6 @@ var DocFlowPreferences = {
 			modelVersion,
 			cloudLanguage: (fromInputs ? this.$("mineru-cloud-language").value : this.getPref(this.PREF_BRANCH + "cloudLanguage", true)) || "auto"
 		};
-	},
-
-	async queryJobProgress() {
-		let output = this.$("mineru-job-progress-output");
-		let button = this.$("mineru-job-progress-button");
-		let settings = this.readCurrentSettings(true);
-		if (settings.apiMode !== "local-v1") {
-			output.textContent = ocrflowText("请先选择本地 MinerU 4（V1）接口。");
-			return;
-		}
-		let jobID = this.$("mineru-job-id").value.trim()
-			|| this.getPref(this.PREF_BRANCH + "lastLocalJobID", true);
-		if (!jobID) {
-			output.textContent = ocrflowText("请填写任务 ID，或先提交一个本地解析任务。");
-			return;
-		}
-		let controller = new AbortController();
-		let timeoutID = setTimeout(() => controller.abort(), settings.timeoutMS);
-		this.setButtonBusy(button,true);
-		output.textContent = ocrflowText("正在查询任务进度…");
-		try {
-			let response = await fetch(`${settings.apiBaseURL}/v1/parse/jobs/${encodeURIComponent(jobID)}`, {
-				method: "GET", signal: controller.signal,
-				headers: settings.apiToken ? { Authorization: `Bearer ${settings.apiToken}` } : {}
-			});
-			let text = await response.text();
-			if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 500)}`);
-			let job = JSON.parse(text);
-			let labels = { queued: "排队中", running: "解析中", completed: "已完成", partial: "部分完成", failed: "失败", canceled: "已取消" };
-			let lines = [`任务 ID: ${job.job_id}`, `状态: ${labels[job.status] || job.status} (${job.status})`, `档位: ${job.tier}`];
-			if (job.progress) {
-				lines.push(`已完成文件: ${job.progress.completed}/${job.progress.total}，失败: ${job.progress.failed}`);
-			}
-			if (job.created_at) lines.push(`提交时间: ${job.created_at}`);
-			if (job.started_at) lines.push(`开始时间: ${job.started_at}`);
-			if (job.finished_at) lines.push(`结束时间: ${job.finished_at}`);
-			let started = Date.parse(job.created_at);
-			let ended = job.finished_at ? Date.parse(job.finished_at) : Date.now();
-			if (Number.isFinite(started) && Number.isFinite(ended)) {
-				lines.push(`已用时: ${Math.floor((ended - started) / 60000)} 分钟`);
-			}
-			for (let file of job.files || []) {
-				lines.push(`${file.name}: ${labels[file.status] || file.status}${file.error?.message ? "，" + file.error.message : ""}`);
-				let pages = file.page_progress;
-				if (pages) {
-					let stages = { preparing: "准备文档", processing: "页面处理", postprocessing: "整理结构", exporting: "生成结果", completed: "任务完成", failed: "任务失败" };
-					lines.push(`阶段: ${stages[pages.stage] || pages.stage}`);
-					if (Number.isInteger(pages.total) && pages.total > 0) {
-						lines.push(`已处理页面: ${pages.completed}/${pages.total}，剩余: ${pages.total - pages.completed}`);
-					}
-				}
-			}
-			output.textContent = ocrflowText(lines.map(line => ocrflowText(line)).join("\n"));
-			return job;
-		}
-		catch (e) {
-			output.textContent = ocrflowText(`查询失败: ${e.name === "AbortError" ? "请求超时" : e.message || e}`);
-		}
-		finally {
-			clearTimeout(timeoutID);
-			this.setButtonBusy(button,false);
-		}
 	},
 
 	async testMarkItDownConnection() {
@@ -925,7 +869,7 @@ var DocFlowPreferences = {
 	},
 
 	showService(selected) {
-		if(selected.startsWith("mineru-"))selected="mineru";
+		if (/^(mineru|paddle|marker)-/.test(selected)) selected = selected.split("-")[0];
 		for (let key of ["mineru", "paddle", "marker", "markitdown", "ai"]) {
 			let panel = this.$("ocrflow-service-panel-" + key);
 			if (panel) panel.hidden = key !== selected;
@@ -1015,12 +959,6 @@ var DocFlowPreferences = {
 			}
 			this.$("mineru-open-queue-button")?.addEventListener("click", () => {
 				Zotero.getMainWindow().DocFlow.openParseQueueDialog();
-			});
-			this.$("mineru-job-progress-button")?.addEventListener("click", () => {
-				this.queryJobProgress().catch(e => {
-					Zotero.logError(e);
-					this.$("mineru-job-progress-output").textContent = ocrflowText(`查询失败: ${e.message || e}`);
-				});
 			});
 			for (let [section, method] of [["markitdown", "testMarkItDownConnection"], ["mineru", "testMineruConnection"], ["marker", "testMarkerConnection"]]) {
 				this.$(`ocrflow-${section}-save`).addEventListener("click", () => this.persistSettings({ section }));

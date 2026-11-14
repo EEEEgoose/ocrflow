@@ -21,7 +21,8 @@ function fixture({mode = 'local-v1', lateSubmit = false, uploadPending = false, 
     fetch: async (url, options = {}) => {
       calls.push({url, options});
       let reply, status = 200;
-      if (url.endsWith('/v1/uploads')) reply = uploadPending
+      if (url.endsWith('/v1/health')) reply = {version:'4.0.12'};
+      else if (url.endsWith('/v1/uploads')) reply = uploadPending
         ? {status: 'pending', id: 'upload', upload_url: '/upload', upload_method: 'PUT'} : {status: 'completed', file: {id: 'input'}};
       else if (url.endsWith('/upload')) { reached.resolve(); return await pendingRequest(options.signal); }
       else if (url.endsWith('/v1/parse/jobs')) {
@@ -49,7 +50,7 @@ function fixture({mode = 'local-v1', lateSubmit = false, uploadPending = false, 
   for (const file of ['prompts.js','docflow.js', 'workflow.js', 'outline.js', 'recognition.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
   const plugin = context.DocFlow;
   plugin.openParseQueueDialog = () => {};
-  plugin.getSettings = () => ({apiMode: mode, apiBaseURL: base, apiToken: 'test-token', modelVersion: mode === 'local-v1' ? 'advanced' : 'vlm', pollIntervalMS: 5000, timeoutMS: 60000, localJobTimeoutMS: 0});
+  plugin.getSettings = () => ({apiMode: mode, apiBaseURL: base, apiToken: 'test-token', modelVersion: mode === 'local-v1' ? 'advanced' : 'vlm', pollIntervalMS: 5000, timeoutMS: 60000, localJobTimeoutMS: 0, mineruConcurrency: 1});
   plugin.getLLMSettings = () => ({apiBaseURL: 'https://llm.example/v1', apiKey: 'test-key', model: 'model'});
   plugin.collectSourceFiles = items => items;
   plugin.extractNoteContentFromMineruZip = async () => ({markdownText: 'done'});

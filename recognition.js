@@ -2,11 +2,11 @@ var ocrflowText = typeof ocrflowText === "function" ? ocrflowText : value => Str
 // MinerU shared batch lifecycle. A document keeps its own cancellation and pieces.
 Object.assign(DocFlow, {
 
-	acquireCloudDocument(context) {
+	acquireCloudDocument(context, limit = 2) {
 		context.signal?.throwIfAborted();
-		if((this.cloudDocumentCount||0)>=5)this.reportParseStatus(context,{phase:"等待识别名额"});
+		if((this.cloudDocumentCount||0)>=limit)this.reportParseStatus(context,{phase:"等待识别名额",displayText:"等待识别名额"});
 		return new Promise((resolve,reject)=>{
-			let entry={resolve,reject,signal:context.signal};
+			let entry={resolve,reject,signal:context.signal,limit};
 			entry.abort=()=>{entry.canceled=true;reject(context.signal.reason);};
 			context.signal?.addEventListener("abort",entry.abort,{once:true});
 			(this.cloudDocumentWaiting ||= []).push(entry);this.pumpCloudDocuments();
@@ -15,15 +15,17 @@ Object.assign(DocFlow, {
 
 	pumpCloudDocuments() {
 		this.cloudDocumentCount ||= 0;
-		while(this.cloudDocumentCount<5&&this.cloudDocumentWaiting?.length) {
-			let entry=this.cloudDocumentWaiting.shift();entry.signal?.removeEventListener("abort",entry.abort);
-			if(entry.canceled)continue;
+		while(this.cloudDocumentWaiting?.length) {
+			let entry=this.cloudDocumentWaiting[0];
+			if(entry.canceled){this.cloudDocumentWaiting.shift();continue;}
+			if(this.cloudDocumentCount>=entry.limit)break;
+			this.cloudDocumentWaiting.shift();entry.signal?.removeEventListener("abort",entry.abort);
 			this.cloudDocumentCount++;entry.resolve();
 		}
 	},
 
 	async parseCloudDocument(fileBytes, fileName, attachmentID, settings, context = {}) {
-		await this.acquireCloudDocument(context);
+		await this.acquireCloudDocument(context, settings.mineruConcurrency || 2);
 		try {
 		let work = context.cloudState ||= {}, parts = work.parts;
 		if (!parts) {
@@ -32,7 +34,7 @@ Object.assign(DocFlow, {
 				let prepared=await this.loadPDFForParsing(fileBytes,context);pdf=prepared.pdf;fileBytes=prepared.bytes;
 			}
 			work.totalPages = pdf?.getPageCount() || 0;
-			work.dir = PathUtils.join(PathUtils.tempDir, "ocrflow-cloud-" + this.makeDataID(attachmentID));
+			work.dir = PathUtils.join(this.taskRecovery?.directory || PathUtils.tempDir, "ocrflow-cloud-" + this.makeDataID(attachmentID));
 			await IOUtils.makeDirectory(work.dir, {createAncestors:true});
 			parts = [];
 			let add = async (start, end, bytes) => {
@@ -58,14 +60,31 @@ Object.assign(DocFlow, {
 			else for (let start = 0; start < work.totalPages; start += 200) await split(start, Math.min(start+200,work.totalPages));
 			work.parts = parts;
 		}
-		let progress = () => {
-			let total=work.totalPages||parts.reduce((sum,part)=>sum+(part.serviceTotal||0),0);
-			let completed = parts.reduce((sum, part) => sum + (part.state === "done" ? part.end-part.start || part.serviceTotal || 0 : part.completed || 0), 0);
-			this.reportParseStatus(context, {jobID:[...new Set(parts.map(p=>p.batchID).filter(Boolean))].join(", "),
-				phase:`切片 ${parts.filter(p=>p.state==="done").length}/${parts.length} 已完成`,
-				parts:parts.map(p=>({name:p.name,start:p.start+1,end:p.end,state:p.state,completed:p.state==="done" ? p.end-p.start||p.serviceTotal||0 : p.completed||0,total:p.end-p.start||p.serviceTotal||0})),
-				pageProgress:total ? {completed,total,unit:/\.(png|jpe?g|jp2|webp|gif|bmp)$/i.test(fileName)?"张":"页"} : null});
-		};
+		work.fileName = fileName;
+		let originalPDF = null, batches = new Map();
+		for (let part of parts.filter(part => !part.result && !part.uploaded)) {
+			if (part.uploadStarted && part.batchID) {
+				if (!batches.has(part.batchID)) batches.set(part.batchID, await this.requestMineruJSON({url:settings.apiBaseURL + "/extract-results/batch/" + encodeURIComponent(part.batchID),token:settings.apiToken,signal:context.signal}));
+				let response = batches.get(part.batchID);
+				if (response.code !== 0) throw Error(response.msg || "查询解析状态失败");
+				let result = response.data?.extract_result?.find(result => result.data_id === part.dataID);
+				if (result && ["pending", "running", "converting", "done", "failed"].includes(result.state)) part.uploaded = true;
+				part.uploadStarted = false;
+			}
+			if (!part.uploaded && !await IOUtils.exists(part.path)) {
+				let bytes = fileBytes;
+				if (/\.pdf$/i.test(fileName)) {
+					originalPDF ||= (await this.loadPDFForParsing(fileBytes, context)).pdf;
+					let pdf = await this.getPDFLibrary().PDFDocument.create();
+					for (let page of await pdf.copyPages(originalPDF, originalPDF.getPageIndices().slice(part.start, part.end))) pdf.addPage(page);
+					bytes = await pdf.save();
+				}
+				await IOUtils.makeDirectory(PathUtils.parent(part.path), {createAncestors:true});
+				await IOUtils.write(part.path, bytes);
+			}
+		}
+		await context.checkpoint?.();
+		let progress = () => this.reportParseStatus(context, this.cloudDocumentProgress(work));
 		let waiting = parts.map(part => part.result ? Promise.resolve(part.result) : this.queueCloudPart(part, settings, context, progress));
 		let settled = await Promise.allSettled(waiting);
 		context.signal?.throwIfAborted();
@@ -127,6 +146,90 @@ Object.assign(DocFlow, {
 			embeddedImageCount:images.length,document,rawFiles,outlinePages,outlineHeadings};
 	},
 
+	cloudDocumentProgress(work) {
+		let parts = work.parts || [], total = work.totalPages || parts.reduce((sum, part) => sum + (part.serviceTotal || 0), 0);
+		let complete = parts.filter(part => part.result).length;
+		let completed = parts.reduce((sum, part) => sum + (part.state === "done" ? part.end - part.start || part.serviceTotal || 0 : part.completed || 0), 0);
+		let phase = "等待云端进度", detail = `切片 ${complete}/${parts.length} 已完成`;
+		if (parts.some(part => part.state === "running")) phase = "MinerU · running";
+		else if (parts.some(part => part.state === "converting")) phase = "云端转换中";
+		else if (parts.some(part => part.state === "uploading" || !part.uploaded && !part.result && part.state !== "failed")) phase = "上传文档";
+		else if (parts.some(part => ["pending", "waiting-file"].includes(part.state))) {
+			phase = "MinerU · queued";
+			let since = Math.min(...parts.filter(part => part.appliedAt).map(part => part.appliedAt));
+			let minutes = Number.isFinite(since) ? Math.max(0, Math.floor((Date.now() - since) / 60000)) : 0;
+			detail = `云端排队中，已等待 ${minutes} 分钟，` + detail;
+		} else if (parts.some(part => part.state === "failed")) phase = "云端识别失败";
+		else phase = complete === parts.length ? "识别完成" : "下载解析结果";
+		return {phase, displayText: phase === "MinerU · queued" ? detail : ({"MinerU · running":"云端识别中"}[phase] || phase) + "，" + detail,
+			jobID: [...new Set(parts.map(part => part.batchID).filter(Boolean))].join(", "),
+			parts: parts.map(part => ({name:part.name, start:part.start + 1, end:part.end, state:part.state,
+				completed:part.state === "done" ? part.end - part.start || part.serviceTotal || 0 : part.completed || 0, total:part.end - part.start || part.serviceTotal || 0})),
+			pageProgress: total ? {completed, total, unit:/\.(png|jpe?g|jp2|webp|gif|bmp)$/i.test(work.fileName || "") ? "张" : "页"} : null};
+	},
+
+	updateCloudPartProgress(part, result) {
+		if (part.result || part.state === "done" && result.state !== "done") return;
+		part.state = result.state;
+		part.serviceTotal = result.extract_progress?.total_pages || part.serviceTotal || 0;
+		part.completed = Math.min(part.end - part.start || part.serviceTotal, Math.max(0, result.extract_progress?.extracted_pages || 0));
+	},
+
+	async applyCloudRowResult(row, result) {
+		if (row.settled) return;
+		this.updateCloudPartProgress(row.part, result); row.progress();
+		if (result.state === "failed") {
+			delete row.part.batchID; row.part.uploaded = false;
+			row.finish(Error(result.err_msg || "MinerU 解析失败"));
+		} else if (result.state === "done") {
+			// Manual and automatic queries can finish together. Share one download and extraction.
+			row.resultPromise ||= (async () => {
+				try {
+					let settings = row.settings;
+					let zip = await this.downloadParseResultZip({zipURL:result.full_zip_url, apiBaseURL:settings.apiBaseURL, token:settings.apiToken, statusContext:row.context});
+					let parsed = await this.extractNoteContentFromMineruZip(zip, row.part.name, {includeImages:true});
+					row.context.signal?.throwIfAborted(); row.part.result = parsed; row.progress(); await row.context.checkpoint?.(); row.finish(null, parsed);
+				} catch (error) { row.finish(error); }
+			})();
+			await row.resultPromise;
+		}
+	},
+
+	canQueryCloudTask(task) {
+		let settings = task.settings.readerA || task.settings;
+		return (settings.parserService || "mineru") === "mineru" && settings.apiMode !== "local-v1" &&
+			!task.saving && !!task.cloudState?.parts?.some(part => part.batchID && part.uploaded && !part.result);
+	},
+
+	async queryCloudTaskProgress(task) {
+		if (task.cloudQuerying || !this.canQueryCloudTask(task)) return;
+		task.cloudQuerying = true; task.cloudQueryMessage = ""; this.refreshParseQueueDialog();
+		let settings = task.settings.readerA || task.settings, parts = task.cloudState.parts;
+		let controller = this.createAbortController(), abort = () => controller.abort(), signal = task.controller?.signal;
+		let timer = setTimeout(abort, Math.min(settings.timeoutMS || 30000, 30000));
+		signal?.addEventListener("abort", abort, {once:true});
+		try {
+			signal?.throwIfAborted();
+			await Promise.all([...new Set(parts.filter(part => part.batchID && part.uploaded && !part.result).map(part => part.batchID))].map(async batchID => {
+				let response = await this.requestMineruJSON({url:settings.apiBaseURL + "/extract-results/batch/" + encodeURIComponent(batchID), token:settings.apiToken, signal:controller.signal});
+				if (response.code !== 0) throw Error(response.msg || "查询解析状态失败");
+				for (let part of parts.filter(part => part.batchID === batchID && part.uploaded && !part.result)) {
+					let result = response.data?.extract_result?.find(result => result.data_id === part.dataID);
+					let row = this.cloudPollers?.get(settings.apiBaseURL + "|" + batchID)?.find(row => row.part === part);
+					if (result && row) await this.applyCloudRowResult(row, result);
+					else if (result) this.updateCloudPartProgress(part, result);
+				}
+			}));
+			if (task.cloudState.parts === parts) {
+				let update = this.cloudDocumentProgress(task.cloudState);
+				task.phase = update.phase; task.detail = update.displayText; task.parts = update.parts; task.progress = update.pageProgress;
+				if (task.state === "running") this.setTaskStep?.(task, "extract", "识别文档", task.detail);
+			}
+			task.cloudQueryMessage = "云端进度已更新";
+		} catch (error) { controller.abort(); task.cloudQueryMessage = "查询云端进度失败：" + (error.name === "AbortError" ? "查询已超时或终止" : error.message); }
+		finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); task.cloudQuerying = false; this.refreshParseQueueDialog(); }
+	},
+
 	queueCloudPart(part, settings, context, progress) {
 		context.signal?.throwIfAborted();
 		if(!part.uploaded && part.appliedAt && Date.now()-part.appliedAt>86400000){delete part.batchID;delete part.uploadURL;}
@@ -136,8 +239,9 @@ Object.assign(DocFlow, {
 				if(row.settled)return; row.settled=true;
 				context.signal?.removeEventListener("abort",row.abort);
 				error ? reject(error) : resolve(result);
+				if(row.batchRows?.every(row=>row.settled))row.pollController?.abort();
 			};
-			row.abort=()=>{row.finish(context.signal.reason || new Error("已停止等待，服务端可能继续处理"));if(row.batchRows?.every(r=>r.settled))row.pollController?.abort();};
+			row.abort=()=>row.finish(context.signal.reason || new Error("已停止等待，服务端可能继续处理"));
 			context.signal?.addEventListener("abort",row.abort,{once:true});
 			(this.cloudPending ||= []).push(row);
 			if(!this.cloudSubmitTimer)this.cloudSubmitTimer=setTimeout(()=>{this.cloudSubmitTimer=null;this.submitCloudBatches();},0);
@@ -168,6 +272,7 @@ Object.assign(DocFlow, {
 								files:fresh.map(row=>({name:row.part.name,data_id:row.part.dataID}))}});}finally{clearTimeout(timer);}
 						if(response.code!==0 || !response.data?.batch_id || response.data.file_urls?.length!==fresh.length)throw Error(response.msg||"上传地址数量与文件数量不一致");
 						fresh.forEach((row,index)=>Object.assign(row.part,{batchID:response.data.batch_id,uploadURL:response.data.file_urls[index],appliedAt:Date.now(),state:"uploading"}));
+						await Promise.all([...new Set(fresh.map(row => row.context.checkpoint).filter(Boolean))].map(checkpoint => checkpoint()));
 					}
 					let uploads=this.cloudUploads ||= new WeakMap();
 					for(let row of batch) {
@@ -175,13 +280,14 @@ Object.assign(DocFlow, {
 						let upload=previous.then(async()=>{
 							if(row.settled || row.part.uploaded)return;
 							row.context.signal?.throwIfAborted();
+							row.part.uploadStarted = true; await row.context.checkpoint?.();
 							let bytes=await IOUtils.read(row.part.path);
 							let controller=this.createAbortController(),abort=()=>controller.abort(),timer=setTimeout(abort,row.settings.timeoutMS||1200000);
 							row.context.signal?.addEventListener("abort",abort,{once:true});
 							try{let response=await fetch(row.part.uploadURL,{method:"PUT",body:bytes,signal:controller.signal});if(!response.ok)throw Error("上传文档失败 "+response.status);}
 							finally{clearTimeout(timer);row.context.signal?.removeEventListener("abort",abort);}
-							row.part.uploaded=true;row.part.state="pending";row.progress();
-						}).catch(error=>{row.part.state="failed";if(!row.part.uploaded){delete row.part.batchID;delete row.part.uploadURL;}row.finish(error);});
+							row.part.uploaded=true;row.part.uploadStarted=false;row.part.state="pending";row.progress();await row.context.checkpoint?.();
+						}).catch(error=>{if(row.context.signal?.reason?.name!=="TaskRecoveryPause"){row.part.state="failed";if(!row.part.uploaded){delete row.part.batchID;delete row.part.uploadURL;}}row.finish(error);});
 						uploads.set(key,upload);
 					}
 					// Poll once per batch while uploads from other documents continue.
@@ -209,15 +315,7 @@ Object.assign(DocFlow, {
 					for(let row of batch.filter(r=>!r.settled)) {
 						let result=(response.data?.extract_result||[]).find(item=>item.data_id===row.part.dataID);
 						if(!result || !row.part.uploaded)continue;
-						row.part.state=result.state;row.part.serviceTotal=result.extract_progress?.total_pages||row.part.serviceTotal||0;row.part.completed=Math.min(row.part.end-row.part.start||row.part.serviceTotal,Math.max(0,result.extract_progress?.extracted_pages||0));row.progress();
-						if(result.state==="failed"){delete row.part.batchID;row.part.uploaded=false;row.finish(Error(result.err_msg||"MinerU 解析失败"));}
-						else if(result.state==="done") {
-							try {
-								let zip=await this.downloadParseResultZip({zipURL:result.full_zip_url,apiBaseURL:s.apiBaseURL,token:s.apiToken,statusContext:row.context});
-								let parsed=await this.extractNoteContentFromMineruZip(zip,row.part.name,{includeImages:true});
-								row.context.signal?.throwIfAborted();row.part.result=parsed;row.progress();row.finish(null,parsed);
-							}catch(error){row.finish(error);}
-						}
+						await this.applyCloudRowResult(row,result);
 					}
 					if(batch.some(row=>!row.settled))await new Promise(resolve=>setTimeout(resolve,s.pollIntervalMS||5000));
 				}

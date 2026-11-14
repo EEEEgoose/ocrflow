@@ -24,6 +24,26 @@ test('EPUB Markdown and HTML reuse the same archive image and preserve inline an
 test('missing EPUB image reports an archive error and closes resources without reading the surrounding filesystem',async()=>{
  const s=setup({markdown:'![Missing](../IMAGES/missing.png)'});await assert.rejects(s.parse(),/EPUB.*图片.*missing\.png/);assert.equal(s.closed(),1);assert(!s.reads.some(p=>p.startsWith('/storage/IMAGES/')));
 });
+
+test('exclamation marks next to EPUB footnote links remain punctuation and ordinary links',async()=>{
+ const s=setup({markdown:'Warning! Warning![12](part0003.xhtml#note12)\n\nAgain![13](#note13)\n\n![Publisher](../IMAGES/logo_editeur.png)'});
+ const result=await s.parse();
+ assert(result.markdownText.includes('Warning! Warning! [12](part0003.xhtml#note12)'));
+ assert(result.markdownText.includes('Again! [13](#note13)'));
+ assert.equal(result.embeddedImages.length,1);assert.equal(result.embeddedImages[0].entryName,'OEBPS/IMAGES/logo_editeur.png');
+ const html=s.m.convertMarkdownToBasicHTML(result.markdownText);
+ assert(html.includes('href="part0003.xhtml#note12"'));assert(!html.includes('src="part0003.xhtml#note12"'));
+ assert.equal(s.closed(),1);
+});
+
+test('EPUB document-link normalization preserves image targets, link titles and remote images',async()=>{
+ const s=setup({markdown:'Text![7](<text/chapter%203.html#note7> "Footnote")\n![remote](https://example.com/render.html)\n[8](part0003.xhtml#note8)'});
+ const result=await s.parse();
+ assert(result.markdownText.includes('Text! [7](<text/chapter%203.html#note7> "Footnote")'));
+ assert(result.markdownText.includes('![remote](https://example.com/render.html)'));
+ assert(result.markdownText.includes('[8](part0003.xhtml#note8)'));
+ assert.equal(result.embeddedImages.length,0);assert.equal(s.closed(),0);
+});
 test('EPUB conversion cancellation is checked while loading images and still releases the archive',async()=>{
  const s=setup();const read=s.context.IOUtils.read;s.context.IOUtils.read=async name=>{const data=await read(name);if(name.startsWith('/tmp/'))s.controller.abort();return data};await assert.rejects(s.parse(),{name:'AbortError'});assert.equal(s.closed(),1);
 });

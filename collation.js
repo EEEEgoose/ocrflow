@@ -152,7 +152,8 @@ Object.assign(DocFlow, {
 	},
 
 	captureOCRSettings(settings) {
-		settings.markerSettings = this.getMarkerSettings();
+		let service = this.getPref(this.PREF_BRANCH + "parserService", true) || "marker";
+		settings.markerSettings = this.getMarkerSettings(service.startsWith("marker-") ? service.slice(7) : undefined);
 		settings.paddleProfiles = { cloud: this.getPaddleSettings("cloud"), local: this.getPaddleSettings("local") };
 		if (!settings.collationEnabled) return;
 		settings.ocrProviders = this.ocrProviders();
@@ -178,8 +179,11 @@ Object.assign(DocFlow, {
 			let settings = task.settings.readerB || this.sourceSettings(task.settings.collationB, task.settings);
 			task.displaySettings = task.cancelSettings = settings;
 			task.cancelJobID = null;
-			result.secondReader = await this.parseAttachmentWithMineru(task.attachment, settings, { signal: task.controller.signal, cloudState:task.cloudStateB ||= {},
-				onStatus: status => { task.detail = "对照识别 B：" + (status.displayText || status.phase || "处理中"); if ("pageProgress" in status) task.progress = status.pageProgress; if ("jobID" in status) task.cancelJobID = status.jobID; if (status.phase) task.phase = status.phase; this.setTaskStep?.(task, "compare", "对照识别 B", task.detail); this.refreshParseQueueDialog(); } });
+			result.secondReader ||= await this.parseAttachmentWithMineru(task.attachment, settings, { signal: task.controller.signal, cloudState:task.cloudStateB ||= {},
+				paddleState:task.paddleStateB ||= {},localTaskState:task.localTaskStateB ||= {},jobID:task.secondJobID,checkpoint:()=>this.taskRecovery?.flush(),
+				onStatus: status => { task.detail = "对照识别 B：" + (status.displayText || status.phase || "处理中"); if ("pageProgress" in status) task.progress = status.pageProgress; if ("jobID" in status) task.cancelJobID = task.secondJobID = status.jobID; if (status.phase) task.phase = status.phase; this.setTaskStep?.(task, "compare", "对照识别 B", task.detail); this.refreshParseQueueDialog(); } });
+			task.paddleStateB = null;
+			await this.taskRecovery?.flush();
 			this.finalizeDocument(result.secondReader, settings.parserService);
 			result.collation = OCRFlowDocument.compare(result.document, result.secondReader.document);
 			result.collation.sources = [result.recognition?.source || task.settings.collationA, task.settings.collationB];

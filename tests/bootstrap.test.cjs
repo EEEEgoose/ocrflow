@@ -22,7 +22,7 @@ test('installation entrypoint loads all modules and registers DocFlow menus with
   const registered=[],loaded=[],panes=[],listeners=[];
   let removed=false, paneRegistered=false;
   const context={
-    clearTimeout,
+    setTimeout,clearTimeout,
     PathUtils:{join:(...parts)=>parts.join("/")},IOUtils:{exists:async()=>false},
     Cc:{'@mozilla.org/addons/addon-manager-startup;1':{getService:()=>({registerChrome:()=>({destruct:()=>{removed=true;}})})}},
     Ci:{amIAddonManagerStartup:{}},
@@ -37,7 +37,7 @@ test('installation entrypoint loads all modules and registers DocFlow menus with
   };
   vm.createContext(context);vm.runInContext(fs.readFileSync('bootstrap.js','utf8'),context);
   await context.startup({id:manifest.applications.zotero.id,version:manifest.version,rootURI:''});
-  assert.deepEqual(loaded,['locale/en-US/ui.js','localization.js','prompts.js','docflow.js','config.js','markitdown.js','marker.js','datalab.js','metadata.js','workflow.js','translation-services.js','title-translation.js','document.js','layout.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','recognition.js','attachment-naming.js','task-sidebar.js','outline.js']);
+  assert.deepEqual(loaded,['locale/en-US/ui.js','localization.js','prompts.js','docflow.js','config.js','markitdown.js','marker.js','datalab.js','metadata.js','workflow.js','translation-services.js','title-translation.js','document.js','layout.js','paddleocr.js','ocr-sources.js','translation.js','collation.js','recognition.js','task-recovery.js','attachment-naming.js','task-sidebar.js','outline.js']);
   assert.equal(panes[0].label,'OCRFlow');assert.equal(registered[0].menus[0].label,'OCRFlow');
   assert.equal(panes[0].id,'ocrflow-preferences');
   for(const uri of [panes[0].src,panes[0].image,...panes[0].scripts,...(panes[0].stylesheets || [])]) {

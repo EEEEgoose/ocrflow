@@ -77,6 +77,8 @@ XPI 使用逐文件清单，不递归收录 `vendor/` 或 `locale/`；排除测�
 
 GitHub Actions 配置在 [ci.yml](../.github/workflows/ci.yml)。推送到 `main` 时，测试通过后自动构建并发布 Release；Pull Request 只测试和构建，不发布。也可在 Actions 页面选择 `main` 手动运行。发布使用内置 `GITHUB_TOKEN`，工作流已声明 `contents: write`，无需另设个人 Token。
 
+侧栏“本次更新”使用简短条目概括用户能直接感知的变化。GitHub Release 说明在 `docs/releases/v<版本>.md` 中维护，详细记录技术实现、参数范围、修复内容和升级注意事项。发布工作流优先使用该归档文件，缺少归档时从更新记录生成说明。
+
 发布前，在 `CHANGELOG.md` 本次版本下用 `### 新增功能`、`### 修复问题` 分别记录变化。发布工具读取前一正式标签的更新记录，只提取本次新增条目，因此不会因历史安装包号和开发记录号不一致而漏掉功能；没有新增记录或分类时停止发布，要求补齐说明。
 
 可在本地预览：

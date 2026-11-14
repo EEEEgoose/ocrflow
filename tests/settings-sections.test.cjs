@@ -241,17 +241,18 @@ test('settings navigation keeps unsaved values and shows one module at a time',(
   assert(!s.elements.has('mineru-open-queue-button'));
 });
 
-test('one PaddleOCR entry resolves the chosen API and preserves both profiles',()=>{
+test('PDF service entries select explicit APIs and preserve both PaddleOCR profiles',()=>{
   const s=setup();
   const picker=s.source.slice(s.source.indexOf('id="docflow-parser-service"'),s.source.indexOf('</menulist>',s.source.indexOf('id="docflow-parser-service"')));
-  assert.equal((picker.match(/label="PaddleOCR"/g)||[]).length,1);
-  assert(!picker.includes('paddle-local'));assert(!picker.includes('paddle-cloud'));
+  const entries=Array.from(picker.matchAll(/label="([^"]+)" value="([^"]+)"/g),match=>[match[1],match[2]]);
+  assert.deepEqual(entries,[['MinerU·官方API','mineru-cloud'],['MinerU·自部署API','mineru-local'],['PaddleOCR·官方API','paddle-cloud'],['PaddleOCR·自部署API','paddle-local'],['Marker·Datalab API','marker-cloud'],['Marker·自部署API','marker-local'],['MarkItDown·自部署API','markitdown'],['AI视觉OCR','ai']]);
   s.prefs.set(prefix+'parserService','paddle-local');s.panel.loadSettings();
-  assert.equal(s.elements.get('docflow-parser-service').value,'paddle');
-  assert.equal(s.elements.get('ocrflow-paddle-mode').value,'local');
+  assert.equal(s.elements.get('docflow-parser-service').value,'paddle-local');
   s.value('ocrflow-paddle-cloud-url','https://cloud.example/ocr');s.value('ocrflow-paddle-local-url','http://local.example');
   assert(s.panel.saveSettings());assert.equal(s.plugin.getSettings().parserService,'paddle-local');
   s.value('ocrflow-paddle-mode','cloud');s.panel.syncPaddleMode();assert(s.panel.saveSettings());
+  assert.equal(s.plugin.getSettings().parserService,'paddle-local');
+  s.value('docflow-parser-service','paddle-cloud');assert(s.panel.saveSettings());
   assert.equal(s.plugin.getSettings().parserService,'paddle-cloud');
   assert.equal(s.prefs.get(prefix+'paddle.local.url'),'http://local.example');
   assert.equal(s.elements.get('ocrflow-paddle-local-fields').hidden,true);
@@ -309,4 +310,87 @@ test('settings navigation uses the requested service and workflow labels',()=>{
  const s=setup();for(const [id,label]of Object.entries({'ocrflow-tab-services':'识别服务','ocrflow-tab-work':'流程配置','ocrflow-tab-collation':'勘校配置','ocrflow-tab-config':'同步功能','ocrflow-work-tab-parent':'建立条目','ocrflow-work-tab-summary':'全文总结','ocrflow-work-tab-ocr':'识别全文','ocrflow-work-tab-translate':'全文翻译','ocrflow-work-tab-outline':'生成大纲'})){
   assert(s.source.includes('id="'+id+'" type="button" aria-pressed="false">'+label+'</html:button>'),id);
  }
+});
+
+test('legacy PDF service selections load as the corresponding explicit API',()=>{
+ const s=setup();
+ for(const [service,modePref,mode,expected] of [
+  ['mineru','apiMode','cloud','mineru-cloud'],['mineru','apiMode','local-v1','mineru-local'],
+  ['paddle','paddleMode','cloud','paddle-cloud'],['paddle','paddleMode','local','paddle-local'],
+  ['marker','marker.apiType','cloud','marker-cloud'],['marker','marker.apiType','local','marker-local']
+ ]){
+  s.prefs.set(prefix+'parserService',service);s.prefs.set(prefix+modePref,mode);s.panel.loadSettings();
+  assert.equal(s.elements.get('docflow-parser-service').value,expected);
+  assert(s.panel.saveSettings());assert.equal(s.prefs.get(prefix+'parserService'),expected);
+ }
+ for(const service of ['paddle-cloud','paddle-local','marker-cloud','marker-local']){
+  s.value('docflow-parser-service',service);assert(s.panel.saveSettings());s.panel.loadSettings();
+  assert.equal(s.elements.get('docflow-parser-service').value,service);
+  s.panel.showService(service);
+  assert.equal(s.elements.get('ocrflow-service-panel-'+service.split('-')[0]).hidden,false);
+ }
+});
+
+test('Marker OCR concurrency defaults to two and saves only integer values from one to ten',()=>{
+ const s=setup(),input=s.elements.get('ocrflow-marker-concurrency');
+ assert(input);assert.equal(input.value,'2');assert.equal(s.plugin.getSettings().markerConcurrency,2);
+ s.value('ocrflow-marker-concurrency','10');assert(s.panel.saveSettings({section:'marker'}));
+ assert.equal(s.prefs.get(prefix+'marker.concurrency'),10);assert.equal(s.plugin.getSettings().markerConcurrency,10);
+ for(const value of ['0','11','1.5','','abc']){
+  s.value('ocrflow-marker-concurrency',value);assert.equal(s.panel.saveSettings({section:'marker'}),false);
+  assert.equal(s.prefs.get(prefix+'marker.concurrency'),10);
+ }
+ s.panel.loadSettings();assert.equal(input.value,'10');
+ s.prefs.set(prefix+'marker.concurrency',99);assert.equal(s.plugin.getSettings().markerConcurrency,10);
+});
+
+test('MinerU document concurrency defaults to two and saves integers from one to ten',()=>{
+ const s=setup(),input=s.elements.get('mineru-concurrency');assert(input);assert.equal(input.value,'2');
+ assert.equal(s.plugin.getSettings().mineruConcurrency,2);
+ s.value('mineru-concurrency','10');assert(s.panel.saveSettings({section:'mineru'}));
+ assert.equal(s.plugin.getSettings().mineruConcurrency,10);
+ for(const value of ['0','11','1.5','','abc']){
+  s.value('mineru-concurrency',value);assert.equal(s.panel.saveSettings({section:'mineru'}),false);
+  assert.equal(s.prefs.get(prefix+'mineruConcurrency'),10);
+ }
+ s.panel.loadSettings();assert.equal(input.value,'10');
+ s.prefs.set(prefix+'mineruConcurrency',20);assert.equal(s.plugin.getSettings().mineruConcurrency,10);
+});
+
+test('settings grids keep help text on a full row and fit the native preferences content width',()=>{
+ const source=fs.readFileSync('preferences.xhtml','utf8');
+ const css=source.match(/<html:style><!\[CDATA\[([\s\S]*?)\]\]><\/html:style>/)[1];
+ assert.match(css,/\.mineru-grid\s*>\s*\.mineru-help\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/);
+ const pane=Array.from(css.matchAll(/\.ocrflow-pane\s*\{([^}]*)\}/g),match=>match[1]).join('\n');
+ assert.match(pane,/box-sizing:\s*border-box/);assert.match(pane,/min-width:\s*0/);
+ assert(!/max-width:\s*(?:780|960)px/.test(pane));
+ assert.match(css,/\.mineru-grid\s+input\[type="checkbox"\][^{]*\{[^}]*width:\s*auto/);
+});
+
+test('PaddleOCR document concurrency defaults to two and saves integers from one to ten independently',()=>{
+ const s=setup(),input=s.elements.get('ocrflow-paddle-concurrency');assert(input);assert.equal(input.value,'2');
+ assert.equal(s.plugin.getSettings().paddleConcurrency,2);
+ s.value('ocrflow-paddle-concurrency','10');assert(s.panel.saveSettings({section:'paddle'}));
+ assert.equal(s.prefs.get(prefix+'paddle.concurrency'),10);assert.equal(s.plugin.getSettings().paddleConcurrency,10);
+ for(const value of ['0','11','1.5','','abc']){
+  s.value('ocrflow-paddle-concurrency',value);assert.equal(s.panel.saveSettings({section:'paddle'}),false);
+  assert.equal(s.prefs.get(prefix+'paddle.concurrency'),10);
+ }
+ s.panel.loadSettings();assert.equal(input.value,'10');
+ assert.equal(s.plugin.getSettings().markerConcurrency,2);assert.equal(s.plugin.getSettings().mineruConcurrency,2);
+ s.prefs.set(prefix+'paddle.concurrency',20);assert.equal(s.plugin.getSettings().paddleConcurrency,10);
+});
+
+
+test('MarkItDown concurrency saves integers from one to ten independently',()=>{
+ const s=setup(),input=s.elements.get('ocrflow-markitdown-concurrency');assert(input);assert.equal(input.value,'2');
+ assert.equal(s.plugin.getSettings().markitdownConcurrency,2);
+ s.value('ocrflow-markitdown-concurrency','10');assert(s.panel.saveSettings({section:'markitdown'}));
+ assert.equal(s.prefs.get(prefix+'markitdownConcurrency'),10);assert.equal(s.plugin.getSettings().markitdownConcurrency,10);
+ for(const value of ['0','11','1.5','','abc']){
+  s.value('ocrflow-markitdown-concurrency',value);assert.equal(s.panel.saveSettings({section:'markitdown'}),false);
+  assert.equal(s.prefs.get(prefix+'markitdownConcurrency'),10);
+ }
+ s.panel.loadSettings();assert.equal(input.value,'10');
+ s.prefs.set(prefix+'markitdownConcurrency',99);assert.equal(s.plugin.getSettings().markitdownConcurrency,10);
 });

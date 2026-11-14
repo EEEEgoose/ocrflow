@@ -27,7 +27,8 @@ function scenario({ completeAt = 15000, failAt = null, queuedOnly = false } = {}
 		fetch: async (url, options = {}) => {
 			calls.push({ url, options });
 			let reply;
-			if (url.endsWith("/v1/uploads")) {
+			if (url.endsWith("/v1/health")) { reply = {version:"4.0.12",features:{output_formats:["zip"]}}; }
+			else if (url.endsWith("/v1/uploads")) {
 				reply = { status: "pending", id: "upload-1", upload_url: "/v1/uploads/upload-1/content", upload_method: "PUT", upload_headers: {} };
 			}
 			else if (url.endsWith("/complete")) {
@@ -85,8 +86,8 @@ async function run() {
 	assert.equal(jobCalls.length, 1);
 	assert.equal(JSON.parse(jobCalls[0].options.body).tier, "advanced");
 	assert.deepEqual(JSON.parse(jobCalls[0].options.body).output_formats, ["zip"]);
-	assert.equal(JSON.parse(longJob.calls[0].options.body).bytes, 3);
-	assert.equal(longJob.calls[1].options.headers.has("Authorization"), false);
+	assert.equal(JSON.parse(longJob.calls.find(call => call.url.endsWith("/v1/uploads")).options.body).bytes, 3);
+	assert.equal(longJob.calls.find(call => call.options.method === "PUT").options.headers.has("Authorization"), false);
 	assert.equal(longJob.calls.at(-1).url, `${base}/v1/files/zip-1/content`);
 	assert.equal(longJob.plugin.getSettings().modelVersion, 'advanced');
 	for (const tier of ['flash', 'basic', 'standard', 'advanced']) {

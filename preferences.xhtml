@@ -1,6 +1,7 @@
 <vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul" xmlns:html="http://www.w3.org/1999/xhtml" id="docflow-prefpane" flex="1" onload="if (window.DocFlowPreferences) { window.DocFlowPreferences.init(); }">
 	<html:link rel="stylesheet" href="chrome://docflow/content/task-queue.css" />
 	<html:style><![CDATA[
+#docflow-prefpane { min-width: 0; max-width: 100%; }
 .ocrflow-pane {
 	--ocrflow-bg: light-dark(#f7f7f9, #232326);
 	--ocrflow-panel: light-dark(#fff, #2c2c30);
@@ -9,7 +10,8 @@
 	--ocrflow-border: light-dark(#dcdce1, #48484f);
 	--ocrflow-field: light-dark(#fff, #222226);
 	--ocrflow-accent: light-dark(#0b63d8, #84b3ff);
-	color: var(--ocrflow-text); background: var(--ocrflow-bg); padding: 20px; max-width: 780px;
+	color: var(--ocrflow-text); background: var(--ocrflow-bg); padding: 12px;
+	box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;
 	font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 .ocrflow-pane * { box-sizing: border-box; }
@@ -29,7 +31,11 @@
 .ocrflow-pane h3 { margin: 0; font-size: 14px; font-weight: 500; }
 .mineru-help { color: var(--ocrflow-muted); font-size: 12px; margin: 5px 0 0; }
 .mineru-grid { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px 14px; align-items: center; }
+.mineru-grid > * { min-width: 0; }
+.mineru-grid > .mineru-help { grid-column: 1 / -1; overflow-wrap: anywhere; }
 .mineru-grid input, .mineru-grid textarea, .mineru-grid menulist, .ocrflow-pane select { width: 100%; min-width: 0; font: inherit; }
+.mineru-grid input[type="checkbox"] { width: auto; justify-self: start; }
+.mineru-grid input[type="number"] { max-width: 8em; }
 .mineru-grid input:not([type="checkbox"]), .mineru-grid textarea { color: var(--ocrflow-text); background: var(--ocrflow-field); border: 1px solid var(--ocrflow-border); border-radius: 5px; padding: 6px 9px; }
 .mineru-grid textarea { resize: vertical; min-height: 64px; }
 .ocrflow-service-choice { margin-bottom: 18px; }
@@ -91,11 +97,10 @@
 .ocrflow-work { border:0; margin:0; padding:0; }
 #ocrflow-paddle-cloud-fields, #ocrflow-paddle-local-fields { margin-top:16px; }
 .ocrflow-footer { position:sticky; bottom:0; background:var(--ocrflow-bg); padding-bottom:12px; z-index:2; }
-.ocrflow-pane { width:100%; max-width:960px; }
 .queue-shell { position:static; padding:0; font:inherit; gap:12px; }
 .queue-list { height:360px; flex:none; }
 .queue-shell .state-column { width:80px; }
-.queue-shell .action-column { width:128px; }
+.queue-shell .action-column { width:184px; }
 .queue-shell th, .queue-shell td { padding:8px; }
 .queue-shell .queue-actions { justify-content:flex-start; flex-wrap:wrap; }
 ]]></html:style>
@@ -109,9 +114,14 @@
 			<html:label for="docflow-parser-service">PDF识别服务</html:label>
 			<menulist id="docflow-parser-service" native="true">
 				<menupopup>
-					<menuitem label="MinerU · 当前配置" value="mineru" /><menuitem label="MinerU · 在线 API" value="mineru-cloud" /><menuitem label="MinerU · 自部署 API" value="mineru-local" /><menuitem label="PaddleOCR" value="paddle" />
-					<menuitem label="Marker" value="marker" /><menuitem label="MarkItDown · 自部署 API" value="markitdown" />
-					<menuitem label="AI 视觉 OCR" value="ai" />
+					<menuitem label="MinerU·官方API" value="mineru-cloud" />
+					<menuitem label="MinerU·自部署API" value="mineru-local" />
+					<menuitem label="PaddleOCR·官方API" value="paddle-cloud" />
+					<menuitem label="PaddleOCR·自部署API" value="paddle-local" />
+					<menuitem label="Marker·Datalab API" value="marker-cloud" />
+					<menuitem label="Marker·自部署API" value="marker-local" />
+					<menuitem label="MarkItDown·自部署API" value="markitdown" />
+					<menuitem label="AI视觉OCR" value="ai" />
 				</menupopup>
 			</menulist><html:label for="ocrflow-default-office">Office文档识别服务</html:label><menulist id="ocrflow-default-office" native="true"><menupopup><menuitem label="MinerU · 在线 API" value="mineru-cloud" /><menuitem label="MinerU · 自部署 API" value="mineru-local" /><menuitem label="MarkItDown · 自部署 API" value="markitdown" /></menupopup></menulist><html:label for="ocrflow-default-html">HTML识别服务</html:label><menulist id="ocrflow-default-html" native="true"><menupopup><menuitem label="MinerU · 在线 API" value="mineru-cloud" /><menuitem label="MinerU · 自部署 API" value="mineru-local" /><menuitem label="MarkItDown · 自部署 API" value="markitdown" /></menupopup></menulist><html:label for="ocrflow-default-image">图片识别服务</html:label><menulist id="ocrflow-default-image" native="true"><menupopup><menuitem label="MinerU · 在线 API" value="mineru-cloud" /><menuitem label="MinerU · 自部署 API" value="mineru-local" /><menuitem label="PaddleOCR · 在线 API" value="paddle-cloud" /><menuitem label="PaddleOCR · 自部署 API" value="paddle-local" /><menuitem label="AI 视觉 OCR" value="ai" /></menupopup></menulist>
 		</html:div><html:p class="mineru-help">EPUB 需要 MarkItDown；Office、HTML 和图片使用各自的默认服务。</html:p><html:nav class="ocrflow-tabs" aria-label="转换服务"><html:button id="ocrflow-service-tab-mineru" type="button" aria-pressed="false">MinerU</html:button><html:button id="ocrflow-service-tab-paddle" type="button" aria-pressed="false">PaddleOCR</html:button><html:button id="ocrflow-service-tab-marker" type="button" aria-pressed="false">Marker</html:button><html:button id="ocrflow-service-tab-markitdown" type="button" aria-pressed="false">MarkItDown</html:button><html:button id="ocrflow-service-tab-ai" type="button" aria-pressed="false">AI 视觉</html:button></html:nav><html:div id="ocrflow-service-panel-mineru"><html:section class="ocrflow-section" aria-labelledby="ocrflow-mineru-heading">
@@ -127,6 +137,8 @@
 						<menuitem label="自部署 API（MinerU 4 V1）" value="local-v1" />
 					</menupopup>
 				</menulist>
+				<html:label for="mineru-concurrency">文档并发数</html:label><html:input id="mineru-concurrency" type="number" min="1" max="10" step="1" value="2"/>
+				<html:p class="mineru-help">默认同时处理 2 份文档，最多 10 份。官方 API 和自部署 API 均使用此设置。自部署的实际处理并发由服务端配置决定。</html:p>
 				<html:label for="mineru-api-base-url">API 地址</html:label>
 				<html:input id="mineru-api-base-url" type="url" placeholder="https://mineru.net/api/v4" />
 				<html:label for="mineru-api-token">API Token</html:label>
@@ -188,7 +200,9 @@
 		</html:section></html:div><html:div id="ocrflow-service-panel-paddle"><html:section class="ocrflow-section" aria-labelledby="ocrflow-paddle-heading">
 			<html:h3 id="ocrflow-paddle-heading">PaddleOCR 文档解析</html:h3>
 			<html:p class="mineru-help">官方 API 会上传文件到 PaddleOCR 服务；自部署使用完整文档解析服务地址。两种配置分别保存。</html:p>
-			<html:div class="mineru-grid"><html:label for="ocrflow-paddle-mode">接口类型</html:label><html:select id="ocrflow-paddle-mode"><html:option value="cloud">在线 API</html:option><html:option value="local">自部署 API</html:option></html:select></html:div><html:div id="ocrflow-paddle-cloud-fields" class="mineru-grid">				<html:label for="ocrflow-paddle-cloud-url">官方 API 地址</html:label><html:input id="ocrflow-paddle-cloud-url" type="url"/>
+			<html:div class="mineru-grid"><html:label for="ocrflow-paddle-mode">接口类型</html:label><html:select id="ocrflow-paddle-mode"><html:option value="cloud">在线 API</html:option><html:option value="local">自部署 API</html:option></html:select>
+<html:label for="ocrflow-paddle-concurrency">文档并发数</html:label><html:input id="ocrflow-paddle-concurrency" type="number" min="1" max="10" step="1" value="2"/>
+<html:p class="mineru-help">默认同时处理 2 份文档，最多 10 份。官方 API 和自部署 API 均使用此设置。实际处理并发由服务端调度和配置决定。</html:p></html:div><html:div id="ocrflow-paddle-cloud-fields" class="mineru-grid">				<html:label for="ocrflow-paddle-cloud-url">官方 API 地址</html:label><html:input id="ocrflow-paddle-cloud-url" type="url"/>
 				<html:label for="ocrflow-paddle-cloud-token">官方访问令牌</html:label><html:input id="ocrflow-paddle-cloud-token" type="password"/>
 				<html:label for="ocrflow-paddle-cloud-model">官方模型名称</html:label><html:input id="ocrflow-paddle-cloud-model" type="text"/></html:div><html:div id="ocrflow-paddle-local-fields" class="mineru-grid">				<html:label for="ocrflow-paddle-local-url">自部署服务地址</html:label><html:input id="ocrflow-paddle-local-url" type="url" placeholder="http://127.0.0.1:8080"/>
 				<html:label for="ocrflow-paddle-local-token">自部署令牌（可空）</html:label><html:input id="ocrflow-paddle-local-token" type="password"/>
@@ -208,6 +222,8 @@
 <html:label for="ocrflow-datalab-url">Datalab API 地址</html:label><html:input id="ocrflow-datalab-url" type="url" placeholder="https://www.datalab.to/api/v1"/>
 <html:label for="ocrflow-datalab-key">Datalab API Key</html:label><html:input id="ocrflow-datalab-key" type="password"/>
 <html:label for="ocrflow-datalab-mode">识别模式</html:label><html:select id="ocrflow-datalab-mode"><html:option value="fast">Fast</html:option><html:option value="balanced">Balanced</html:option><html:option value="accurate">Accurate</html:option></html:select></html:div></html:div>
+<html:div class="mineru-grid"><html:label for="ocrflow-marker-concurrency">OCR 并发数</html:label><html:input id="ocrflow-marker-concurrency" type="number" min="1" max="10" step="1" value="2"/></html:div>
+<html:p class="mineru-help">默认同时识别 2 个 PDF，最多 10 个。适用于 Datalab API 和自部署 API。自部署服务的实际处理并发由服务端配置决定。</html:p>
 <html:div class="ocrflow-group-actions"><html:button id="ocrflow-marker-save" type="button">保存 Marker 配置</html:button><html:button id="ocrflow-marker-test" type="button">测试连接</html:button><html:span id="ocrflow-marker-status" class="ocrflow-status" role="status"/></html:div>
 			<html:pre id="ocrflow-marker-output" hidden="hidden" class="mineru-test-output"/>
 		</html:section></html:div><html:div id="ocrflow-service-panel-markitdown"><html:section class="ocrflow-section" aria-labelledby="ocrflow-markitdown-heading">
@@ -216,6 +232,8 @@
 				<html:span class="mineru-help">EPUB、Office 等文档转 Markdown</html:span>
 			</html:div>
 			<html:div class="mineru-grid">
+				<html:label for="ocrflow-markitdown-concurrency">文档并发数</html:label><html:input id="ocrflow-markitdown-concurrency" type="number" min="1" max="10" step="1" value="2"/>
+				<html:p class="mineru-help">默认同时转换 2 份文档，最多 10 份。实际处理并发由 MarkItDown 服务端部署和资源决定。</html:p>
 				<html:label for="docflow-markitdown-url">服务地址</html:label>
 				<html:input id="docflow-markitdown-url" type="url" placeholder="http://127.0.0.1:33001" />
 			</html:div>
@@ -424,7 +442,7 @@
 					<html:textarea id="ocrflow-work-outline-params" rows="3" placeholder="留空使用默认参数" />
 				</html:div></html:details>
 			</html:div>
-			<html:p class="mineru-help">各工作分别选择模型、编辑提示词和请求参数；上下文与并发统一读取所选模型的设置。文档依次处理，分段和 OCR 页面按模型并发请求；同一模型的父条目可批量建立。</html:p>
+			<html:p class="mineru-help">各工作分别选择模型、编辑提示词和请求参数；上下文与并发统一读取所选模型的设置。文档按识别服务并发设置处理，分段和 OCR 页面按模型并发请求；同一文献的任务依次执行。</html:p>
 			<html:div class="ocrflow-group-actions"><html:button id="ocrflow-work-save" type="button">保存工作设置</html:button><html:span id="ocrflow-work-status" role="status" aria-live="polite" class="ocrflow-status" /></html:div>
 		</html:section></html:div><html:div id="ocrflow-panel-collation"><html:section class="ocrflow-section" aria-labelledby="ocrflow-collation-heading">
 			<html:h3 id="ocrflow-collation-heading">勘校配置</html:h3>
@@ -446,7 +464,7 @@
 				<html:input id="mineru-parseGenerateHTML" type="checkbox" />
 				<html:span>
 					<html:span>同时生成 HTML</html:span>
-					<html:small class="mineru-help">可选原文布局或 Markdown 布局。原文布局或存在格式问题，Markdown 布局便于阅读。为不影响翻译效果，全文翻译强制Markdown 布局。已有附件不自动转换。</html:small>
+					<html:small class="mineru-help">所有支持的格式均可同时生成 HTML，并保留配套 Markdown。可选原文布局或 Markdown 布局。原文布局或存在格式问题，Markdown 布局便于阅读。缺少版面坐标时按文档结构排版。为不影响翻译效果，全文翻译强制Markdown 布局。已有附件不自动转换。</html:small>
 				</html:span>
 			</html:label>
 			<html:div class="mineru-grid ocrflow-image-setting">
@@ -505,20 +523,10 @@
 
       </html:div>
       <html:p id="queue-copy-status" role="status" aria-live="polite" />
-      <html:p class="queue-help">拖选文字后按 ⌘C（macOS）或 Ctrl+C 复制。每行“复制”可复制该条任务的完整信息。文档依次处理；建立父条目可按工作并发设置批量处理。每行可终止排队或运行中的任务，本地 V1 会请求取消服务端任务；官方云端任务仅停止客户端处理。保存阶段不可中断。“清除已结束任务”移除完成、失败和已终止的记录，保留进行中、等待已结束和取消未确认的任务。离开设置页后队列继续运行。队列保留在当前 Zotero 会话中；本地等待超时的任务可继续查询原任务 ID。</html:p>
+<html:p id="queue-recovery-status" class="queue-error" role="alert" hidden="hidden"/>
+      <html:p class="queue-help">拖选文字后按 ⌘C（macOS）或 Ctrl+C 复制。每行“复制”可复制该条任务的完整信息。文档按服务与模型的并发设置处理，同一文献的任务依次执行。每行可终止排队或运行中的任务，本地 V1 会请求取消服务端任务；官方云端任务仅停止客户端处理。保存阶段不可中断。“清除已结束任务”移除完成、失败和已终止的记录，保留进行中、等待已结束和取消未确认的任务。离开设置页后队列继续运行。任务进度自动保存在本机，插件更新或重启后可恢复。配置解锁后继续执行，待确认的任务保留为暂停状态。</html:p>
     </html:div>
-<html:details class="ocrflow-details">
-			<html:summary>查询本地 MinerU 任务</html:summary>
-			<html:div class="mineru-grid">
-				<html:label for="mineru-job-id">任务 ID</html:label>
-				<html:input id="mineru-job-id" type="text" placeholder="留空查询最近提交的任务，或粘贴 job_..." />
-			</html:div>
-			<html:div class="mineru-actions">
-
-				<html:button id="mineru-job-progress-button" type="button">查询任务进度</html:button>
-			</html:div>
-			<html:pre id="mineru-job-progress-output" class="mineru-test-output" />
-		</html:details></html:div><html:section id="ocrflow-panel-config" class="ocrflow-section" hidden="hidden">
+</html:div><html:section id="ocrflow-panel-config" class="ocrflow-section" hidden="hidden">
 <html:h3>加密同步功能</html:h3><html:div class="mineru-grid"><html:label for="ocrflow-config-device-name">本机名</html:label><html:input id="ocrflow-config-device-name" type="text"/><html:label for="ocrflow-config-backup-limit">每台机器最多保留备份数</html:label><html:input id="ocrflow-config-backup-limit" type="number" min="1" value="10"/></html:div><html:button id="ocrflow-config-device-save" type="button">保存本机设置</html:button><html:p class="mineru-help">自动备份和同步历史分别保留最新指定份数，默认 10 份；手动导出文件不自动清理。</html:p><html:p id="ocrflow-config-state" role="status"/>
 <html:p class="mineru-help">全部插件配置使用同一配置密码加密。密码不随导出或同步；遗失后无法解密。导入会整套替换，文献与任务记录不属于配置包。</html:p>
 <html:div class="mineru-grid"><html:label for="ocrflow-config-pass">配置密码 / 新密码</html:label><html:input id="ocrflow-config-pass" type="password" autocomplete="off"/>

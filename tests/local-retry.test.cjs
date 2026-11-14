@@ -13,7 +13,8 @@ async function check(existingStatus) {
     fetch: async (url, options = {}) => {
       calls.push({url, options});
       let status = 200, reply;
-      if (url.endsWith('/jobs/job-old')) {
+      if (url.endsWith('/v1/health')) reply = {version:'4.0.12'};
+      else if (url.endsWith('/jobs/job-old')) {
         polls++;
         if (existingStatus === 'missing') {status = 404; reply = {error: 'not found'};}
         else if (existingStatus === 'network') {status = 503; reply = {error: 'unavailable'};}

@@ -36,3 +36,18 @@ test('cancellation after native preparation prevents returning a PDF for upload'
  s.context.Zotero.PDFWorker._query=async()=>{controller.abort();return {buf:Uint8Array.from(plain).buffer};};
  await assert.rejects(s.m.loadPDFForParsing(original,{signal:controller.signal}),{name:'AbortError'});
 });
+
+test('the PDF library logs recoverable parser warnings in its Zotero loading scope',async()=>{
+ const logs=[],context={Uint8Array,ArrayBuffer,setTimeout,atob,btoa,Zotero:{debug:message=>logs.push(message)},Services:{scriptloader:{
+  loadSubScript(_uri,scope){
+   const suppliedConsole=Object.hasOwn(scope,'console');vm.createContext(scope);
+   if(!suppliedConsole)vm.runInContext('delete globalThis.console',scope);
+   vm.runInContext(fs.readFileSync('vendor/pdf-lib/pdf-lib.min.js','utf8'),scope);
+  }
+ }}};
+ vm.createContext(context);vm.runInContext(fs.readFileSync('docflow.js','utf8'),context);
+ const bytes=new TextEncoder().encode('%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R /LargeNumber 9007199254740993 >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF');
+ const result=await context.DocFlow.loadPDFForParsing(bytes);
+ assert.equal(result.pdf.getPageCount(),1);assert.equal(result.bytes,bytes);
+ assert(logs.some(message=>message.includes('Parsed number that is too large')));
+});

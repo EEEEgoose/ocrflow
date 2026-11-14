@@ -328,7 +328,7 @@ var OCRFlowTaskSidebar = {
 			path.setAttribute("d","M16.6 8a6.7 6.7 0 0 0-11-3.1L3 7.5m0-4v4h4M3.4 12a6.7 6.7 0 0 0 11 3.1l2.6-2.6m0 4v-4h-4");icon.append(path);
 			heading.append(icon,make("strong","本次更新"),make("span",`v${version}`,"of-update-version",true));notice.append(heading);
 			let updates=make("ul",undefined,"of-update-list");
-			for(let [label,text] of [["全文翻译","：优化模型返回格式的处理，失败段落自动拆分、单段重试。"],["跨页段落","：识别重复页眉，合并跨页正文，译文标注完整来源页码范围。"],["进度保留","：修复旧翻译任务恢复时可能丢失已译进度的问题。"],["重试优化","：服务异常时延迟重试，已完成译段保留；减少重复失败请求。"],["格式兼容","：修复 JSON 原文被误判为翻译响应格式的问题。"]]) {
+			for(let [label,text] of [["任务恢复","支持更新或重启后继续已记录的任务。"],["并发识别","四种识别服务均可设置文档并发数。"],["接口兼容","适配 MinerU 4.1 / 4.2 自部署服务。"],["HTML 输出","覆盖全部支持格式，并保留配套 Markdown。"],["云端进度","可手动查询，排队与暂停状态更清楚。"],["使用体验","修复设置页排版、部分 PDF 读取和大纲生成问题。"]]) {
 				let item=make("li");item.append(make("strong",label),make("span",text));updates.append(item);
 			}notice.append(updates);
 			let buttons=make("div",undefined,"of-update-actions"),close=action("关闭",()=>this.dismissUpdateNotice(version)),mute=action("不再提醒",()=>this.dismissUpdateNotice(version,true));
@@ -437,6 +437,8 @@ var OCRFlowTaskSidebar = {
 			if (!current) content.appendChild(tool());
 			let actions = make("div", undefined, "of-actions");
 			if(task.needsRecognition)actions.appendChild(action("识别后继续生成大纲",()=>plugin.recognizeThenOutline(task)));
+			if (plugin.canQueryCloudTask(task)) actions.appendChild(action(task.cloudQuerying ? "查询中…" : "查询云端进度", () => plugin.queryCloudTaskProgress(task), !!task.cloudQuerying));
+			if (task.cloudQueryMessage) content.appendChild(make("p", task.cloudQueryMessage, "of-muted"));
 			if (task.decision) {
 				let options = task.decision.options;
 				let error = make("p", plugin.buildFailedChunkSummary(options.failures || [], 5), "of-error"); error.setAttribute("role", "alert"); content.appendChild(error);
@@ -446,7 +448,7 @@ var OCRFlowTaskSidebar = {
 				for (let [label, value] of [["重试失败段落", "retry"], ["保存部分译文", "save"], ["放弃剩余翻译", "discard"]]) actions.appendChild(action(label, () => plugin.resolveTaskDecision(task, value), value === "save" && !canSave));
 				actions.appendChild(action("服务与模型设置", () => plugin.openPreferences("work")));
 			}
-			else if (["failed", "canceled", "wait_expired", "waiting"].includes(task.state)) actions.appendChild(action(task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : "重新处理", () => plugin.retryParseQueueTasks([task.id])));
+			else if (["failed", "canceled", "wait_expired", "waiting"].includes(task.state)) actions.appendChild(action(task.recoveryDecision ? "继续翻译" : task.state === "waiting" ? "继续整理" : task.state === "wait_expired" ? "继续等待" : "重新处理", () => plugin.retryParseQueueTasks([task.id])));
 			if (["queued", "running", "wait_expired"].includes(task.state) || task.cancelFailed) actions.appendChild(action(task.cancelFailed ? "重试终止" : ((task.cancelSettings||task.settings).parserService==="marker" && (task.cancelSettings||task.settings).markerSettings?.apiType==="cloud") ? "停止等待" : "终止任务", () => plugin.cancelParseQueueTask(task.id), !!task.saving));
 			if (task.resultAttachment) {
 				actions.appendChild(action("查看结果", () => task.resultAttachment.isAttachment?.() ? this.openDocument(view,task.resultAttachment) : view.window.ZoteroPane.viewItems([task.resultAttachment])));
@@ -460,13 +462,18 @@ var OCRFlowTaskSidebar = {
 			content.appendChild(actions);
 		}
 		let footer = make("footer"); footer.append(action("全部任务队列", () => plugin.openParseQueueDialog()), make("small", `${active.length} 项进行中`, "of-muted"));
+		if (plugin.taskRecovery?.error) content.appendChild(make("p", plugin.taskRecovery.error, "of-error"));
+		else if (plugin.taskRecovery?.pendingUnlock) content.appendChild(make("p", "配置解锁后恢复未完成任务", "of-muted"));
 		view.panel.replaceChildren(header, content, footer); view.panel.scrollTop = scrollTop;
 		if (focusKey) [...view.panel.querySelectorAll("[data-focus-key]")].find(node => node.getAttribute("data-focus-key") === focusKey)?.focus({preventScroll:true});
 	},
 
 	stateLabel(task) {
 		if(task.state==="running"&&task.phase==="Marker · queued")return "Marker 服务端排队中";
-		if (task.decision) return "等待处理失败译段";
+		if (task.decision || task.recoveryDecision) return "等待处理失败译段";
+		let displayedState = this.plugin.taskDisplayState(task);
+		if (displayedState === "waiting_slot") return "等待识别名额";
+		if (displayedState === "cloud_queued") return "云端排队中";
 		if (task.state === "completed" && task.partial) return "已保存部分译文";
 		if (task.state === "completed" && ["failed", "partial"].includes(task.collationAIStatus)) return "底稿已保存 · AI 辅助校勘未全部完成";
 		if (task.state === "completed" && task.collationStatus === "failed") return "底稿已保存 · 对照识别未完成";

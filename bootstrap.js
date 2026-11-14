@@ -40,6 +40,8 @@ async function startup({ id, version, rootURI }) {
 	Services.scriptloader.loadSubScript(rootURI + 'translation.js');
 	Services.scriptloader.loadSubScript(rootURI + 'collation.js');
 	Services.scriptloader.loadSubScript(rootURI + 'recognition.js');
+	Services.scriptloader.loadSubScript(rootURI + 'task-recovery.js');
+	DocFlow.taskRecovery = OCRFlowTaskRecovery;
 	Services.scriptloader.loadSubScript(rootURI + 'attachment-naming.js');
 	Services.scriptloader.loadSubScript(rootURI + "task-sidebar.js");
 	OCRFlowTaskSidebar.init(DocFlow);
@@ -58,6 +60,7 @@ async function startup({ id, version, rootURI }) {
 	DocFlowOutline.registerReaders();
 	DocFlow.addToAllWindows();
 	await DocFlow.main();
+	await DocFlow.taskRecovery.init(DocFlow);
 }
 
 function onMainWindowLoad({ window }) {
@@ -71,6 +74,7 @@ function onMainWindowUnload({ window }) {
 async function shutdown() {
 	log("Shutting down OCRFlow");
 	DocFlow.parseQueueStopped = true;
+	await DocFlow.taskRecovery?.shutdown();
 	clearTimeout(DocFlow.config?.timer);
 	try { await DocFlow.config?.flush(); } catch(error) { Zotero.logError(error); }
 	DocFlow.outline?.shutdown();

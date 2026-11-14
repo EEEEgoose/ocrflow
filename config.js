@@ -73,12 +73,14 @@ var OCRFlowConfig = {
   const values=this.legacy();this.validate(values);const record=this.newRecord(values),envelope=await this.seal(record,password);
   await this.write(envelope);this.values=values;this.record=record;this.envelope=envelope;this.password=password;this.state='unlocked';this.dirty=false;
   this.clearLegacy();
+  await this.owner.taskRecovery?.restore();
  },
  clearLegacy(){for(const key of Services.prefs.getChildList(this.prefix))if(!this.isRuntime(key)&&Services.prefs.prefHasUserValue(key))Services.prefs.clearUserPref(key);Services.prefs.savePrefFile(null);},
  async unlock(password){
   const envelope=JSON.parse(await IOUtils.readUTF8(this.path)),record=await this.open(envelope,password);
   this.envelope=envelope;this.record=record;this.values=record.values;this.password=password;this.state='unlocked';this.dirty=false;
   this.syncStatus=this.values[this.prefix+'syncEnabled']?'配置同步已启用；远端版本需检查并应用':'配置同步已关闭';
+  await this.owner.taskRecovery?.restore();
  },
  async flush(){
   const work=async()=>{
@@ -93,6 +95,7 @@ var OCRFlowConfig = {
  schedule(){if(this.state!=='unlocked'||!this.dirty)return;clearTimeout(this.timer);this.timer=setTimeout(()=>{this.flush().catch(error=>{this.error=error.message;});},250);},
  async lock(){
   if(this.owner.parseQueue.some(task=>task.active))throw Error('任务正在运行，请结束后再锁定配置。');
+  await this.owner.taskRecovery?.flush();
   await this.flush();this.password=null;this.values=null;this.record=null;this.envelope=null;this.state='locked';
  },
  savedLogin(){return Services.logins?.findLogins('chrome://docflow',null,'OCRFlow Configuration').find(login=>login.username==='vault');},
@@ -154,6 +157,7 @@ var OCRFlowConfig = {
   const remembered=!!this.savedLogin(),localPassword=syncPassword?password:this.password||password,merged=this.newRecord(record.values,[this.record?.id,record.id,...parents]);
   const sealed=await this.seal(merged,localPassword);await this.write(sealed);
   this.values=merged.values;this.record=merged;this.envelope=sealed;this.password=localPassword;this.state='unlocked';this.dirty=false;this.clearLegacy();
+  await this.owner.taskRecovery?.restore();
   if(remembered)await this.remember(true);
   if(this.values[this.prefix+'syncEnabled'])try{await this.publish(sealed,merged);}catch(error){this.syncStatus='本机配置已应用；同步发布失败：'+error.message;}
  },

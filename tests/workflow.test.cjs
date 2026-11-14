@@ -428,7 +428,7 @@ test('PDF and EPUB convert full files, preserve their names, and save required f
   assert.equal(s.requests.length,0,'OCR must not start metadata or summary requests');
   assert.equal(s.uploads.length,2); assert.equal(s.uploads[0].form.get('file').name,'document.pdf'); assert.equal(s.uploads[1].form.get('file').name,'book.epub');
   const pdfResult=s.plugin.findDocumentMarkdown(pdf), epubResult=s.plugin.findDocumentMarkdown(epub);
-  assert(pdfResult.attachmentFilename.endsWith('.html')); assert(epubResult.attachmentFilename.endsWith('.md'));
+  assert(pdfResult.attachmentFilename.endsWith('.html')); assert(epubResult.attachmentFilename.endsWith('.html'));
   const companion = pdfResult.path.replace(/\.html$/,'.md'); assert(s.files.has(companion));
   assert(new TextDecoder().decode(s.files.get(companion)).includes('完整文档内容'));
   assert(pdfResult.relatedItems.includes(pdf.key)); assert(epubResult.relatedItems.includes(epub.key));
@@ -636,7 +636,7 @@ test('source selection uses the latest related text while an explicitly chosen o
   assert.equal(parent.getField('title'),'From chosen old version');
 });
 
-test('retrying an EPUB save failure keeps Markdown output and reuses the completed conversion', async () => {
+test('retrying an EPUB save failure keeps HTML and companion Markdown and reuses the completed conversion', async () => {
   const s=setup(), original=s.file('retry.epub');
   const importer=s.context.Zotero.Attachments.importFromFile;
   let attempts=0;
@@ -648,7 +648,38 @@ test('retrying an EPUB save failure keeps Markdown output and reuses the complet
   const task=s.plugin.parseQueue[0]; assert.equal(task.state,'failed'); assert(task.parsedResult);
   await s.plugin.retryParseQueueTasks([task.id]);
   assert.equal(task.state,'completed'); assert.equal(s.uploads.length,1);
-  assert(s.plugin.findDocumentMarkdown(original).attachmentFilename.endsWith('.md'));
+  const result=s.plugin.findDocumentMarkdown(original);assert(result.attachmentFilename.endsWith('.html'));
+  assert(s.files.has(result.path.replace(/\.html$/,'.md')));
+});
+
+test('every supported non-PDF format honors the HTML checkbox and keeps readable companion Markdown',async()=>{
+ for(const extension of ['epub','doc','docx','ppt','pptx','xls','xlsx','html','htm','txt','md','markdown','csv','jp2','webp','gif','bmp','png','jpg','jpeg'])for(const html of [false,true]){
+  const s=setup(),original=s.file('document.'+extension);
+  s.prefs.set('extensions.docflow.parseGenerateHTML',html);s.prefs.set('extensions.docflow.parseHTMLLayout','markdown');
+  await s.plugin.handleParseCommand({selectedItems:[original]});
+  const task=s.plugin.parseQueue[0];assert.equal(task.state,'completed',extension+': '+task.error);
+  const result=task.resultAttachment;assert(result.attachmentFilename.endsWith(html?'.html':'.md'),extension);
+  const {markdown}=await s.plugin.readSourceMarkdown(result);assert(markdown.trim(),extension);
+  if(html){
+   assert(s.files.has(result.path.replace(/\.html$/,'.md')),extension);
+   const body=new TextDecoder().decode(s.files.get(result.path));
+   assert(body.includes(['txt','md','markdown','csv'].includes(extension)?'file bytes':'完整文档内容'),extension);
+  }
+  assert.equal(original.getField('title'),'document.'+extension);
+ }
+});
+
+test('non-PDF HTML remains readable with the original-layout option when coordinates are unavailable',async()=>{
+ for(const extension of ['epub','docx','html','webp','md']){
+  const s=setup(),original=s.file('document.'+extension);
+  for(const file of ['document.js','layout.js'])vm.runInContext(fs.readFileSync(file,'utf8'),s.context);
+  s.prefs.set('extensions.docflow.parseGenerateHTML',true);s.prefs.set('extensions.docflow.parseHTMLLayout','original');
+  await s.plugin.handleParseCommand({selectedItems:[original]});
+  const task=s.plugin.parseQueue[0];assert.equal(task.state,'completed',extension+': '+task.error);
+  const result=task.resultAttachment,body=new TextDecoder().decode(s.files.get(result.path));
+  assert(result.attachmentFilename.endsWith('.html'));assert(body.includes(extension==='md'?'file bytes':'完整文档内容'));
+  assert(s.files.has(result.path.replace(/\.html$/,'.md')));
+ }
 });
 
 test('HTML and source relations remain optional throughout extraction and saving',async()=>{
@@ -688,19 +719,21 @@ function oversizedEPUB(s, {failBatch=0,cancel}={}) {
     assert(uri.startsWith('data:text/html;base64,'));
     converted.push(new TextDecoder().decode(Uint8Array.from(atob(uri.split(',')[1]),c=>c.charCodeAt(0))));
     if(cancel)cancel.abort();
-    return {ok:true,headers:{get:()=>null},text:async()=>JSON.stringify({id:2,result:{isError:converted.length===failBatch,content:[{type:'text',text:converted.length===failBatch?'conversion failed':`# Chapter ${converted.length}`+(converted.length===1?'\n\n![cover](docflow-image://img-1)':'')}]}})};
+    return {ok:true,headers:{get:()=>null},text:async()=>JSON.stringify({id:2,result:{isError:converted.length===failBatch,content:[{type:'text',text:converted.length===failBatch?'conversion failed':`# Chapter ${converted.length}`+(converted.length===1?'\n\n![cover](docflow-image://img-1)\n\nRemember![12](part0003.xhtml#note12)':'')}]}})};
   };
   return converted;
 }
 
-test('an oversized EPUB switches to ordered HTML batches and saves one complete Markdown attachment',async()=>{
+test('an oversized EPUB switches to ordered HTML batches and saves one HTML attachment with companion Markdown',async()=>{
   const s=setup({mcp:true}),original=s.file('large.epub'),converted=oversizedEPUB(s);
   await s.plugin.handleParseCommand({selectedItems:[original]});
   assert.equal(s.plugin.parseQueue[0].state,'completed');assert.equal(converted.length,2);
   assert(converted[0].includes('Chapter One'));assert(converted[1].includes('Chapter Two'));
   const results=[...s.items.values()].filter(item=>item.hasTag('#DocFlow-Parse'));assert.equal(results.length,1);
+  assert(results[0].attachmentFilename.endsWith('.html'));assert(s.files.has(results[0].path.replace(/\.html$/,'.md')));
   const {markdown}=await s.plugin.readSourceMarkdown(results[0]);
   assert(markdown.includes('**Title:** Test book'));assert(markdown.indexOf('# Chapter 1')<markdown.indexOf('# Chapter 2'));
+  assert(markdown.includes('Remember! [12](part0003.xhtml#note12)'));
   assert(markdown.includes('![cover](images/image-1.jpg)'));assert([...s.files.keys()].some(name=>name.endsWith('/images/image-1.jpg')));
 });
 

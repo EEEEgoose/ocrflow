@@ -19,13 +19,13 @@ test('file defaults and explicit sources use captured profiles without changing 
  assert.equal(s.m.recognitionSettingsFor(s.item('book.epub'),settings).parserService,'markitdown');
  assert.throws(()=>s.m.recognitionSettingsFor(s.item('book.docx'),{...settings,explicitService:true}),/不支持/);
 });
-test('five cloud documents start, the sixth queues, and another document model remains independent',async()=>{
+test('two cloud documents start by default and another document model remains independent',async()=>{
  const s=setup();let release;const gate=new Promise(r=>release=r),started=[];
  s.m.runParseTask=async task=>{task.cloudRecognizing=true;started.push(task.id);await gate;return {};};
  s.m.runDocumentTask=async task=>started.push(task.id);s.m.resolveTaskPrerequisites=()=>true;
  for(let i=1;i<=6;i++)s.m.parseQueue.push({id:i,kind:'parse',state:'queued',attachment:s.item('p'+i+'.pdf'),settings:{recognitionResolved:true,parserService:'mineru',apiMode:'cloud'}});
  s.m.parseQueue.push({id:7,kind:'summary',state:'queued',attachment:s.item('s.pdf'),settings:{model:'other'}});
- const running=s.m.processParseQueue();assert.deepEqual(started,[1,2,3,4,5,7]);assert.equal(s.m.parseQueue[5].state,'queued');release();await running;assert(started.includes(6));
+ const running=s.m.processParseQueue();assert.deepEqual(started,[1,2,7]);assert.equal(s.m.parseQueue[2].state,'queued');release();await running;assert(started.includes(6));
 });
 test('waiting operations do not occupy slots and use the newly created source after recognition succeeds',async()=>{
  const s=setup(),parent=s.item(),pdf=s.item('original.pdf',parent);let release;const gate=new Promise(r=>release=r),seen=[];
@@ -51,4 +51,22 @@ test('file stems use first author surname plus 等 and the publication year',asy
 test('capturing a not-yet-configured local MinerU profile does not reuse the cloud endpoint or token',()=>{
  const s=setup(),branch=s.m.PREF_BRANCH;s.prefs.set(branch+'apiMode','cloud');s.prefs.set(branch+'apiBaseURL','https://cloud.example/api/v4');s.prefs.set(branch+'apiToken','cloud-secret');
  const captured=s.m.getSettings();assert.equal(captured.mineruProfiles['mineru-local'].apiBaseURL,'http://127.0.0.1:8000');assert.equal(captured.mineruProfiles['mineru-local'].apiToken,'');assert.equal(captured.mineruProfiles['mineru-cloud'].apiToken,'cloud-secret');
+});
+
+test('recognize then outline clears the old extraction error and reports a failed prerequisite',async()=>{
+ const s=setup(),pdf=s.item('scan.pdf');
+ const prerequisite={id:4,kind:'parse',attachment:pdf,state:'running'};
+ const task={id:3,kind:'outline',attachment:pdf,state:'waiting',needsRecognition:true,error:'没有可定位页码的文字，请识别后继续生成大纲。'};
+ s.m.parseQueue=[task,prerequisite];s.m.getSettings=()=>({});
+ await s.m.recognizeThenOutline(task);
+ assert.equal(task.error,'');assert.equal(task.requiredParseID,4);
+ assert.equal(s.m.resolveTaskPrerequisites(task),false);
+ prerequisite.state='failed';prerequisite.error='识别服务连接失败';
+ assert.equal(s.m.resolveTaskPrerequisites(task),false);
+ assert.equal(task.state,'waiting');assert.equal(task.needsRecognition,true);
+ assert(task.error.includes('识别服务连接失败'));
+ prerequisite.state='running';await s.m.recognizeThenOutline(task);
+ assert.equal(task.error,'');
+ prerequisite.state='completed';assert.equal(s.m.resolveTaskPrerequisites(task),true);
+ assert.equal(task.state,'queued');assert.equal(task.force,true);
 });
