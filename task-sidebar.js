@@ -328,7 +328,7 @@ var OCRFlowTaskSidebar = {
 			path.setAttribute("d","M16.6 8a6.7 6.7 0 0 0-11-3.1L3 7.5m0-4v4h4M3.4 12a6.7 6.7 0 0 0 11 3.1l2.6-2.6m0 4v-4h-4");icon.append(path);
 			heading.append(icon,make("strong","本次更新"),make("span",`v${version}`,"of-update-version",true));notice.append(heading);
 			let updates=make("ul",undefined,"of-update-list");
-			for(let [label,text] of [["文件保存","修复超长书名导致全文保存和附件重命名失败。"]]) {
+			for(let [label,text] of [["任务恢复","修复恢复记录过大导致读取失败的问题；恢复记录改为按任务分别保存，不再保存密钥。"]]) {
 				let item=make("li");item.append(make("strong",label),make("span",text));updates.append(item);
 			}notice.append(updates);
 			let buttons=make("div",undefined,"of-update-actions"),close=action("关闭",()=>this.dismissUpdateNotice(version)),mute=action("不再提醒",()=>this.dismissUpdateNotice(version,true));

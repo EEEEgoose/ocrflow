@@ -796,7 +796,7 @@ Object.assign(DocFlow, {
 				form.append("file", new win.Blob([bytes], {type:"application/pdf"}), attachment.attachmentFilename || "document.pdf");
 				for (let [name, value] of Object.entries({output_format:"markdown", paginate_output:"true", force_ocr:String(config.forceOCR), mode:config.mode})) form.append(name, value);
 				if (settings.outputFormat === "html" && settings.htmlLayout !== "markdown") form.append("include_layout", "true");
-				options.onStatus?.({phase:"提交 Marker 任务",jobID:null,displayText:`正在上传整份 PDF（${total} 页）`,pageProgress:{completed:0,total,unit:"页"}});
+				options.onStatus?.({phase:"提交 Marker 任务",jobID:null,stage:"submitting",displayText:`正在上传整份 PDF（${total} 页）`,pageProgress:{completed:0,total,unit:"页"}});
 				await options.checkpoint?.(); signal?.throwIfAborted();
 				// Collect the task ID even if cancellation is requested during submission, then cancel that exact server job.
 				job = await request("/v1/parse/jobs", {method:"POST",body:form}, this.createAbortController());

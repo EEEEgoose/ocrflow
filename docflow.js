@@ -685,6 +685,7 @@ DocFlow = {
 				signal: task.controller.signal,
 				onStatus: status => {
 					task.phase = status.phase || task.phase;
+					if (status.jobID) task.stage = "submitted"; else if (status.stage) task.stage = status.stage;
 					if ("jobID" in status) task.cancelJobID = task.jobID = status.jobID;
 					if ("pageProgress" in status) task.progress = status.pageProgress;
 					if(status.parts)task.parts=status.parts;
@@ -694,7 +695,7 @@ DocFlow = {
 				}
 			});
 		}
-		if (task.parsedResult) task.paddleState = null;
+		if (task.parsedResult) { task.paddleState = null; task.stage = "processing"; }
 		await this.taskRecovery?.flush();
 		this.setTaskStep?.(task, "structure", "整理文档结构", "恢复脚注、图注与来源，保留原始数据");
 		if (this.finalizeDocument) this.finalizeDocument(task.parsedResult, task.settings.parserService);
@@ -709,15 +710,16 @@ DocFlow = {
 		task.detail = "保存解析附件";
 		this.setTaskStep?.(task, "save", "保存结果", task.detail);
 		this.refreshParseQueueDialog();
+		task.stage = "saving"; await this.taskRecovery?.flush();
 		let saved = task.ocrBaseSaved || await this.saveResultAsMarkdownAttachment({
 			attachment: task.attachment, parentItem: task.attachment.parentItemID ? Zotero.Items.get(task.attachment.parentItemID) : task.parentItem,
 			parsedResult: task.parsedResult, settings: task.settings
 		});
 		if(task.settings.collationAIEnabled&&this.saveAutomaticCollation) {
-			task.ocrBaseSaved=saved;
+			task.ocrBaseSaved=saved;await this.taskRecovery?.flush();
 			saved=await this.saveAutomaticCollation(task,saved);
 		}
-		task.resultAttachment = saved?.attachment;
+		task.resultAttachment = saved?.attachment; task.stage = "saved";
 		await this.taskRecovery?.flush();
 		task.hasChangesReport = !!task.parsedResult.document;
 		task.collationStatus = task.parsedResult.collation?.status;
@@ -750,6 +752,7 @@ DocFlow = {
 			progress: statusContext.progress ?? null,
 			pageProgress: statusContext.pageProgress || (statusContext.cloudProgress?.total_pages > 0 ? {completed:statusContext.cloudProgress.extracted_pages || 0, total:statusContext.cloudProgress.total_pages, unit:"页"} : null),
 			jobID: statusContext.jobID || null,
+			stage: statusContext.stage || "",
 			parts:statusContext.parts || null,
 			displayText: this.describeParseStatus(statusContext)
 		});
@@ -963,7 +966,7 @@ DocFlow = {
 		let bytes;
 		if (!job || ["failed", "canceled"].includes(job.status)) {
 			bytes = await getBytes();
-			this.reportParseStatus(context, {phase:"提交解析任务", jobID:null});
+			this.reportParseStatus(context, {phase:"提交解析任务", jobID:null, stage:"submitting"});
 			await context.checkpoint?.(); context.signal?.throwIfAborted();
 			job = await this.requestMineruJSON({url:base + "/v1/tasks", token, method:"POST",
 				body:{files:[{file_name:this.sanitizeFileName(fileName), bytes:bytes.byteLength}], tier:settings.modelVersion, output_formats:["default"]}});
@@ -1036,7 +1039,7 @@ DocFlow = {
 		}
 		if (!fileID) throw new Error("MinerU 未返回文件 ID");
 
-		this.reportParseStatus(statusContext, { phase: "提交解析任务", progress: 55 });
+		this.reportParseStatus(statusContext, { phase: "提交解析任务", progress: 55, stage: "submitting" });
 		await statusContext?.checkpoint?.(); statusContext?.signal?.throwIfAborted();
 		// Await the submission response so termination can cancel the returned job ID.
 		let job = await this.requestMineruJSON({
@@ -3174,7 +3177,7 @@ DocFlow = {
 		if (!data.partial && parts.some(part => typeof part !== "string" || !part.trim())) throw new Error("仍有未完成段落，无法合成完整译文。");
 		if (this.parseQueueStopped) throw new Error("翻译已停止，未保存附件。");
 		status("保存翻译附件");
-		task.saving = true;
+		task.saving = true; task.stage = "saving"; await this.taskRecovery?.flush();
 		let completed = parts.filter(part => typeof part === "string" && part.trim()).length;
 		let bilingual = settings.outputFormat === "html" && settings.translationMode === "bilingual";
 		await this.saveTranslationAsMarkdownAttachment({
@@ -3184,6 +3187,7 @@ DocFlow = {
 			pairs: bilingual ? chunks.map((source, index) => ({ id: `block-${index + 1}`, source, translated: parts[index] || "**未翻译**" })) : null,
 			partial: data.partial ? { completed, total: chunks.length } : null
 		});
+		task.stage = "saved";
 		return data.partial ? `已保存部分译文 ${completed}/${chunks.length} 段` : "翻译附件已保存";
 	},
 

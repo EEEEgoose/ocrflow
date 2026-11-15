@@ -37,7 +37,7 @@ OCRFlowDatalab.install=function(owner){Object.assign(owner,{
     const prepared=await this.loadPDFForParsing(await IOUtils.read(await attachment.getFilePath()),options),bytes=prepared.bytes;total=prepared.pdf.getPageCount();
     const win=Zotero.getMainWindow(),form=new win.FormData();form.append('file',new win.Blob([bytes],{type:'application/pdf'}),attachment.attachmentFilename||'document.pdf');
     for(const [key,value]of Object.entries({output_format:settings.outputFormat==='html'&&settings.htmlLayout!=='markdown'?'markdown,json':'markdown',mode:config.mode,paginate:'true',disable_image_captions:'true'}))form.append(key,value);
-    options.onStatus?.({phase:'提交 Datalab 任务',jobID:null,displayText:`正在上传整份 PDF（${total} 页）到 Datalab`,pageProgress:null});
+    options.onStatus?.({phase:'提交 Datalab 任务',jobID:null,stage:'submitting',displayText:`正在上传整份 PDF（${total} 页）到 Datalab`,pageProgress:null});
     await options.checkpoint?.();signal?.throwIfAborted();
     job=await request(base+'/convert',{method:'POST',body:form},this.createAbortController());jobID=job.request_id;if(!jobID)throw Error('Datalab 未返回任务 ID');
    }

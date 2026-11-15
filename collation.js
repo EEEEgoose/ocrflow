@@ -181,8 +181,8 @@ Object.assign(DocFlow, {
 			task.cancelJobID = null;
 			result.secondReader ||= await this.parseAttachmentWithMineru(task.attachment, settings, { signal: task.controller.signal, cloudState:task.cloudStateB ||= {},
 				paddleState:task.paddleStateB ||= {},localTaskState:task.localTaskStateB ||= {},jobID:task.secondJobID,checkpoint:()=>this.taskRecovery?.flush(),
-				onStatus: status => { task.detail = "对照识别 B：" + (status.displayText || status.phase || "处理中"); if ("pageProgress" in status) task.progress = status.pageProgress; if ("jobID" in status) task.cancelJobID = task.secondJobID = status.jobID; if (status.phase) task.phase = status.phase; this.setTaskStep?.(task, "compare", "对照识别 B", task.detail); this.refreshParseQueueDialog(); } });
-			task.paddleStateB = null;
+				onStatus: status => { task.detail = "对照识别 B：" + (status.displayText || status.phase || "处理中"); if ("pageProgress" in status) task.progress = status.pageProgress; if (status.jobID) task.stage = "submitted"; else if (status.stage) task.stage = status.stage; if ("jobID" in status) task.cancelJobID = task.secondJobID = status.jobID; if (status.phase) task.phase = status.phase; this.setTaskStep?.(task, "compare", "对照识别 B", task.detail); this.refreshParseQueueDialog(); } });
+			task.paddleStateB = null; task.stage = "processing";
 			await this.taskRecovery?.flush();
 			this.finalizeDocument(result.secondReader, settings.parserService);
 			result.collation = OCRFlowDocument.compare(result.document, result.secondReader.document);

@@ -358,11 +358,12 @@ Object.assign(DocFlow, {
 		if (!completed) throw new Error("没有完整译段可保存");
 		if (this.parseQueueStopped) throw new Error("翻译已停止，未保存附件。");
 		task.partial = !!data.partial;
-		task.saving = true; status("保存逐段译文");
+		task.saving = true; task.stage = "saving"; await this.taskRecovery?.flush(); status("保存逐段译文");
 		task.resultAttachment = await this.saveTranslationAsMarkdownAttachment({ parentItem: task.parentItem, sourceAttachment: task.mineruSource,
 			translatedText: pairs.map(pair => pair.translated).join("\n\n"), language: settings.translateLanguage,
 			images: data.images, settings, pairs: settings.outputFormat === "html" && settings.translationMode === "bilingual" ? pairs : null,
 			translationData: pairs, partial: data.partial ? { completed, total: units.length } : null });
+		task.stage = "saved";
 		return data.partial ? `已保存部分译文 ${completed}/${units.length} 段` : "逐段翻译附件已保存";
 	}
 });
