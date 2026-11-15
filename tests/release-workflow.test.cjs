@@ -23,3 +23,13 @@ test('GitHub release builds keep the manifest version and publish the approved r
   assert.equal(fs.readFileSync(path.join(root,'github-env'),'utf8'),`RELEASE_VERSION=${version}\n`);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('the sidebar update notice is rewritten for each released version',()=>{
+ const version=JSON.parse(fs.readFileSync('manifest.json','utf8')).version,key=tag=>tag.slice(1).split('.').map(Number);
+ const tags=spawnSync('git',['tag','--list','v*'],{encoding:'utf8'}).stdout.split('\n').filter(tag=>/^v\d+\.\d+\.\d+$/.test(tag)&&tag!=='v'+version);
+ if(!tags.length)return;
+ const previous=tags.sort((a,b)=>{const x=key(a),y=key(b);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2];}).at(-1);
+ const items=source=>source.match(/for\(let \[label,text\] of (\[\[.*?\]\])\)/)?.[1];
+ const current=items(fs.readFileSync('task-sidebar.js','utf8')),old=items(spawnSync('git',['show',previous+':task-sidebar.js'],{encoding:'utf8'}).stdout);
+ assert(current);assert.notEqual(current,old,`Update the sidebar notice items for v${version}; they still match ${previous}.`);
+});
