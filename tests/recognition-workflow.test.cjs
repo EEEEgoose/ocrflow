@@ -37,8 +37,12 @@ test('waiting operations do not occupy slots and use the newly created source af
 });
 test('page separators occur once per PDF page and never split one cross-page translation unit',()=>{
  const s=setup(),D=s.context.OCRFlowDocument,doc=D.create('fixture');doc.pages=[{page:1},{page:2}];D.add(doc,'paragraph','unfinished text',1);D.add(doc,'paragraph','continued on next page.',2);D.add(doc,'paragraph','Another paragraph.',2);D.prepare(doc);
- const output=s.m.pageDisplayMarkdown(D.render(doc));assert.equal((output.match(/PDF 第 1 页/g)||[]).length,1);assert.equal((output.match(/PDF 第 2 页/g)||[]).length,1);
- const paragraphs=s.m.translationParagraphs(output);assert.equal(paragraphs.length,2);assert.match(paragraphs[0].text,/unfinished text\s+continued on next page/);assert(!paragraphs.some(p=>/PDF 第|---/.test(p.text)));assert.deepEqual(Array.from(paragraphs[0].pages),[1,2]);
+ const output=s.m.pageDisplayMarkdown(D.render(doc));assert.equal((output.match(/原文第 1 页/g)||[]).length,1);assert.equal((output.match(/原文第 2 页/g)||[]).length,1);assert(!output.includes('PDF 第'));
+ const paragraphs=s.m.translationParagraphs(output);assert.equal(paragraphs.length,2);assert.match(paragraphs[0].text,/unfinished text\s+continued on next page/);assert(!paragraphs.some(p=>/原文第|---/.test(p.text)));assert.deepEqual(Array.from(paragraphs[0].pages),[1,2]);
+});
+test('page labels written by earlier versions are still removed before translation',()=>{
+ const s=setup(),legacy='<!--ocrflow-page:1-->\n\n---\nPDF 第 1 页\n\nFirst.\n\n<!--ocrflow-page:2-->\n\n---\n原文第 2 页\n\nSecond.';
+ assert.equal(s.m.stripPageDisplay(legacy),'<!--ocrflow-page:1-->\nFirst.\n\n<!--ocrflow-page:2-->\nSecond.');
 });
 test('close persists for one version, mute spans 1.x releases, and a new major is still shown',()=>{
  const s=setup();s.sidebar.init(s.m);s.sidebar.refresh=()=>{};

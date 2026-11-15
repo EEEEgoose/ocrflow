@@ -22,6 +22,43 @@ var OCRFlowDocument = {
 		return block;
 	},
 
+	// Self-hosted MinerU 4 writes middle_json as docvortex.middle 2.0 (relative boxes, no pdf_info); convert it to the pdf_info shape fromMineru reads.
+	mineruLayoutPayload(payload) {
+		if (payload?.pdf_info?.length) return payload;
+		if (payload?.schema !== "docvortex.middle" || !payload.pages?.length) return null;
+		let sizes = new Map((payload.extensions?.docvortex_layout?.pages || []).map(page => [page.page_idx, [page.width_pt, page.height_pt]]));
+		let discarded = ["header", "footer", "page_number", "page_footnote", "aside_text"];
+		let rename = { doc_title: "title", paragraph_title: "title", equation: "interline_equation", chart: "image", chart_body: "image_body", chart_caption: "image_caption", chart_footnote: "image_footnote" };
+		let lines = content => {
+			let rows = [[]];
+			let walk = items => { for (let item of typeof items === "string" ? [{ type: "text", content: items }] : items || []) {
+				if (item.type === "equation_inline") rows.at(-1).push({ type: "inline_equation", content: item.content });
+				else if (Array.isArray(item.content)) { walk(item.content); if (item.type === "text") rows.push([]); }
+				else String(item.content || "").split("\n").forEach((part, index) => { if (index) rows.push([]); if (part) rows.at(-1).push({ content: part }); });
+			} };
+			walk(content);
+			return rows.filter(row => row.length).map(spans => ({ spans }));
+		};
+		return { pdf_info: payload.pages.map(page => {
+			let size = sizes.get(page.page_idx) || null;
+			let box = rect => size && Array.isArray(rect) ? rect.map((value, index) => Math.round(value * size[index % 2] * 100) / 100) : rect;
+			let convert = block => {
+				let type = rename[block.type] || block.type, out = { type, index: block.index, bbox: box(block.bbox) };
+				if (block.level) out.level = block.level;
+				if (block.continues_prev) out.continues_prev = true;
+				if (type === "code") out.text = "```" + (block.guess_lang || "") + "\n" + (block.content || []).map(body => typeof body.content === "string" ? body.content : this.text({ lines: lines(body.content) })).join("\n") + "\n```";
+				else if (type === "interline_equation") out.text = String(block.content || "");
+				else if (type === "table_body") out.lines = [{ spans: [{ type: "table", html: block.content }] }];
+				else if (type === "image_body") out.lines = [{ spans: [{ type: "image", image_path: block.image_path }] }];
+				else if (Array.isArray(block.content) && block.content.some(item => item.bbox)) out.blocks = block.content.map(convert);
+				else out.lines = lines(block.content);
+				return out;
+			};
+			let blocks = (page.blocks || []).map(convert);
+			return { page_size: size, preproc_blocks: blocks.filter(block => !discarded.includes(block.type)), discarded_blocks: blocks.filter(block => discarded.includes(block.type)) };
+		}) };
+	},
+
 	fromMineru(payload, offset = 0, blockList = {}) {
 		let doc = this.create("mineru");
 		doc.layout = OCRFlowLayout.mineru(payload).map(page => ({...page, page:page.page + offset}));
@@ -54,8 +91,10 @@ var OCRFlowDocument = {
 					for (let child of block.blocks || []) if (/caption|footnote/.test(child.type || "")) append(child, figure.id);
 					return;
 				}
-				if (text) this.add(doc, kind, text, number, block.bbox || null,
-					{ level: block.level || 2, parent, sourceBlock: block.index });
+				if (!text) return;
+				let previous = block.continues_prev && doc.blocks.findLast(b => !["header", "footer", "page_number", "footnote", "aside_text", "figure", "caption", "table"].includes(b.type));
+				this.add(doc, kind, text, number, block.bbox || null,
+					{ level: block.level || 2, parent, sourceBlock: block.index, ...(previous ? { continues: previous.id } : {}) });
 			};
 			for (let block of [...(page.preproc_blocks || page.para_blocks || [])].sort((a, b) => (a.index || 0) - (b.index || 0))) append(block);
 			for (let block of discarded) append(block);
@@ -185,26 +224,33 @@ var OCRFlowDocument = {
 			});
 			this.change(doc, block, before, block.text, "脚注关联");
 		}
-		let previous = null;
+		let previous = null, anchor = null, floats = ["figure", "caption", "table"];
 		for (let block of doc.blocks) {
 			if (["header", "footer", "page_number", "footnote"].includes(block.type)) {
 				if (block.type !== "footnote") this.change(doc, block, block.text, "", "转存页眉/页脚/页码来源");
 				continue;
 			}
-			if (previous?.type === "paragraph" && block.type === "paragraph" &&
-				previous.fragments.at(-1).page + 1 === block.fragments[0].page &&
-				(block.continues === previous.id || previous.mergedIDs?.includes(block.continues) || (!/[。！？.!?;；：:]([”’"」』）)]|\[\^\d+\])*$/.test(previous.text) &&
-				!/^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)、]\s|[（(]\d+[）)]|[A-Z])/.test(block.text)))) {
-				let before = previous.text;
-				let seam = `<!--ocrflow-page:${block.fragments[0].page}-->`;
+			if (block.type === "aside_text") continue; // Margin notes stay visible but never split a paragraph.
+			let links = target => block.continues && (block.continues === target?.id || target?.mergedIDs?.includes(block.continues));
+			// An explicit link may pass figures and tables, but only between adjacent pages so page markers stay in order.
+			let target = floats.includes(previous?.type) && links(anchor) && block.fragments[0].page - anchor.fragments.at(-1).page <= 1 ? anchor : previous;
+			let linked = links(target);
+			let samePage = linked && target.fragments.at(-1).page === block.fragments[0].page;
+			if (target?.type === "paragraph" && block.type === "paragraph" && (samePage ||
+				target.fragments.at(-1).page + 1 === block.fragments[0].page &&
+				(linked || (!/[。！？.!?;；：:]([”’"」』）)]|\[\^\d+\])*$/.test(target.text) &&
+				!/^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)、]\s|[（(]\d+[）)]|[A-Z])/.test(block.text))))) {
+				let before = target.text;
+				let seam = samePage ? "" : `<!--ocrflow-page:${block.fragments[0].page}-->`;
 				let space = /[A-Za-z0-9]$/.test(before) && /^[A-Za-z0-9]/.test(block.text) ? " " : "";
 				// Ordinary hyphens are retained: their lexical meaning needs the original image.
-				previous.text += seam + space + block.text;
-				previous.fragments.push(...block.fragments);
-				(previous.mergedIDs ||= []).push(block.id);
-				block.mergedInto = previous.id;
-				this.change(doc, previous, before + "\n\n" + block.text, previous.text, "跨页接段");
-			} else previous = block;
+				target.text += seam + space + block.text;
+				target.fragments.push(...block.fragments);
+				(target.mergedIDs ||= []).push(block.id);
+				block.mergedInto = target.id;
+				this.change(doc, target, before + "\n\n" + block.text, target.text, samePage ? "页内接段" : "跨页接段");
+				previous = target;
+			} else { previous = block; if (!floats.includes(block.type)) anchor = block; }
 		}
 		for (let note of doc.blocks.filter(b => b.type === "footnote" && !b.referenced)) doc.warnings.push(`未关联注文：${note.id}（PDF 第 ${note.fragments[0].page} 页）`);
 		return doc;
@@ -268,14 +314,14 @@ var OCRFlowDocument = {
 
 Object.assign(DocFlow, {
 	stripPageDisplay(markdown) {
-		return String(markdown||"").replace(/(<!--ocrflow-(?:page|slide):(\d+)[^>]*-->)\s*\n---\s*\n(?:PDF 第 \2 页|幻灯片第 \2 张)\s*\n/g,"$1\n");
+		return String(markdown||"").replace(/(<!--ocrflow-(?:page|slide):(\d+)[^>]*-->)\s*\n---\s*\n(?:(?:PDF |原文)第 \2 页|幻灯片第 \2 张)\s*\n/g,"$1\n");
 	},
 
 	pageDisplayMarkdown(markdown) {
 		let seen=new Set();
 		return this.stripPageDisplay(markdown).replace(/<!--ocrflow-(page|slide):(\d+)([^>]*?)-->/g,(marker,kind,page)=>{
 			if(seen.has(page))return "";seen.add(page);
-			return marker+"\n\n---\n"+(kind==="slide"?"幻灯片第 "+page+" 张":"PDF 第 "+page+" 页")+"\n\n";
+			return marker+"\n\n---\n"+(kind==="slide"?"幻灯片第 "+page+" 张":"原文第 "+page+" 页")+"\n\n";
 		});
 	},
 

@@ -11,7 +11,7 @@ function setup(){
  const states=[state('running',0),state('running',1),state('running',2,'structure'),state('completed',2)];
  const response=data=>({ok:true,status:200,text:async()=>JSON.stringify(data)});
  const context={TextDecoder,Uint8Array,AbortController,FormData,Blob,URL,atob,btoa,setTimeout,clearTimeout,
-  Zotero:{Prefs:{get:key=>prefs.get(key)},getMainWindow:()=>({AbortController,FormData,Blob}),debug:()=>{}},IOUtils:{read:async()=>inputPDF},
+  Zotero:{Prefs:{get:key=>prefs.get(key)},getMainWindow:()=>({AbortController,FormData,Blob,crypto}),debug:()=>{}},IOUtils:{read:async()=>inputPDF},
   fetch:async(url,options)=>{calls.push({url,options});if(url.endsWith('/openapi.json'))return response({paths:{'/v1/parse/jobs':{post:{}}}});if(options.method==='POST')return response(state('queued'));if(options.method==='DELETE')return response(state('canceled'));if(url.endsWith('/result'))return response(result);return response(states.shift()||state('completed',2));}};
  vm.createContext(context);for(const name of ['prompts.js','docflow.js','marker.js','workflow.js','document.js','layout.js','paddleocr.js','ocr-sources.js','collation.js'])vm.runInContext(fs.readFileSync(name,'utf8'),context);
  const m=context.DocFlow;m.refreshParseQueueDialog=()=>{};m.getPDFLibrary=()=>({PDFDocument});m.delayParsePoll=async()=>{};
@@ -116,9 +116,44 @@ test('canceling during a status request aborts polling without uploading again',
  s.context.fetch=async(url,options)=>{if(options.method==='POST')return fetch(url,options);s.calls.push({url,options});began();return new Promise((_r,reject)=>options.signal.addEventListener('abort',()=>reject(Error('poll aborted'))));};
  const running=s.m.parseWithMarker(s.attachment,s.settings,{signal:controller.signal});await started;controller.abort();await assert.rejects(running,{name:'AbortError'});assert.equal(s.calls.filter(c=>c.options.method==='POST').length,1);assert(s.calls.at(-1).options.signal.aborted);
 });
-test('an uncertain submission cancellation stays unconfirmed instead of claiming server termination',async()=>{
- const s=setup(),task={kind:'parse',started:true,settings:s.settings,phase:'提交 Marker 任务'};
- await s.m.finishParseQueueCancellation(task);assert.equal(task.cancelFailed,true);assert.match(task.detail,/取消未确认/);assert.match(task.error,/任务 ID/);assert(!s.calls.some(call=>call.options.method==='DELETE'));
+test('the upload carries a client-chosen job ID reported before the request is sent',async()=>{
+ const s=setup(),statuses=[];let sentAfter=null;const fetch=s.context.fetch;
+ s.context.fetch=async(url,options)=>{if(options.method==='POST')sentAfter=statuses.at(-1);return fetch(url,options);};
+ await s.m.parseWithMarker(s.attachment,s.settings,{onStatus:row=>statuses.push(row)});
+ const id=s.calls.find(c=>c.options.method==='POST').options.body.get('job_id');
+ assert.match(id,/^[a-f0-9]{32}$/);assert.equal(sentAfter.stage,'uploading');assert.equal(sentAfter.submitJobID,id);
+ const t=setup(),rows=[];t.context.fetch=async(url,options)=>options.method==='POST'?{ok:false,status:400,text:async()=> 'bad'}:fetch(url,options);
+ await assert.rejects(()=>t.m.parseWithMarker(t.attachment,t.settings,{onStatus:row=>rows.push(row)}),/400/);assert.equal(rows.at(-1).stage,'rejected');
+});
+test('cancelling before the upload is sent terminates without contacting the server',async()=>{
+ const s=setup(),task={kind:'parse',started:true,settings:s.settings,phase:'提交 Marker 任务',stage:'submitting'};
+ await s.m.finishParseQueueCancellation(task);
+ assert.equal(task.state,'canceled');assert.equal(task.cancelFailed,false);assert.equal(s.calls.length,0);
+});
+test('an upload without a response is cancelled by its client-chosen job ID',async()=>{
+ const s=setup(),id='b'.repeat(32),task={kind:'parse',started:true,settings:s.settings,phase:'提交 Marker 任务',stage:'uploading',submitJobID:id};
+ await s.m.finishParseQueueCancellation(task);
+ assert.equal(s.calls.find(c=>c.options.method==='DELETE').url,'http://marker.test/v1/parse/jobs/'+id);assert.equal(task.cancelFailed,false);assert.match(task.detail,/服务端任务已终止/);
+});
+test('a missing client-chosen job is confirmed only when the server supports client job IDs',async()=>{
+ const id='c'.repeat(32),schema=fields=>({paths:{'/v1/parse/jobs':{post:{requestBody:{content:{'multipart/form-data':{schema:{$ref:'#/components/schemas/Body'}}}}}}},components:{schemas:{Body:{properties:fields}}}});
+ for(const [fields,pattern] of [[{file:{},job_id:{}},/未收到完整文件/],[{file:{}},/请在 Marker 服务端检查/]]){
+  const s=setup(),task={kind:'parse',started:true,settings:s.settings,phase:'提交 Marker 任务',stage:'uploading',submitJobID:id};
+  s.context.fetch=async(url,options)=>{s.calls.push({url,options});return options.method==='DELETE'?{ok:false,status:404,text:async()=> 'missing'}:s.response(schema(fields));};
+  await s.m.finishParseQueueCancellation(task);
+  assert.equal(task.state,'canceled');assert.equal(task.cancelFailed,false,'never left in a retry loop');assert.match(task.detail,pattern);
+ }
+});
+test('an unreachable server leaves a client-chosen job cancellation retryable',async()=>{
+ const s=setup(),task={kind:'parse',started:true,settings:s.settings,phase:'提交 Marker 任务',stage:'uploading',submitJobID:'d'.repeat(32)};
+ s.context.fetch=async()=>{throw new TypeError('NetworkError');};
+ await s.m.finishParseQueueCancellation(task);assert.equal(task.cancelFailed,true);assert.match(task.detail,/可重试终止/);
+});
+test('a task stuck by an earlier version without any job ID can be terminated on retry',async()=>{
+ const s=setup(),task={kind:'parse',started:true,settings:s.settings,phase:'提交 Marker 任务',stage:'submitting',cancelFailed:true,error:'提交请求未返回任务 ID，无法确认服务端是否已接收文件'};
+ await s.m.finishParseQueueCancellation(task);
+ assert.equal(task.state,'canceled');assert.equal(task.cancelFailed,false);assert.match(task.detail,/请在 Marker 服务端检查/);assert.equal(s.calls.length,0);
+ assert(s.m.canClearParseQueueTask(task));
 });
 test('queued Marker status clears upload progress and retains its job ID before rendering',async()=>{
  const s=setup(),task={attachment:s.attachment,settings:s.settings,controller:new AbortController()};

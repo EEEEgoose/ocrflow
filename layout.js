@@ -119,10 +119,12 @@ var OCRFlowLayout = {
 };
 
 Object.assign(DocFlow, {
-	async convertDocumentLayout({source,original=null,htmlLayout}) {
+	async convertDocumentLayout({source,original=null,htmlLayout,rebuild=false}) {
 		let {filePath,markdown}=await this.readSourceMarkdown(source);
 		let root=PathUtils.join(PathUtils.parent(filePath),"_ocrflow"),documentPath=PathUtils.join(root,"document.json");
 		let document=await IOUtils.exists(documentPath)?JSON.parse(await IOUtils.readUTF8(documentPath)):null;
+		if(rebuild)({document,markdown}=await this.rebuildDocumentPages(root,markdown,document));
+		htmlLayout ||= /^OCRFlow_原文布局_/.test(source.getField("title"))?"original":"markdown";
 		original ||= document?.source ? Zotero.Items.getByLibraryAndKey(document.source.libraryID,document.source.key) : null;
 		let parent=this.parentForDocument(source),settings={...this.getOutputSettings("parse"),outputFormat:"html",htmlLayout};
 		if(htmlLayout==="original" && !document?.layout?.some(page=>page.regions.some(region=>region.rect)) && !document?.blocks?.some(block=>block.fragments.some(fragment=>fragment.rect)))
@@ -138,12 +140,32 @@ Object.assign(DocFlow, {
 			if(document) {
 				await this.saveDocumentData(attachment,result);
 				let target=PathUtils.join(PathUtils.parent(await attachment.getFilePath()),"_ocrflow");
-				for(let path of await IOUtils.getChildren(root))if(this.fileNameFromPath(path)!=="document.json")
+				for(let path of await IOUtils.getChildren(root))if(this.fileNameFromPath(path)!=="document.json" && !(rebuild && /^changes\./.test(this.fileNameFromPath(path))))
 					await IOUtils.copy(path,PathUtils.join(target,this.fileNameFromPath(path)),{recursive:true});
 			}
 			await this.linkParseSource(original || source,attachment);
 		} catch(error) {await attachment.eraseTx();throw error;}
 		return attachment;
+	},
+
+	// Results saved before middle_json v2 was supported have no pages; rebuild them from the stored MinerU raw files.
+	async rebuildDocumentPages(root,markdown,old) {
+		if(old?.pages?.length)throw new Error("此全文已有页码，无需重建。");
+		let dir=PathUtils.join(root,"raw","engine-a"),names=await IOUtils.exists(dir)?(await IOUtils.getChildren(dir)).map(path=>this.fileNameFromPath(path)):[];
+		let layouts=names.filter(name=>/(?:layout\.json|_middle\.json|middle_json\.json)$/i.test(name)),raw=names.filter(name=>/\.md$/i.test(name));
+		let payload=layouts.length===1 && raw.length===1 ? OCRFlowDocument.mineruLayoutPayload(JSON.parse(await IOUtils.readUTF8(PathUtils.join(dir,layouts[0])))) : null;
+		if(!payload)throw new Error("此全文没有可用于重建页码的 MinerU 原始数据，请重新识别。");
+		// Saved images were numbered in order of first appearance in MinerU's Markdown.
+		let refs=text=>[...new Set([...text.matchAll(/!\[[^\]]*\]\(([^)\s]+)/g)].map(match=>match[1].replace(/^\.?\//,"")))];
+		let from=refs(await IOUtils.readUTF8(PathUtils.join(dir,raw[0]))),to=refs(markdown);
+		if(from.length!==to.length)throw new Error("原始数据与现有图片数量不一致，无法重建页码，请重新识别。");
+		let paths=new Map(from.map((path,index)=>[path,to[index]]));
+		let rewrite=text=>text.replace(/(!\[[^\]]*\]\()([^)\s]+)/g,(match,head,path)=>head+(paths.get(path.replace(/^\.?\//,"")) || path));
+		let document=OCRFlowDocument.fromMineru(payload);
+		for(let block of document.blocks)block.text=rewrite(block.text);
+		for(let page of document.layout)for(let region of page.regions)region.text=rewrite(region.text);
+		Object.assign(document,{recognition:old?.recognition,source:old?.source});
+		return {document,markdown:OCRFlowDocument.render(document)};
 	},
 
 	async applyOriginalTypography(attachment,pages) {
@@ -219,8 +241,8 @@ Object.assign(DocFlow, {
 			}).join("");
 			let label=this.escapeHTML(ocrflowText("原文第 {0} 页").replace("{0}",page.page));
 			let flow=page.flow!==null && page.flow!==undefined;
-			return '<section class="ocr-page'+(flow?' ocr-flow':'')+'" aria-label="'+label+'" data-page="'+page.page+'" style="width:'+page.width*4/3+'px;'+(!flow?'aspect-ratio:'+page.width+'/'+page.height:'')+'">'+(flow?'<p class="ocr-layout-note">'+this.escapeHTML(ocrflowText("本页未提供完整位置数据，按阅读顺序显示。"))+'</p><div class="ocr-flow-content" dir="auto">'+render(page.flow)+'</div>':regionHTML)+'</section>'+(page.extras?'<section class="ocr-extra">'+render(page.extras)+'</section>':'');
+			return '<p class="ocr-page-label">'+label+'</p><section class="ocr-page'+(flow?' ocr-flow':'')+'" aria-label="'+label+'" data-page="'+page.page+'" style="width:'+page.width*4/3+'px;'+(!flow?'aspect-ratio:'+page.width+'/'+page.height:'')+'">'+(flow?'<p class="ocr-layout-note">'+this.escapeHTML(ocrflowText("本页未提供完整位置数据，按阅读顺序显示。"))+'</p><div class="ocr-flow-content" dir="auto">'+render(page.flow)+'</div>':regionHTML)+'</section>'+(page.extras?'<section class="ocr-extra">'+render(page.extras)+'</section>':'');
 		}).join("");
-		return {body,style:'body{margin:0;padding:16px;background:#e8e8e8;color:#222;width:max-content;min-width:calc(100% - 32px)}.ocr-page{position:relative;container-type:inline-size;margin:0 auto 16px;background:white;overflow:hidden;font-family:'+family+'}.ocr-region{position:absolute;line-height:1.45;user-select:text}.ocr-content{overflow-wrap:anywhere}'+scopedRules('.ocr-content')+'.ocr-line .ocr-content{position:absolute;left:0;top:0;white-space:pre;width:max-content;overflow-wrap:normal}.ocr-heading{font-weight:700}.ocr-media .ocr-content{height:100%;width:100%}.ocr-media img{width:100%;height:100%;object-fit:contain}.ocr-vertical .ocr-content{writing-mode:vertical-rl;height:100%}.ocr-flow{max-width:100%;padding:24px;box-sizing:border-box}.ocr-flow-content{font:16px/1.7 '+family+';overflow-wrap:anywhere}.ocr-flow-content img,.ocr-extra img{max-width:100%;height:auto}.ocr-layout-note{font:12px/1.5 system-ui;color:#666}.ocr-extra{max-width:800px;margin:auto;background:white;padding:16px}@media print{body{padding:0;background:white}.ocr-page{margin:0;break-after:page;break-inside:avoid}.ocr-page:last-child{break-after:auto}}',script:''};
+		return {body,style:'body{margin:0;padding:16px;background:#e8e8e8;color:#222;width:max-content;min-width:calc(100% - 32px)}.ocr-page{position:relative;container-type:inline-size;margin:0 auto 16px;background:white;overflow:hidden;font-family:'+family+'}.ocr-region{position:absolute;line-height:1.45;user-select:text}.ocr-content{overflow-wrap:anywhere}'+scopedRules('.ocr-content')+'.ocr-line .ocr-content{position:absolute;left:0;top:0;white-space:pre;width:max-content;overflow-wrap:normal}.ocr-heading{font-weight:700}.ocr-media .ocr-content{height:100%;width:100%}.ocr-media img{width:100%;height:100%;object-fit:contain}.ocr-vertical .ocr-content{writing-mode:vertical-rl;height:100%}.ocr-flow{max-width:100%;padding:24px;box-sizing:border-box}.ocr-flow-content{font:16px/1.7 '+family+';overflow-wrap:anywhere}.ocr-flow-content img,.ocr-extra img{max-width:100%;height:auto}.ocr-layout-note{font:12px/1.5 system-ui;color:#666}.ocr-page-label{margin:0 auto 4px;font:12px/1.5 system-ui;color:#666;text-align:center}.ocr-extra{max-width:800px;margin:auto;background:white;padding:16px}@media print{body{padding:0;background:white}.ocr-page-label{break-after:avoid}.ocr-page{margin:0;break-after:page;break-inside:avoid}.ocr-page:last-child{break-after:auto}}',script:''};
 	}
 });

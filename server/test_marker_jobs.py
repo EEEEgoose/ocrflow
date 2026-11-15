@@ -50,6 +50,21 @@ class JobTests(unittest.TestCase):
         self.assertEqual(self.client.get('/v1/parse/jobs/' + state['job_id'] + '/result').status_code, 409)
         self.assertEqual(json.loads((directory / 'request.json').read_text())['paginate_output'], True)
 
+    def test_client_chosen_job_id_can_be_canceled_without_the_upload_response(self):
+        job_id = 'a' * 32
+        self.assertEqual(self.client.delete('/v1/parse/jobs/' + job_id).status_code, 404)
+        response = self.client.post('/v1/parse/jobs', files={'file': ('book.pdf', b'PDF')}, data={'job_id': job_id})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()['job_id'], job_id)
+        self.assertEqual(self.client.delete('/v1/parse/jobs/' + job_id).json()['status'], 'canceled')
+        duplicate = self.client.post('/v1/parse/jobs', files={'file': ('book.pdf', b'PDF')}, data={'job_id': job_id})
+        self.assertEqual(duplicate.status_code, 409)
+        invalid = self.client.post('/v1/parse/jobs', files={'file': ('book.pdf', b'PDF')}, data={'job_id': '../escape'})
+        self.assertEqual(invalid.status_code, 400)
+        body = self.client.get('/openapi.json').json()['paths']['/v1/parse/jobs']['post']['requestBody']['content']['multipart/form-data']['schema']
+        name = body['$ref'].split('/')[-1]
+        self.assertIn('job_id', self.client.get('/openapi.json').json()['components']['schemas'][name]['properties'])
+
     def test_layout_request_is_saved_with_the_original_job(self):
         response = self.client.post('/v1/parse/jobs', files={'file': ('book.pdf', b'PDF')},
                                     data={'include_layout': 'true'})

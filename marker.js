@@ -17,6 +17,14 @@ var OCRFlowMarker = {
 		return data;
 	},
 
+	// Servers that accept a client-chosen job_id report it in the upload form schema.
+	async acceptsJobID(base, headers, signal) {
+		let schema = await this.request(base + "/openapi.json", {headers, signal});
+		let body = schema.paths?.["/v1/parse/jobs"]?.post?.requestBody?.content?.["multipart/form-data"]?.schema;
+		if (body?.$ref) body = schema.components?.schemas?.[body.$ref.split("/").at(-1)];
+		return !!body?.properties?.job_id;
+	},
+
 	async testConnection(address, token, signal) {
 		let base = this.baseURL(address), headers = token ? {Authorization:`Bearer ${token}`} : {};
 		let schema = await this.request(base + "/openapi.json", {headers, signal});

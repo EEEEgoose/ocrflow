@@ -56,6 +56,56 @@ test('explicit cross-page merge links take precedence over punctuation but never
  assert.equal(d.visible(doc).length,1);assert(d.render(doc).includes('First.<!--ocrflow-page:2-->Continuation'));
 });
 
+test('self-hosted MinerU middle JSON v2 keeps pages, structure, geometry and continuations',()=>{
+ const {d}=setup(),t=(text)=>[{type:'text',content:text}];
+ const legacy={pdf_info:[{preproc_blocks:[]}]};assert.equal(d.mineruLayoutPayload(legacy),legacy);assert.equal(d.mineruLayoutPayload({pages:[]}),null);
+ const payload=d.mineruLayoutPayload({schema:'docvortex.middle',schema_version:'2.0',extensions:{docvortex_layout:{pages:[{page_idx:0,width_pt:400,height_pt:600},{page_idx:1,width_pt:400,height_pt:600}]}},pages:[
+  {page_idx:0,blocks:[
+   {type:'header',index:0,bbox:[.1,.01,.9,.03],content:t('Running head')},
+   {type:'doc_title',index:1,bbox:[.1,.1,.9,.2],content:t('Book Title'),level:1},
+   {type:'text',index:2,bbox:[.1,.25,.9,.4],content:[...t('Mass '),{type:'equation_inline',content:'E=mc^2'},...t(' and the first\nline')]},
+   {type:'text',index:3,bbox:[.1,.45,.9,.5],content:t('which goes on'),continues_prev:true},
+   {type:'equation',index:4,bbox:[.1,.55,.9,.6],content:'x^2'},
+   {type:'chart',index:5,bbox:[.1,.6,.9,.8],content:[{type:'chart_body',index:5,bbox:[.1,.6,.9,.8],image_path:'images/chart.jpg',content:''},{type:'chart_caption',index:6,bbox:[.1,.8,.9,.82],content:t('Figure 1. Growth')}]},
+   {type:'text',index:7,bbox:[.1,.85,.9,.9],content:t('Continued across')},
+   {type:'page_footnote',index:8,bbox:[.1,.92,.9,.95],content:t('1 A note')},
+   {type:'page_number',index:9,bbox:[.45,.96,.55,.98],content:t('7')}]},
+  {page_idx:1,blocks:[
+   {type:'aside_text',index:0,bbox:[.95,.1,.98,.12],content:t('2')},
+   {type:'text',index:1,bbox:[.1,.1,.9,.2],content:t('the page.'),continues_prev:true},
+   {type:'paragraph_title',index:2,bbox:[.1,.25,.9,.3],content:t('Chapter One'),level:2},
+   {type:'table',index:3,bbox:[.1,.35,.9,.6],content:[{type:'table_caption',index:3,bbox:[.1,.32,.9,.34],content:t('Table 1')},{type:'table_body',index:4,bbox:[.1,.35,.9,.6],content:'<table><tr><td>A</td></tr></table>'}]},
+   {type:'code',index:5,guess_lang:'python',bbox:[.1,.65,.9,.7],content:[{type:'code_body',index:5,bbox:[.1,.65,.9,.7],content:'print(1)'}]}]}
+ ]});
+ const doc=d.fromMineru(payload),text=d.render(doc);
+ assert.deepEqual(Array.from(doc.pages,p=>[p.page,p.printed]),[[1,'7'],[2,null]]);
+ assert(text.startsWith('<!--ocrflow-page:1 printed:7-->'));assert(text.includes('<!--ocrflow-page:2-->'));
+ assert(!text.includes('Running head'));assert(text.includes('# Book Title'));assert(text.includes('## Chapter One'));
+ assert(text.includes('Mass $E=mc^2$ and the first line which goes on'),'in-page continuation joins one paragraph');
+ assert(text.includes('Continued across<!--ocrflow-page:2--> the page.'),'cross-page continuation joins one paragraph');
+ assert(text.includes('$$\nx^2\n$$'));assert(text.includes('![](images/chart.jpg)'));assert(text.includes('Figure 1. Growth'));
+ assert(text.includes('<table><tr><td>A</td></tr></table>'));assert(text.includes('Table 1'));assert(text.includes('```python\nprint(1)\n```'));
+ assert(text.includes('[^1]: A note'));
+ assert.deepEqual(Array.from(doc.blocks.find(b=>b.type==='heading').fragments[0].rect),[40,60,360,120]);
+ assert.deepEqual(Array.from(doc.layout[0].size),[400,600]);assert(doc.layout[1].regions.some(r=>r.type==='table'&&r.text.includes('<table>')));
+});
+
+test('cross-page paragraphs join across margin notes and adjacent-page tables without losing them',()=>{
+ const {d}=setup(),t=text=>[{type:'text',content:text}],page=(idx,blocks)=>({page_idx:idx,blocks});
+ const middle=pages=>d.fromMineru(d.mineruLayoutPayload({schema:'docvortex.middle',pages}));
+ let doc=middle([page(0,[{type:'text',index:0,content:t('A sentence broken')},{type:'aside_text',index:1,content:t('Our colonial opinions')}]),
+  page(1,[{type:'text',index:0,content:t('by the page.'),continues_prev:true}])]),text=d.render(doc);
+ assert(text.includes('A sentence broken<!--ocrflow-page:2--> by the page.'));assert(text.includes('Our colonial opinions'));
+ doc=middle([page(0,[{type:'text',index:0,content:t('帝国主义者不得不')}]),
+  page(1,[{type:'table',index:0,content:[{type:'table_body',index:0,content:'<table><tr><td>表</td></tr></table>'}]},{type:'text',index:1,content:t('讓許多国家独立。'),continues_prev:true},{type:'text',index:2,content:t('另一段。')}])]);text=d.render(doc);
+ assert(text.includes('帝国主义者不得不<!--ocrflow-page:2-->讓許多国家独立。'));assert(text.indexOf('<table>')>text.indexOf('独立。'));assert(text.indexOf('另一段。')>text.indexOf('<table>'));
+ doc=middle([page(0,[{type:'text',index:0,content:t('Before the plate')}]),page(1,[{type:'image',index:0,content:[{type:'image_body',index:0,image_path:'images/plate.jpg',content:''}]}]),
+  page(2,[{type:'text',index:0,content:t('after the plate.'),continues_prev:true}])]);
+ assert.equal(d.visible(doc).filter(b=>b.type==='paragraph').length,2,'a whole page between parts keeps them apart');
+ doc=d.fromMineru({pdf_info:[{preproc_blocks:[block('text','an unfinished')],discarded_blocks:[block('aside_text','12')]},{preproc_blocks:[block('text','clause ends here.')],discarded_blocks:[]}]});
+ assert(d.render(doc).includes('an unfinished<!--ocrflow-page:2--> clause ends here.'));
+});
+
 test('Paddle official blocks and self-hosted parsing_res_list both retain captions, geometry and raw content',()=>{
  const {d}=setup();
  for(const prunedResult of [{blocks:[{label:'text',content:'正文',bbox:[1,2,3,4]},{label:'figure_title',content:'图注'}]},
@@ -558,7 +608,7 @@ test('bilingual translation sends a cross-page paragraph together and displays a
  await s.m.runAlignedTranslationTask({settings:{workKind:'translate',contextWindow:32768,translateLanguage:'中文',outputFormat:'html',translationMode:'bilingual'},controller:new AbortController(),mineruSource:{},parentItem:{}});
  assert.equal(input.length,1);assert.equal(input[0].text,'A continuous argument across the page boundary.');assert.equal(saved.pairs.length,1);assert.deepEqual(Array.from(saved.pairs[0].pages),[1,2]);
  const output=[...s.files.entries()].find(([name])=>name.startsWith('/storage/')&&name.endsWith('.html'));
- assert(new TextDecoder().decode(output[1]).includes('PDF 第 1、2 页'));
+ assert(new TextDecoder().decode(output[1]).includes('原文第 1、2 页'));
 });
 
 test('OpenRouter MiMo translation requests strict JSON schema and validates paragraph IDs and protected tokens',async()=>{
@@ -724,7 +774,7 @@ test('bilingual cross-page paragraphs display their full source range after a pa
  const item=await s.m.saveDocumentAttachment({libraryID:1,title:'Cross-page range',markdown:'译文',format:'html',pairs:[{id:'p1',source:'Earlier paragraph.',translated:'前段。',page:22,pages:[22]},{id:'p2',source:'He was reluctant.',translated:'他不愿意。',page:22,pages:[22,23]}]});
  const html=new TextDecoder().decode(s.files.get(await item.getFilePath()));
  assert.equal((html.match(/class="page-label"/g)||[]).length,2);
- assert(html.includes('来源 PDF 第 22、23 页'));assert.equal((html.match(/class="source-range"/g)||[]).length,1);
+ assert(html.includes('来源原文第 22、23 页'));assert.equal((html.match(/class="source-range"/g)||[]).length,1);
 });
 
 const echoTranslation=async(_url,options)=>{const payload=JSON.parse(options.body),items=JSON.parse(payload.messages[1].content);

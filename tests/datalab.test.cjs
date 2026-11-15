@@ -44,6 +44,10 @@ test('canceling while uploading retains the cloud request ID and never sends a f
  const running=s.m.parseWithDatalab(s.attachment,s.settings,{signal:controller.signal,onStatus:x=>s.statuses.push(x)});await started;controller.abort();release();await assert.rejects(running);assert(s.statuses.some(x=>x.jobID==='cloud1'));
  const task={kind:'parse',started:true,settings:s.settings,cancelSettings:s.settings,cancelJobID:'cloud1'};await s.m.finishParseQueueCancellation(task);assert.equal(task.state,'canceled');assert.match(task.detail,/Datalab 云端任务可能继续/);assert(!s.calls.some(c=>c.options.method==='DELETE'));
 });
+test('stopping a Datalab upload without a returned job ID never leaves the task stuck',async()=>{
+ const s=setup(),task={kind:'parse',started:true,settings:s.settings,cancelSettings:s.settings,phase:'提交 Datalab 任务',stage:'submitting'};
+ await s.m.finishParseQueueCancellation(task);assert.equal(task.state,'canceled');assert.equal(task.cancelFailed,false);assert.match(task.detail,/无法确认云端接收状态/);assert(s.m.canClearParseQueueTask(task));
+});
 test('a transient cloud polling failure reconnects without a second upload',async()=>{
  const s=setup(),fetch=s.context.fetch;let fail=true;s.context.fetch=async(url,options)=>{if(options.method!=='POST'&&fail){fail=false;throw new TypeError('network')}return fetch(url,options)};
  await s.m.parseWithDatalab(s.attachment,s.settings,{onStatus:x=>s.statuses.push(x)});assert.equal(s.calls.filter(c=>c.options.method==='POST').length,1);assert(s.statuses.some(x=>x.phase==='Datalab · reconnecting'));

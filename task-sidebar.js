@@ -152,12 +152,15 @@ var OCRFlowTaskSidebar = {
 	},
 
 	async loadSourceActions(view, source) {
-		let state = {id:source.id, review:false, changes:false, translation:null}; view.sourceActions = state;
+		let state = {id:source.id, review:false, changes:false, rebuild:false, translation:null}; view.sourceActions = state;
 		try {
 			let path = await source.getFilePath();
 			if (path) {
 				let root = PathUtils.join(PathUtils.parent(path), "_ocrflow");
 				[state.review, state.changes] = await Promise.all([IOUtils.exists(PathUtils.join(root, "collation.json")), IOUtils.exists(PathUtils.join(root, "changes.html"))]);
+				let raw = PathUtils.join(root, "raw", "engine-a"), document = PathUtils.join(root, "document.json");
+				if (await IOUtils.exists(raw) && await IOUtils.exists(document) && (await IOUtils.getChildren(raw)).some(file => /middle_json\.json$/i.test(file)))
+					state.rebuild = !JSON.parse(await IOUtils.readUTF8(document)).pages?.length;
 			}
 			let parent=this.plugin.parentForDocument(source);
 			for (let id of parent?.getAttachments() || []) {
@@ -195,12 +198,12 @@ var OCRFlowTaskSidebar = {
 		finally { view.reviewOpening = false; this.render(view); }
 	},
 
-	async convertDocumentLayout(view,htmlLayout) {
+	async convertDocumentLayout(view,htmlLayout,rebuild=false) {
 		let context=this.documentContext(view);
 		if(!context.source || view.layoutConverting)return;
 		view.layoutConverting=true;view.launching.add(context.key);view.error=null;this.render(view);
 		try {
-			let item=await this.plugin.convertDocumentLayout({source:context.source,original:context.file,htmlLayout});
+			let item=await this.plugin.convertDocumentLayout({source:context.source,original:context.file,htmlLayout,rebuild});
 			await this.openDocument(view,item);
 		} finally {view.layoutConverting=false;view.launching.delete(context.key);this.render(view);}
 	},
@@ -383,7 +386,8 @@ var OCRFlowTaskSidebar = {
 			more.appendChild(make("summary", "更多操作"));
 			let moreActions = make("div", undefined, "of-actions");
 			moreActions.append(action("重新识别",()=>this.performDocumentAction(view,"ocr"),!this.canPerform(context,"ocr",busy)),action("重译全文",()=>this.performDocumentAction(view,"translate"),!this.canPerform(context,"translate",busy)));
-			moreActions.append(action("转为原文布局",()=>this.convertDocumentLayout(view,"original"),!context.source || busy || view.layoutConverting),action("转为MD布局",()=>this.convertDocumentLayout(view,"markdown"),!context.source || busy || view.layoutConverting));
+			moreActions.append(action("转为原文布局",()=>this.convertDocumentLayout(view,"original"),!context.source || busy || view.layoutConverting),action("转为MD布局",()=>this.convertDocumentLayout(view,"markdown"),!context.source || busy || view.layoutConverting),
+				action("重建页码",()=>this.convertDocumentLayout(view,null,true),!view.sourceActions?.rebuild || busy || view.layoutConverting));
 			moreActions.append(action("建立条目", () => this.performDocumentAction(view, "parent"), !this.canPerform(context, "parent", busy)),
 				action(view.reviewOpening ? "正在打开校勘…" : "审阅 OCR 校勘", () => this.openReview(view, context.source), view.reviewOpening || !view.sourceActions?.review),
 				action("查看整理差异", () => plugin.openChangesReport({selectedItems:[context.source]}), !view.sourceActions?.changes));

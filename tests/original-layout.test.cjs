@@ -44,6 +44,12 @@ test('original-layout output uses visible HTML text, tables and math with only t
  }
 });
 
+test('original-layout output shows a visible page label before each page',async()=>{
+ const s=setup();const saved=await s.m.saveResultAsMarkdownAttachment({attachment:s.attachment,parsedResult:s.result,settings:{outputFormat:'html',imageMode:'folder',parseLinkSourcePDF:false}});
+ const html=new TextDecoder().decode(s.files.get(await saved.attachment.getFilePath()));
+ assert.deepEqual([...html.matchAll(/<p class="ocr-page-label">([^<]*)<\/p><section class="ocr-page"[^>]*data-page="(\d+)"/g)].map(m=>[m[1],m[2]]),[['原文第 1 页','1'],['原文第 2 页','2'],['原文第 3 页','3']]);
+});
+
 test('missing position data renders readable content instead of falling back to page screenshots',async()=>{
  const s=setup();delete s.result.document.layout;for(const block of s.result.document.blocks)block.fragments[0].rect=null;
  s.m.normalizeResultImages(s.result);
@@ -237,6 +243,48 @@ test('legacy results without geometry can convert to Markdown HTML but cannot cl
  const s=conversionSetup();s.files.delete('/cache/_ocrflow/document.json');
  await assert.rejects(s.m.convertDocumentLayout({source:s.source,htmlLayout:'original'}),/缺少页面位置数据/);assert.equal(s.imports.length,0);
  const item=await s.m.convertDocumentLayout({source:s.source,htmlLayout:'markdown'});assert(path.basename(await item.getFilePath()).startsWith('OCRFlow_MD布局_'));
+});
+
+function rebuildSetup(){
+ const s=conversionSetup(),t=text=>[{type:'text',content:text}];
+ s.source.getField=()=> 'OCRFlow_MD布局_Existing';
+ s.context.IOUtils.exists=async p=>s.files.has(p)||[...s.files.keys()].some(k=>k.startsWith(p+'/'));
+ const old=s.d.fromMarkdown('![](images/image-1.png)\n\nFirst page text.\n\nSecond page text.','mineru',text=>text.split(/\n\n/));
+ old.source={libraryID:1,key:'SOURCE'};old.recognition={source:'mineru-local',model:'standard'};
+ s.files.set('/cache/existing.md','![](images/image-1.png)\n\nFirst page text.\n\nSecond page text.');
+ s.files.set('/cache/images/image-1.png',Uint8Array.of(137,80,78,71));s.files.delete('/cache/images/figure.png');
+ s.files.set('/cache/_ocrflow/document.json',JSON.stringify(old));s.files.set('/cache/_ocrflow/changes.json','"old changes"');
+ s.files.delete('/cache/_ocrflow/raw/engine-a/0-layout.json');
+ s.files.set('/cache/_ocrflow/raw/engine-a/0-markdown.md','![](images/page_0_image_0.jpg)\n\nFirst page text.\n\nSecond page text.');
+ s.files.set('/cache/_ocrflow/raw/engine-a/1-middle_json.json',JSON.stringify({schema:'docvortex.middle',extensions:{docvortex_layout:{pages:[{page_idx:0,width_pt:400,height_pt:600},{page_idx:1,width_pt:400,height_pt:600}]}},pages:[
+  {page_idx:0,blocks:[{type:'image',index:0,bbox:[.1,.1,.9,.5],content:[{type:'image_body',index:0,bbox:[.1,.1,.9,.5],image_path:'images/page_0_image_0.jpg',content:''}]},{type:'text',index:1,bbox:[.1,.6,.9,.7],content:t('First page text.')}]},
+  {page_idx:1,blocks:[{type:'text',index:0,bbox:[.1,.1,.9,.2],content:t('Second page text.')}]}]}));
+ return s;
+}
+
+test('results saved without page numbers rebuild them offline from stored MinerU raw data',async()=>{
+ const s=rebuildSetup(),before=new Map(s.files);
+ const item=await s.m.convertDocumentLayout({source:s.source,rebuild:true});
+ const p=await item.getFilePath(),dir=path.dirname(p),md=new TextDecoder().decode(s.files.get(p.replace(/\.html$/,'.md')));
+ assert(path.basename(p).startsWith('OCRFlow_MD布局_'));
+ assert(md.includes('<!--ocrflow-page:1-->'));assert(md.includes('原文第 2 页'));assert(md.includes('![](images/image-1.png)'));
+ assert(md.indexOf('Second page text.')>md.indexOf('原文第 2 页'));assert(s.files.has(dir+'/images/image-1.png'));
+ const doc=JSON.parse(new TextDecoder().decode(s.files.get(dir+'/_ocrflow/document.json')));
+ assert.equal(doc.pages.length,2);assert.equal(doc.source.key,'SOURCE');assert.equal(doc.recognition.source,'mineru-local');
+ assert(doc.blocks.some(b=>b.text==='![](images/image-1.png)'));assert(doc.layout[0].regions.some(r=>r.text==='![](images/image-1.png)'));
+ assert.notEqual(new TextDecoder().decode(s.files.get(dir+'/_ocrflow/changes.json')),'"old changes"');
+ assert(s.files.has(dir+'/_ocrflow/raw/engine-a/1-middle_json.json'));
+ for(const [file,value]of before)assert.deepEqual(s.files.get(file),value,'Existing files stay unchanged: '+file);
+});
+
+test('page rebuild refuses results that already have pages, lack raw data or have mismatched images',async()=>{
+ let s=rebuildSetup();const paged=JSON.parse(s.files.get('/cache/_ocrflow/document.json'));paged.pages=[{page:1}];s.files.set('/cache/_ocrflow/document.json',JSON.stringify(paged));
+ await assert.rejects(s.m.convertDocumentLayout({source:s.source,rebuild:true}),/已有页码/);
+ s=rebuildSetup();s.files.delete('/cache/_ocrflow/raw/engine-a/1-middle_json.json');
+ await assert.rejects(s.m.convertDocumentLayout({source:s.source,rebuild:true}),/没有可用于重建页码/);
+ s=rebuildSetup();s.files.set('/cache/existing.md','First page text.');
+ await assert.rejects(s.m.convertDocumentLayout({source:s.source,rebuild:true}),/图片数量不一致/);
+ assert.equal(s.imports.length,0);
 });
 
 test('failed metadata copying removes the new conversion while retaining the previous attachment',async()=>{

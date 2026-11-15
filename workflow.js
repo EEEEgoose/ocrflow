@@ -798,8 +798,13 @@ Object.assign(DocFlow, {
 				if (settings.outputFormat === "html" && settings.htmlLayout !== "markdown") form.append("include_layout", "true");
 				options.onStatus?.({phase:"提交 Marker 任务",jobID:null,stage:"submitting",displayText:`正在上传整份 PDF（${total} 页）`,pageProgress:{completed:0,total,unit:"页"}});
 				await options.checkpoint?.(); signal?.throwIfAborted();
+				// A client-chosen ID lets cancellation reach this job even if the upload response is lost.
+				let submitJobID=Array.from(win.crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,"0")).join("");
+				form.append("job_id", submitJobID);
+				options.onStatus?.({phase:"提交 Marker 任务",stage:"uploading",submitJobID,displayText:`正在上传整份 PDF（${total} 页）`});
 				// Collect the task ID even if cancellation is requested during submission, then cancel that exact server job.
-				job = await request("/v1/parse/jobs", {method:"POST",body:form}, this.createAbortController());
+				try { job = await request("/v1/parse/jobs", {method:"POST",body:form}, this.createAbortController()); }
+				catch (error) { if (error.status) options.onStatus?.({stage:"rejected",submitJobID:null}); throw error; }
 				jobID = job.job_id;
 				if (!jobID) throw new Error("Marker 未返回任务 ID，请检查任务服务是否已更新。");
 			}

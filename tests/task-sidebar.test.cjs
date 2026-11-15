@@ -269,4 +269,7 @@ test('sidebar layout conversion uses the selected recognized file and opens the 
  s.plugin.convertDocumentLayout=async()=>{throw Error('missing geometry');};
  await assert.rejects(s.sidebar.convertDocumentLayout(s.view,'original'),/missing geometry/);
  assert.equal(s.view.layoutConverting,false);assert.equal(s.view.launching.size,0);
+ s.plugin.convertDocumentLayout=async options=>{calls.push(options);return converted;};
+ await s.sidebar.convertDocumentLayout(s.view,null,true);
+ assert.equal(calls.at(-1).rebuild,true);assert.equal(calls.at(-1).htmlLayout,null);assert.equal(calls.at(-1).source,source);
 });

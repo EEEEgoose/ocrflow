@@ -4,9 +4,9 @@ var OCRFlowTaskRecovery = {
 		"partial", "force", "outlineRunID", "organizeSourceID", "metadataSourceID", "metadataCompleted", "renameCompleted", "organizeResults", "parseWarning",
 		"cloudState", "cloudStateB", "paddleState", "paddleStateB", "localTaskState", "localTaskStateB", "secondJobID", "ocrBaseSaved", "aiCorrectedResult", "waitingForSource", "requiredParseID", "needsRecognition",
 		"steps", "phase", "progress", "parts", "cancelFailed", "cancelRequested", "titleTranslation", "titleTranslationPending", "summaryResult", "metadataResult", "parentMetadata", "hasChangesReport", "collationStatus",
-		"collationAIStatus", "collationAutoApplied", "collationFindings", "collationMissing", "stage"],
+		"collationAIStatus", "collationAutoApplied", "collationFindings", "collationMissing", "stage", "submitJobID"],
 	// Stage names are persisted: never rename one, only add new names.
-	stages: ["submitting", "submitted", "processing", "saving", "saved"],
+	stages: ["submitting", "submitted", "processing", "saving", "saved", "uploading", "rejected"],
 	secretFields: ["apiToken", "apiKey", "token", "deeplApiKey", "deeplxToken", "llmApiKey"],
 	secretPrefs: ["apiToken", "apiKey", "cloud.apiToken", "local.apiToken", "llmApiKey", "marker.token", "marker.cloud.token", "paddle.cloud.token", "paddle.local.token", "deeplApiKey", "deeplxToken"],
 	version: 3,

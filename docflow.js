@@ -445,7 +445,9 @@ DocFlow = {
 
 	async finishParseQueueCancellation(task, error) {
 		let settings = task.cancelSettings || task.settings;
-		let jobID = task.cancelSettings ? task.cancelJobID : task.jobID;
+		let jobID = task.cancelSettings ? task.cancelJobID : task.jobID, retrying = task.cancelFailed;
+		// Without a returned job ID, a Marker upload is reached through the ID the client chose for it.
+		let uploadID = settings.parserService === "marker" && !jobID && task.stage === "uploading" ? task.submitJobID : null;
 		task.cancelFailed = false;
 		task.error = "";
 		let detail = task.kind === "translate" ? "已终止翻译；可重新处理剩余段落，已发送的 AI 请求可能继续在服务端运行"
@@ -455,19 +457,26 @@ DocFlow = {
 		if (settings.parserService === "marker" && (settings.markerSettings||this.getMarkerSettings()).apiType==="cloud") {
 			detail=jobID?`已停止本地等待；Datalab 云端任务可能继续处理。任务 ${jobID} 保留，可重新处理以继续查询。`:"已停止等待 Datalab；提交中尚未返回任务 ID 时无法确认云端接收状态";
 		}
-		else if (settings.parserService === "marker" && jobID) {
+		else if (settings.parserService === "marker" && (jobID || uploadID)) {
 			let config = settings.markerSettings || this.getMarkerSettings(), controller = this.createAbortController();
+			let base = OCRFlowMarker.baseURL(config.baseURL), headers = config.token ? {Authorization:`Bearer ${config.token}`} : {};
 			let timer = setTimeout(() => controller.abort(), 30000);
 			try {
-				let job = await OCRFlowMarker.request(OCRFlowMarker.baseURL(config.baseURL) + `/v1/parse/jobs/${encodeURIComponent(jobID)}`, {method:"DELETE",signal:controller.signal,headers:config.token ? {Authorization:`Bearer ${config.token}`} : {}});
-				if (!["canceled","completed","failed"].includes(job.status)) throw new Error("Marker 未确认任务终止");
-				detail = job.status === "canceled" ? "Marker 服务端任务已终止" : `Marker 任务已结束（${job.status}），已停止后续处理`;
+				try {
+					let job = await OCRFlowMarker.request(base + `/v1/parse/jobs/${encodeURIComponent(jobID || uploadID)}`, {method:"DELETE",signal:controller.signal,headers});
+					if (!["canceled","completed","failed"].includes(job.status)) throw new Error("Marker 未确认任务终止");
+					detail = job.status === "canceled" ? "Marker 服务端任务已终止" : `Marker 任务已结束（${job.status}），已停止后续处理`;
+				} catch (error) {
+					if (!uploadID || error.status !== 404) throw error;
+					detail = await OCRFlowMarker.acceptsJobID(base, headers, controller.signal) ? "已终止；Marker 服务端未收到完整文件，没有创建任务"
+						: "客户端已终止；当前 Marker 服务端不支持按客户端任务 ID 取消，无法确认是否已接收文件，请在 Marker 服务端检查";
+				}
 			} catch (error) { task.cancelFailed=true;task.error=error.message;detail="Marker 取消未确认，可重试终止"; }
 			finally { clearTimeout(timer); }
 		}
-		if (settings.parserService === "marker" && !jobID && ["提交 Marker 任务","提交 Datalab 任务"].includes(task.phase)) {
-			task.cancelFailed=true;task.error="提交请求未返回任务 ID，无法确认服务端是否已接收文件";
-			detail="Marker 取消未确认：未收到任务 ID，请检查服务端任务";
+		else if (settings.parserService === "marker" && (task.stage === "uploading" || retrying && task.phase === "提交 Marker 任务")) {
+			task.error="提交请求未返回任务 ID，无法确认服务端是否已接收文件";
+			detail="客户端已终止；上传中断且未收到任务 ID，无法确认是否已接收文件，请在 Marker 服务端检查";
 		}
 		if (settings.apiMode === "local-v1" && !jobID && task.phase === "提交解析任务" && error && error.name !== "AbortError") {
 			detail = "客户端已终止；提交请求未返回任务 ID，无法确认服务端任务状态";
@@ -687,6 +696,7 @@ DocFlow = {
 					task.phase = status.phase || task.phase;
 					if (status.jobID) task.stage = "submitted"; else if (status.stage) task.stage = status.stage;
 					if ("jobID" in status) task.cancelJobID = task.jobID = status.jobID;
+					if ("submitJobID" in status) task.submitJobID = status.submitJobID;
 					if ("pageProgress" in status) task.progress = status.pageProgress;
 					if(status.parts)task.parts=status.parts;
 					this.setTaskStep?.(task, "extract", "识别文档", status.displayText || status.phase);
@@ -1267,8 +1277,7 @@ DocFlow = {
 					rawFiles.push({ name: entry, text });
 					if (/block_list\.json$/i.test(entry)) blockList = JSON.parse(text);
 					if (!layout && /(?:layout\.json|_middle\.json|middle_json\.json)$/i.test(entry)) {
-						let payload = JSON.parse(text);
-						if (payload.pdf_info?.length) layout = payload;
+						layout = OCRFlowDocument.mineruLayoutPayload(JSON.parse(text));
 					}
 				}
 				if (layout) document = OCRFlowDocument.fromMineru(layout, 0, blockList);
@@ -2951,10 +2960,10 @@ DocFlow = {
 			let body = layout ? "" : pairs
 				? '<div class="bilingual"><div class="column-label">原文</div><div class="column-label">译文</div>' + pairs.map(pair => {
 					let labels=(pair.pages||[pair.page]).filter(page=>page&&!seenPages.has(page));for(let page of labels)seenPages.add(page);
-					let label=labels.length ? '<div class="page-label" style="grid-column:1/-1;border-top:1px solid #ddd;padding-top:12px">PDF 第 '+this.escapeHTML(labels.join("、"))+' 页</div>' : '';
+					let label=labels.length ? '<div class="page-label" style="grid-column:1/-1;border-top:1px solid #ddd;padding-top:12px">原文第 '+this.escapeHTML(labels.join("、"))+' 页</div>' : '';
 					let pages = (pair.pages || [pair.page]).filter(Boolean);
 					let range = pages.length > 1 && labels.length < pages.length
-						? '<header class="source-range" style="grid-column:1/-1;font-size:.8em;color:#666">'+this.escapeHTML(ocrflowText("来源 PDF 第 {0} 页").replace("{0}", pages.join("、")))+'</header>' : '';
+						? '<header class="source-range" style="grid-column:1/-1;font-size:.8em;color:#666">'+this.escapeHTML(ocrflowText("来源原文第 {0} 页").replace("{0}", pages.join("、")))+'</header>' : '';
 					return label+'<section data-block="'+this.escapeHTML(pair.id)+'" class="pair">'+range+'<div>'+render(replaceImages(pair.source),"source")+'</div><div>'+render(replaceImages(pair.translated),"target")+'</div></section>';
 				}).join("") + '</div>'
 				: render(source, "document");

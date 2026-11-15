@@ -187,10 +187,16 @@ async def lifespan(app):
 app = FastAPI(title='OCRFlow Marker Jobs', lifespan=lifespan)
 
 
-async def submit(file, mode, force_ocr, output_format, paginate_output, include_layout=False):
-    job_id = uuid.uuid4().hex
+async def submit(file, mode, force_ocr, output_format, paginate_output, include_layout=False, job_id=''):
+    # A client-chosen ID lets the client cancel this job even when the upload response is lost.
+    if job_id and not re.fullmatch('[a-f0-9]{32}', job_id):
+        raise HTTPException(400, '无效的任务 ID')
+    job_id = job_id or uuid.uuid4().hex
     path = ROOT / job_id
-    path.mkdir(parents=True)
+    try:
+        path.mkdir(parents=True)
+    except FileExistsError:
+        raise HTTPException(409, '任务 ID 已存在')
     with (path / 'input.pdf').open('wb') as target:
         while chunk := await file.read(1024 * 1024):
             target.write(chunk)
@@ -208,10 +214,11 @@ async def submit(file, mode, force_ocr, output_format, paginate_output, include_
 
 @app.post('/v1/parse/jobs', status_code=202)
 async def create_job(file: UploadFile = File(...), mode: str = Form('balanced'), force_ocr: bool = Form(False),
-                     output_format: str = Form('markdown'), paginate_output: bool = Form(True), include_layout: bool = Form(False)):
+                     output_format: str = Form('markdown'), paginate_output: bool = Form(True), include_layout: bool = Form(False),
+                     job_id: str = Form('')):
     if mode not in {'balanced', 'fast'} or output_format not in {'markdown', 'json', 'html'}:
         raise HTTPException(400, '无效的 Marker 模式或输出格式')
-    return await submit(file, mode, force_ocr, output_format, paginate_output, include_layout)
+    return await submit(file, mode, force_ocr, output_format, paginate_output, include_layout, job_id)
 
 
 @app.get('/v1/parse/jobs/{job_id}')
@@ -252,7 +259,7 @@ async def cancel(job_id: str):
 @app.post('/marker/upload')
 async def official_upload(request: Request, file: UploadFile = File(...), mode: str = Form('balanced'), force_ocr: bool = Form(False),
                           output_format: str = Form('markdown'), paginate_output: bool = Form(True), include_layout: bool = Form(False)):
-    state = await create_job(file, mode, force_ocr, output_format, paginate_output, include_layout)
+    state = await create_job(file, mode, force_ocr, output_format, paginate_output, include_layout, '')
     try:
         while state['status'] not in TERMINAL:
             if await request.is_disconnected():
