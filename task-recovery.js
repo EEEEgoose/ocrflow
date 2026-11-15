@@ -350,7 +350,7 @@ var OCRFlowTaskRecovery = {
 		let stages = [task, ...Object.values(task.organizeStages || {}).map(stage => stage.task).filter(Boolean)];
 		if (stages.some(row => row.stage !== undefined && !this.stages.includes(row.stage))) return "任务恢复记录来自其他版本，请确认后继续";
 		if (stages.some(row => row.stage === "saving")) return "上次保存结果未确认，请检查条目附件后重试";
-		let submitting = task.stage === undefined ? /^(提交 Marker 任务|提交 Datalab 任务|提交解析任务)/.test(task.phase || "") : task.stage === "submitting";
+		let submitting = task.stage === undefined ? /^(提交 Marker 任务|提交 Datalab 任务|提交解析任务)/.test(task.phase || "") : ["submitting", "uploading"].includes(task.stage);
 		if (!jobID && submitting || [task.paddleState, task.paddleStateB].some(work => work?.parts?.some(part => part.submitting && !part.jobID))) return "上次提交结果未确认，请核对服务端任务后重试";
 		return null;
 	},

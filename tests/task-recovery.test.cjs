@@ -165,11 +165,13 @@ test('unconfirmed submissions, unconfirmed saves and unknown stages require a us
   {id:8,kind:'parse',state:'running',stage:'saving',attachment,settings:{}},
   {id:9,kind:'organize',state:'running',attachment,settings:{},organizeStages:{translate:{state:'running',task:{kind:'translate',stage:'saving',attachment}}}},
   {id:10,kind:'parse',state:'running',stage:'future-stage',jobID:'known',attachment,settings:{}},
-  {id:11,kind:'parse',state:'running',stage:'submitting',phase:'提交 Marker 任务',jobID:'known',attachment,settings:{}}
+  {id:11,kind:'parse',state:'running',stage:'submitting',phase:'提交 Marker 任务',jobID:'known',attachment,settings:{}},
+  {id:12,kind:'parse',state:'running',stage:'uploading',phase:'提交 Marker 任务',submitJobID:'e'.repeat(32),attachment,settings:{}}
  ];await s.store.flush();const reopened=setup(s.shared);await reopened.store.init(reopened.owner);
- assert.deepEqual(Array.from(reopened.owner.parseQueue,task=>task.state),['waiting','waiting','completed','canceled','waiting','waiting','queued','waiting','waiting','waiting','queued']);
+ assert.deepEqual(Array.from(reopened.owner.parseQueue,task=>task.state),['waiting','waiting','completed','canceled','waiting','waiting','queued','waiting','waiting','waiting','queued','waiting']);
  const detail=id=>reopened.owner.parseQueue.find(task=>task.id===id).detail;
- assert(detail(1).includes('提交结果未确认'));assert(detail(6).includes('提交结果未确认'));
+ assert(detail(1).includes('提交结果未确认'));assert(detail(6).includes('提交结果未确认'));assert(detail(12).includes('提交结果未确认'));
+ assert.equal(reopened.owner.parseQueue.find(task=>task.id===12).submitJobID,'e'.repeat(32));
  assert(detail(8).includes('保存结果未确认'));assert(detail(9).includes('保存结果未确认'));assert(detail(10).includes('其他版本'));
 });
 
