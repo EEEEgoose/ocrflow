@@ -328,7 +328,7 @@ var OCRFlowTaskSidebar = {
 			path.setAttribute("d","M16.6 8a6.7 6.7 0 0 0-11-3.1L3 7.5m0-4v4h4M3.4 12a6.7 6.7 0 0 0 11 3.1l2.6-2.6m0 4v-4h-4");icon.append(path);
 			heading.append(icon,make("strong","本次更新"),make("span",`v${version}`,"of-update-version",true));notice.append(heading);
 			let updates=make("ul",undefined,"of-update-list");
-			for(let [label,text] of [["任务恢复","支持更新或重启后继续已记录的任务。"],["并发识别","四种识别服务均可设置文档并发数。"],["接口兼容","适配 MinerU 4.1 / 4.2 自部署服务。"],["HTML 输出","覆盖全部支持格式，并保留配套 Markdown。"],["云端进度","可手动查询，排队与暂停状态更清楚。"],["使用体验","修复设置页排版、部分 PDF 读取和大纲生成问题。"]]) {
+			for(let [label,text] of [["文件保存","修复超长书名导致全文保存和附件重命名失败。"]]) {
 				let item=make("li");item.append(make("strong",label),make("span",text));updates.append(item);
 			}notice.append(updates);
 			let buttons=make("div",undefined,"of-update-actions"),close=action("关闭",()=>this.dismissUpdateNotice(version)),mute=action("不再提醒",()=>this.dismissUpdateNotice(version,true));

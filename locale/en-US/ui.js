@@ -1018,6 +1018,8 @@ var OCRFlowEnglish = {
   "MinerU 任务中未找到对应文件": "The corresponding file was not found in the MinerU task",
   "上传文档失败 {0}": "Document upload failed {0}",
   "客户端等待已结束，任务 ID: {0}，最后状态: {1}。服务端任务未被取消，可继续等待。": "Client waiting ended. Task ID: {0}; last status: {1}. The server task has not been canceled; you can continue waiting.",
+  "文件保存": "File saving",
+  "修复超长书名导致全文保存和附件重命名失败。": " fixes full-text saving and attachment renaming failures caused by long book titles.",
   "配置解锁后恢复未完成任务": "Unfinished tasks will be restored after configuration unlock",
   "PaddleOCR 等待云端处理": "PaddleOCR is waiting for cloud processing",
   "继续翻译": "Continue translation",

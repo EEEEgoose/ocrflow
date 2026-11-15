@@ -5,6 +5,7 @@ const path = require('node:path').posix;
 const files = new Map(), imports = [];
 let serial = 0;
 const context = {
+  TextEncoder,
   PathUtils: {join: path.join, parent: path.dirname, tempDir: '/tmp'},
   IOUtils: {
     makeDirectory: async () => {}, writeUTF8: async (name, value) => files.set(name, value),

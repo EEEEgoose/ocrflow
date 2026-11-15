@@ -5,6 +5,7 @@ const path = require("node:path").posix;
 const files = new Map(), prefs = new Map();
 let serial = 0, reply = "", request, erased = 0, failWrite = false;
 const context = {
+  TextEncoder,
   TextDecoder, Uint8Array, atob, btoa,
   PathUtils: { join: path.join, parent: path.dirname, tempDir: "/tmp" },
   IOUtils: {

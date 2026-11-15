@@ -6,7 +6,7 @@ const path=require('node:path').posix;
 
 function setup(){
   const files=new Map();
-  const context={TextDecoder,PathUtils:{join:path.join,parent:path.dirname,tempDir:'/tmp'},
+  const context={TextEncoder,TextDecoder,PathUtils:{join:path.join,parent:path.dirname,tempDir:'/tmp'},
     IOUtils:{exists:async name=>files.has(name),getChildren:async dir=>Array.from(files.keys()).filter(name=>path.dirname(name)===dir),read:async name=>{if(!files.has(name))throw Error('Missing '+name);return files.get(name);},writeUTF8:async(name,text)=>files.set(name,new TextEncoder().encode(text)),makeDirectory:async()=>{},remove:async()=>{}},
     Zotero:{debug:()=>{},Attachments:{importFromFile:async options=>{
       const stored='/storage/LONG/OCRFlow_shortened.html';files.set(stored,files.get(options.file));

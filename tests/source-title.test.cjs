@@ -26,6 +26,7 @@ async function check({format, link, importChangesTitle = false, importFails = fa
     getCreatorsJSON: () => [{creatorType: 'author', name: '作者'}],
     addTag: () => {}, saveTx: async options => {saves.push(options); notifySave(options);}};
   const context = {
+  TextEncoder,
     PathUtils: {join: path.join, parent: path.dirname, tempDir: '/tmp'},
     IOUtils: {makeDirectory: async () => {}, writeUTF8: async (file, value) => files.set(file, value), remove: async () => {}},
     Zotero: {debug: () => {}, logError: error => {throw error;},

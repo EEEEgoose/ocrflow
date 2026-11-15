@@ -2466,6 +2466,18 @@ DocFlow = {
 		return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/\s+/g, " ").trim()
 	},
 
+	documentFileName(title, extension) {
+		let encoder = new TextEncoder(), suffix = "." + extension;
+		let budget = 255 - encoder.encode(suffix).length, bytes = 0, stem = "";
+		for (let character of this.sanitizeFileName(title)) {
+			let size = encoder.encode(character).length;
+			if (bytes + size > budget) break;
+			stem += character;
+			bytes += size;
+		}
+		return stem.trimEnd() + suffix;
+	},
+
 	rewriteTranslationImageLinksToSourceStorage(markdownText, sourceAttachment) {
 		let sourceKey = sourceAttachment?.key
 		if (!sourceKey) return markdownText
@@ -2954,7 +2966,7 @@ DocFlow = {
 		await IOUtils.makeDirectory(tempDir, { createAncestors: true });
 		let imported = null;
 		try {
-			let path = PathUtils.join(tempDir, this.sanitizeFileName(title) + (format === "html" ? ".html" : ".md"));
+			let path = PathUtils.join(tempDir, this.documentFileName(title, format === "html" ? "html" : "md"));
 			await IOUtils.writeUTF8(path, content);
 			imported = await Zotero.Attachments.importFromFile({ file: path, libraryID, parentItemID: parentItem?.id,
 				title, contentType: format === "html" ? "text/html" : "text/markdown", charset: "utf-8",
