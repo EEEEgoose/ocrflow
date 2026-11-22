@@ -3,7 +3,7 @@ Object.assign(DocFlowPreferences,{
  refreshConfig(){
   const config=this.configStore();if(!config)return;
   const locked=config.state!=='unlocked';
-  for(const key of ['services','ai','work','collation','output'])this.$('ocrflow-panel-'+key).inert=locked||!!config.busy;
+  for(const key of ['services','ai','work','collation','output','agent'])this.$('ocrflow-panel-'+key).inert=locked||!!config.busy;
   this.$('mineru-save-button').disabled=locked||!!config.busy;
   this.$('ocrflow-config-state').textContent=ocrflowText(config.state==='setup'?'尚未设置配置密码；创建后现有配置将转为加密保存':locked?'配置已锁定，请输入配置密码解锁':'配置已解锁；磁盘、导出与同步文件均为密文');
   this.$('ocrflow-config-sync-status').textContent=ocrflowText(config.error||config.syncStatus);
@@ -13,6 +13,38 @@ Object.assign(DocFlowPreferences,{
   this.$('ocrflow-config-sync').disabled=locked||!!config.busy;if(!config.busy)this.$('ocrflow-config-sync').checked=!locked&&!!config.get(config.prefix+'syncEnabled');
   this.$('ocrflow-config-remember').disabled=!Services.logins||!!config.busy;
   try{if(!config.busy)this.$('ocrflow-config-remember').checked=!!config.savedLogin();}catch(_error){}
+  this.refreshAgent();
+ },
+ agentURL(){return `http://127.0.0.1:${Zotero.Prefs.get('httpServer.port')||23119}/ocrflow/mcp`;},
+ refreshAgent(){
+  const config=this.configStore(),unlocked=config?.state==='unlocked',token=unlocked&&config.get(config.prefix+'agentToken')||'';
+  this.$('ocrflow-agent-enabled').checked=unlocked&&!!config.get(config.prefix+'agentEnabled');
+  this.$('ocrflow-agent-url').value=this.agentURL();this.$('ocrflow-agent-token').value=token;this.$('ocrflow-agent-copy').disabled=!token;
+ },
+ async saveAgent(enabled,newToken=false){
+  const config=this.configStore();
+  if(newToken||enabled&&!config.get(config.prefix+'agentToken'))config.set(config.prefix+'agentToken',Array.from(crypto.getRandomValues(new Uint8Array(24)),byte=>byte.toString(16).padStart(2,'0')).join(''));
+  config.set(config.prefix+'agentEnabled',enabled);await config.flush();this.refreshAgent();
+ },
+ initAgent(){
+  const enabled=this.$('ocrflow-agent-enabled'),run=async(work,done)=>{
+   try{await work();this.$('ocrflow-agent-message').textContent=ocrflowText(done);}catch(error){this.$('ocrflow-agent-message').textContent=ocrflowText(error.message||String(error));}
+  };
+  enabled.addEventListener('change',()=>run(()=>this.saveAgent(enabled.checked),enabled.checked?'已允许 AI agent 接入':'已关闭 AI agent 接入'));
+  this.$('ocrflow-agent-regenerate').addEventListener('click',()=>run(()=>this.saveAgent(enabled.checked,true),'已生成新令牌，原令牌已失效'));
+  this.$('ocrflow-agent-copy').addEventListener('click',()=>run(async()=>Components.classes["@mozilla.org/widget/clipboardhelper;1"].getService(Components.interfaces.nsIClipboardHelper)
+   .copyString(this.agentConfig(this.$('ocrflow-agent-client').value)),'已复制接入配置'));
+ },
+ agentConfig(client){
+  const url=this.agentURL(),auth=`Bearer ${this.$('ocrflow-agent-token').value}`,json=servers=>JSON.stringify({mcpServers:{ocrflow:servers}},null,2);
+  return {
+   claude:`claude mcp add --transport http ocrflow ${url} --header "Authorization: ${auth}"`,
+   codex:`[mcp_servers.ocrflow]\nurl = "${url}"\nhttp_headers = { "Authorization" = "${auth}" }`,
+   gemini:json({httpUrl:url,headers:{Authorization:auth}}),
+   generic:json({type:'http',url,headers:{Authorization:auth}}),
+   // For clients that can only start local commands; mcp-remote bridges stdio to this HTTP endpoint.
+   stdio:json({command:'npx',args:['-y','mcp-remote',url,'--header','Authorization:${OCRFLOW_AUTH}'],env:{OCRFLOW_AUTH:auth}})
+  }[client];
  },
  async configFile(save){
   const {FilePicker}=ChromeUtils.importESModule('chrome://zotero/content/modules/filePicker.mjs');const picker=new FilePicker();
@@ -50,6 +82,7 @@ Object.assign(DocFlowPreferences,{
   this.$('ocrflow-config-remember').addEventListener('change',async()=>{if(this.configStore().state!=='unlocked'||this.configStore().busy)return;try{await this.configStore().remember(this.$('ocrflow-config-remember').checked);}catch(error){this.$('ocrflow-config-message').textContent=ocrflowText(error.message);}this.refreshConfig();});
   const device=this.configStore().deviceInfo();this.$('ocrflow-config-device-name').value=device.name;this.$('ocrflow-config-backup-limit').value=device.limit;
   bind('device-save',async()=>this.configStore().saveDevice(this.$('ocrflow-config-device-name').value,Number(this.$('ocrflow-config-backup-limit').value)));
+  this.initAgent();
   this.refreshConfig();
  }
 });

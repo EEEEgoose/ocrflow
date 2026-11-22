@@ -860,7 +860,7 @@ var DocFlowPreferences = {
 
 	showSection(selected) {
 		if(selected==="config")this.refreshConfig?.();
-		for (let key of ["services", "ai", "work", "collation", "output", "tasks", "config"]) {
+		for (let key of ["services", "ai", "work", "collation", "output", "tasks", "agent", "config"]) {
 			let panel = this.$("ocrflow-panel-" + key);
 			if (panel) panel.hidden = key !== selected;
 			this.$("ocrflow-tab-" + key)?.setAttribute("aria-pressed", String(key === selected));
@@ -894,7 +894,7 @@ var DocFlowPreferences = {
 
 	initNavigation() {
 		if(this.navigationBound)return;this.navigationBound=true;
-		for (let key of ["services", "ai", "work", "collation", "output", "tasks", "config"]) this.$("ocrflow-tab-" + key)?.addEventListener("click", () => this.showSection(key));
+		for (let key of ["services", "ai", "work", "collation", "output", "tasks", "agent", "config"]) this.$("ocrflow-tab-" + key)?.addEventListener("click", () => this.showSection(key));
 		for (let key of ["mineru", "paddle", "marker", "markitdown", "ai"]) this.$("ocrflow-service-tab-" + key)?.addEventListener("click", () => this.showService(key));
 		for (let key of this.WORK_KINDS) this.$("ocrflow-work-tab-" + key)?.addEventListener("click", () => this.showWork(key));
 		this.$("ocrflow-paddle-mode")?.addEventListener("change", () => this.syncPaddleMode());

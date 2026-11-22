@@ -257,6 +257,23 @@ test('runtime bilingual translation saves one pair per paragraph while requestin
  assert.equal(batches.length,1);assert.equal(batches[0].length,3);assert.equal(saved.pairs.length,3);assert(saved.pairs[1].translated.includes('Second'));
 });
 
+test('full-text translation is skipped when the source is already in the target language',async()=>{
+ const english='The committee reviewed the proposal and the budget for the next year, and it was agreed that the plan is ready for this phase. '.repeat(12);
+ const chinese='委员会审议了明年的预算方案，并认为该计划已经可以进入下一阶段。'.repeat(12)+'\n\nSmith, J. The history of the archive. Journal of Studies.';
+ for (const [markdown,language] of [[english,'English'],[chinese,'中文'],['今日は会議の資料を確認しました。次の段階に進みます。'.repeat(12),'日本語']]) {
+  const s=setup();s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown});
+  s.m.requestDocumentAI=async()=>{throw new Error('must not translate');};s.m.saveTranslationAsMarkdownAttachment=async()=>{throw new Error('must not save');};
+  const task={settings:{workKind:'translate',contextWindow:32768,outputTokens:8192,translateLanguage:language},controller:new AbortController(),mineruSource:{},parentItem:{}};
+  assert.equal(await s.m.runTranslationTask(task),'原文已是'+language+'，无需翻译');assert(task.translationSkipped);
+ }
+ const s=setup();
+ assert.equal(s.m.detectDocumentLanguage(english),'en');assert.equal(s.m.detectDocumentLanguage(chinese),'zh');
+ assert.equal(s.m.detectDocumentLanguage('Der Ausschuss hat den Plan und die Kosten geprüft, und das ist nicht von der Hand zu weisen. '.repeat(10)),'de');
+ assert.equal(s.m.detectDocumentLanguage('Short note.'),null,'too little text never skips');
+ assert.equal(s.m.detectDocumentLanguage(english.slice(0,600)+'委员会审议了明年的预算方案。'.repeat(10)),null,'mixed documents are translated');
+ assert.equal(s.m.translationLanguageCode('繁體中文'),null,'unknown targets never skip');
+});
+
 test('missing one translated paragraph retries only that paragraph and never shifts later pairs',async()=>{
  const s=setup();s.m.readSourceMarkdown=async()=>({filePath:'/source.md',markdown:'One.\n\nTwo.\n\nThree.'});
  s.m.inlineStoredImagesInMarkdownAttachment=async({markdownText})=>({markdownText,embeddedImages:[]});let counts=[],saved;

@@ -361,7 +361,8 @@ Object.assign(DocFlow, {
 					} else if (kind === "summary") await this.runDocumentTask(child);
 					else {
 						child.partial=false;if(child.translation)child.translation.partial=false;
-						child.settings.translateRequestParams=this.parseOptionalJSONObject(child.settings.translateRequestJSON,"翻译请求参数");await this.runTranslationTask(child);
+						child.settings.translateRequestParams=this.parseOptionalJSONObject(child.settings.translateRequestJSON,"翻译请求参数");let detail=await this.runTranslationTask(child);
+						if (child.translationSkipped) { stages[kind]={state:"skipped",detail};this.setTaskStep?.(task,kind,label,detail,"skipped");continue; }
 					}
 					if (child.resultAttachment) (task.organizeResults ||= {})[kind]=child.resultAttachment;
 					if (child.partial) { stages[kind]={state:"failed",task:child,detail:"已保存部分译文，仍有未完成段落"};this.setTaskStep?.(task,kind,label,stages[kind].detail,"failed");continue; }

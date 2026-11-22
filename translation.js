@@ -258,6 +258,27 @@ Object.assign(DocFlow, {
 		return this.parseAlignedTranslationResponse(content, items);
 	},
 
+	translationLanguageCode(name) {
+		return ({"中文":"zh", "简体中文":"zh", "chinese":"zh", "english":"en", "英文":"en", "日本語":"ja", "日文":"ja", "japanese":"ja", "한국어":"ko", "韩文":"ko", "korean":"ko",
+			"français":"fr", "法文":"fr", "french":"fr", "deutsch":"de", "德文":"de", "german":"de", "español":"es", "西班牙文":"es", "spanish":"es"})[String(name || "").trim().toLowerCase()] || null;
+	},
+
+	// Returns a language code only when one language clearly dominates the prose; otherwise null, so translation proceeds.
+	detectDocumentLanguage(markdown) {
+		let text = String(markdown || "").replace(/```[\s\S]*?```|~~~[\s\S]*?~~~|\$\$[\s\S]*?\$\$|\$[^$\n]*\$/g, " ")
+			.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/<[^>]*>|https?:\/\/\S+/g, " ");
+		let count = pattern => (text.match(pattern) || []).length;
+		let kana = count(/[぀-ヿ]/g), hangul = count(/[가-힯]/g), han = count(/[㐀-鿿]/g), cjk = kana + hangul + han;
+		let words = text.toLowerCase().match(/[a-zà-öø-ÿß]+/g) || [], total = cjk + words.length * 2;
+		if (total < 200) return null;
+		if (cjk / total >= 0.7) return hangul / cjk >= 0.5 ? "ko" : kana / cjk >= 0.1 ? "ja" : han / cjk >= 0.9 ? "zh" : null;
+		if (words.length * 2 / total < 0.9) return null;
+		let stopwords = { en: "the and of to is that with for are this was which from", fr: "le les des est et une dans pour qui sur avec pas du au",
+			de: "der die und das ist nicht mit den von zu ein eine auf sich", es: "el los las y en una por con para es del se como al" };
+		let scores = Object.entries(stopwords).map(([code, list]) => { let set = new Set(list.split(" ")); return [code, words.filter(word => set.has(word)).length]; }).sort((a, b) => b[1] - a[1]);
+		return scores[0][1] >= words.length * 0.1 && scores[0][1] >= scores[1][1] * 3 ? scores[0][0] : null;
+	},
+
 	async runAlignedTranslationTask(task) {
 		let settings = task.settings, signal = task.controller.signal;
 		let status = text => { signal.throwIfAborted(); task.detail = text; this.setTaskStep?.(task, task.saving ? "save" : "work", task.saving ? "保存译文" : "逐段翻译", text); this.refreshParseQueueDialog(); };
@@ -267,6 +288,8 @@ Object.assign(DocFlow, {
 		if (!cached?.units || cached.language !== settings.translateLanguage || cached.paragraphBudget != null && cached.paragraphBudget !== paragraphBudget) {
 			status("读取自然段与来源");
 			let { filePath, markdown } = await this.readSourceMarkdown(task.mineruSource);
+			let target = this.translationLanguageCode(settings.translateLanguage);
+			if (target && target === this.detectDocumentLanguage(markdown)) { task.translationSkipped = true; return "原文已是" + settings.translateLanguage + "，无需翻译"; }
 			let structurePath = PathUtils.join(PathUtils.parent(filePath), "_ocrflow", "document.json");
 			let document = null;
 			try {

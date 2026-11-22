@@ -110,7 +110,7 @@
 				<html:h2>OCRFlow 设置</html:h2>
 				<html:p class="mineru-help">按需识别文档、整理条目与生成学术笔记</html:p>
 			</html:div>
-		</html:header><html:nav class="ocrflow-tabs" aria-label="OCRFlow 设置分类"><html:button id="ocrflow-tab-services" type="button" aria-pressed="false">识别服务</html:button><html:button id="ocrflow-tab-ai" type="button" aria-pressed="false">AI 服务商</html:button><html:button id="ocrflow-tab-work" type="button" aria-pressed="false">流程配置</html:button><html:button id="ocrflow-tab-collation" type="button" aria-pressed="false">勘校配置</html:button><html:button id="ocrflow-tab-output" type="button" aria-pressed="false">输出保存</html:button><html:button id="ocrflow-tab-tasks" type="button" aria-pressed="false">任务队列</html:button><html:button id="ocrflow-tab-config" type="button" aria-pressed="false">同步功能</html:button></html:nav><html:div id="ocrflow-panel-services"><html:h3>默认服务设置</html:h3><html:div class="mineru-grid ocrflow-service-choice">
+		</html:header><html:nav class="ocrflow-tabs" aria-label="OCRFlow 设置分类"><html:button id="ocrflow-tab-services" type="button" aria-pressed="false">识别服务</html:button><html:button id="ocrflow-tab-ai" type="button" aria-pressed="false">AI 服务商</html:button><html:button id="ocrflow-tab-work" type="button" aria-pressed="false">流程配置</html:button><html:button id="ocrflow-tab-collation" type="button" aria-pressed="false">勘校配置</html:button><html:button id="ocrflow-tab-output" type="button" aria-pressed="false">输出保存</html:button><html:button id="ocrflow-tab-tasks" type="button" aria-pressed="false">任务队列</html:button><html:button id="ocrflow-tab-agent" type="button" aria-pressed="false">Agent 接入</html:button><html:button id="ocrflow-tab-config" type="button" aria-pressed="false">同步功能</html:button></html:nav><html:div id="ocrflow-panel-services"><html:h3>默认服务设置</html:h3><html:div class="mineru-grid ocrflow-service-choice">
 			<html:label for="docflow-parser-service">PDF识别服务</html:label>
 			<menulist id="docflow-parser-service" native="true">
 				<menupopup>
@@ -526,7 +526,16 @@
 <html:p id="queue-recovery-status" class="queue-error" role="alert" hidden="hidden"/>
       <html:p class="queue-help">拖选文字后按 ⌘C（macOS）或 Ctrl+C 复制。每行“复制”可复制该条任务的完整信息。文档按服务与模型的并发设置处理，同一文献的任务依次执行。每行可终止排队或运行中的任务，本地 V1 会请求取消服务端任务；官方云端任务仅停止客户端处理。保存阶段不可中断。“清除已结束任务”移除完成、失败和已终止的记录，保留进行中、等待已结束和取消未确认的任务。离开设置页后队列继续运行。任务进度自动保存在本机，插件更新或重启后可恢复。配置解锁后继续执行，待确认的任务保留为暂停状态。</html:p>
     </html:div>
-</html:div><html:section id="ocrflow-panel-config" class="ocrflow-section" hidden="hidden">
+</html:div><html:section id="ocrflow-panel-agent" class="ocrflow-section" hidden="hidden">
+<html:h3>Agent 接入</html:h3>
+<html:p class="mineru-help">开启后，Claude Code 等 AI agent 可通过本机 MCP 接口使用 OCRFlow：识别、建立和补全条目、总结、翻译、生成大纲，查看和终止任务，读取结果。接口只在本机开放，并且需要访问令牌。agent 发起的任务会调用已配置的服务，可能产生费用，也会修改文库中的条目。</html:p>
+<html:label class="mineru-check"><html:input id="ocrflow-agent-enabled" type="checkbox"/>允许 AI agent 接入</html:label>
+<html:div class="mineru-grid"><html:label for="ocrflow-agent-url">接口地址</html:label><html:input id="ocrflow-agent-url" type="text" readonly="readonly"/><html:label for="ocrflow-agent-token">访问令牌</html:label><html:input id="ocrflow-agent-token" type="text" readonly="readonly"/>
+<html:label for="ocrflow-agent-client">接入的客户端</html:label><html:select id="ocrflow-agent-client"><html:option value="claude">Claude Code</html:option><html:option value="codex">Codex</html:option><html:option value="gemini">Gemini CLI</html:option><html:option value="generic">其他支持远程 MCP 的客户端</html:option><html:option value="stdio">只能启动本地命令的客户端</html:option></html:select></html:div>
+<html:div class="mineru-actions"><html:button id="ocrflow-agent-regenerate" type="button">重新生成令牌</html:button><html:button id="ocrflow-agent-copy" type="button">复制接入配置</html:button></html:div>
+<html:p class="mineru-help">Claude Code 复制的是终端命令；Codex 复制的内容加到 ~/.codex/config.toml；Gemini CLI 复制的内容合并到 ~/.gemini/settings.json。DeepSeek、通义千问等模型通过所用的客户端接入，例如 Cherry Studio、Cline、Cursor：在客户端里新建远程 MCP 服务，类型选 Streamable HTTP，填写上面的接口地址，并添加请求头 Authorization，值为 Bearer 加空格加访问令牌。客户端只能启动本地命令时选最后一项，需要安装 Node.js。复制的配置含访问令牌，不要分享给他人。</html:p>
+<html:p id="ocrflow-agent-message" role="status"/>
+</html:section><html:section id="ocrflow-panel-config" class="ocrflow-section" hidden="hidden">
 <html:h3>加密同步功能</html:h3><html:div class="mineru-grid"><html:label for="ocrflow-config-device-name">本机名</html:label><html:input id="ocrflow-config-device-name" type="text"/><html:label for="ocrflow-config-backup-limit">每台机器最多保留备份数</html:label><html:input id="ocrflow-config-backup-limit" type="number" min="1" value="10"/></html:div><html:button id="ocrflow-config-device-save" type="button">保存本机设置</html:button><html:p class="mineru-help">自动备份和同步历史分别保留最新指定份数，默认 10 份；手动导出文件不自动清理。</html:p><html:p id="ocrflow-config-state" role="status"/>
 <html:p class="mineru-help">全部插件配置使用同一配置密码加密。密码不随导出或同步；遗失后无法解密。导入会整套替换，文献与任务记录不属于配置包。</html:p>
 <html:div class="mineru-grid"><html:label for="ocrflow-config-pass">配置密码 / 新密码</html:label><html:input id="ocrflow-config-pass" type="password" autocomplete="off"/>

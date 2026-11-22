@@ -155,6 +155,12 @@ test('canceling one-click summary prevents translation and outline; retry preser
  assert.equal(task.state,'canceled');assert.equal(translations,0);assert.equal(task.organizeStages.outline,undefined);
  await s.plugin.retryParseQueueTasks([task.id]);assert.equal(task.state,'completed',task.error);assert.equal(outlines,1);assert.equal(s.uploads.length,1);assert.equal(translations,1);
 });
+test('one-click marks translation as skipped when the source is already in the target language',async()=>{
+ const s=fullFlow(),pdf=s.file('same-language.pdf');s.plugin.detectDocumentLanguage=()=>'zh';
+ await s.plugin.handleOrganizeCommand({selectedItems:[pdf]});const task=s.plugin.parseQueue[0];
+ assert.equal(task.state,'completed',task.error);assert.equal(task.organizeStages.translate.state,'skipped');assert.equal(task.organizeStages.translate.detail,'原文已是中文，无需翻译');
+ assert.equal(task.organizeResults.translate,undefined);assert(task.organizeResults.summary);
+});
 test('translation decisions in one-click remain visible and retry updates the child model',async()=>{
  const s=fullFlow();s.plugin.sidebar={views:new Map([[1,{}]])};
  const parent={kind:'organize'},child={kind:'translate',parentTask:parent,controller:new AbortController(),settings:{translateLanguage:'中文'}};

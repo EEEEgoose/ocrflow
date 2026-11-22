@@ -42,6 +42,8 @@ pref("extensions.docflow.marker.cloud.url", "https://www.datalab.to/api/v1");
 pref("extensions.docflow.marker.cloud.token", "");
 pref("extensions.docflow.marker.cloud.mode", "balanced");
 pref("extensions.docflow.syncEnabled", false);
+pref("extensions.docflow.agentEnabled", false);
+pref("extensions.docflow.agentToken", "");
 pref("extensions.docflow.paddle.cloud.url", "https://paddleocr.aistudio-app.com/api/v2/ocr");
 pref("extensions.docflow.paddle.concurrency", 2);
 pref("extensions.docflow.paddle.cloud.token", "");

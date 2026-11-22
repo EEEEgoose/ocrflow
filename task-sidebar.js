@@ -331,7 +331,7 @@ var OCRFlowTaskSidebar = {
 			path.setAttribute("d","M16.6 8a6.7 6.7 0 0 0-11-3.1L3 7.5m0-4v4h4M3.4 12a6.7 6.7 0 0 0 11 3.1l2.6-2.6m0 4v-4h-4");icon.append(path);
 			heading.append(icon,make("strong","本次更新"),make("span",`v${version}`,"of-update-version",true));notice.append(heading);
 			let updates=make("ul",undefined,"of-update-list");
-			for(let [label,text] of [["MinerU 页码","自部署 MinerU 4 的识别结果恢复页码，页码统一显示为“原文第 N 页”。"],["重建页码","在“更多操作”中用已保存的原始数据补上页码，无需重新识别。"],["跨页段落","不再被页边文字或相邻页的图表隔断。"],["Marker 终止","修复在提交阶段终止后卡住、无法清除的问题。"]]) {
+			for(let [label,text] of [["Agent 接入","在设置中开启后，Claude Code、Codex、Gemini CLI 等 AI agent 可调用识别、整理、总结和翻译，并读取结果。"],["同语种翻译","原文已是目标语言时不再翻译，也不生成译文附件。"]]) {
 				let item=make("li");item.append(make("strong",label),make("span",text));updates.append(item);
 			}notice.append(updates);
 			let buttons=make("div",undefined,"of-update-actions"),close=action("关闭",()=>this.dismissUpdateNotice(version)),mute=action("不再提醒",()=>this.dismissUpdateNotice(version,true));

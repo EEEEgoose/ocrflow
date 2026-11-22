@@ -43,6 +43,7 @@ async function startup({ id, version, rootURI }) {
 	Services.scriptloader.loadSubScript(rootURI + 'task-recovery.js');
 	DocFlow.taskRecovery = OCRFlowTaskRecovery;
 	Services.scriptloader.loadSubScript(rootURI + 'attachment-naming.js');
+	Services.scriptloader.loadSubScript(rootURI + 'agent-api.js');
 	Services.scriptloader.loadSubScript(rootURI + "task-sidebar.js");
 	OCRFlowTaskSidebar.init(DocFlow);
 	DocFlow.sidebar = OCRFlowTaskSidebar;
@@ -61,6 +62,7 @@ async function startup({ id, version, rootURI }) {
 	DocFlow.addToAllWindows();
 	await DocFlow.main();
 	await DocFlow.taskRecovery.init(DocFlow);
+	DocFlow.registerAgentEndpoint();
 }
 
 function onMainWindowLoad({ window }) {
@@ -73,6 +75,7 @@ function onMainWindowUnload({ window }) {
 
 async function shutdown() {
 	log("Shutting down OCRFlow");
+	DocFlow.unregisterAgentEndpoint?.();
 	DocFlow.parseQueueStopped = true;
 	await DocFlow.taskRecovery?.shutdown();
 	clearTimeout(DocFlow.config?.timer);
